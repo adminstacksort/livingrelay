@@ -1,6 +1,5 @@
 export const people = [
-  { id: "admin-1", name: "Jordan Lee", role: "Admin", phone: "+13105550100", pin: "1111", propertyIds: ["p-1", "p-2"], notify: { tenantReports: true, everyUpdate: true, keyUpdates: true } },
-  { id: "pm-1", name: "Sam Rivera", role: "Manager", phone: "+13105550101", pin: "2222", propertyIds: ["p-1"], notify: { tenantReports: true, everyUpdate: true, keyUpdates: true } },
+  { id: "admin-1", name: "Jordan Lee", role: "Admin", phone: "+13105550100", pin: "1111", propertyIds: ["p-1", "p-2"], managesPropertyIds: ["p-1"], notify: { tenantReports: true, everyUpdate: true, keyUpdates: true } },
   { id: "owner-1", name: "Priya Shah", role: "Owner", phone: "+13105550102", pin: "3333", propertyIds: ["p-1"], notify: { tenantReports: true, everyUpdate: false, keyUpdates: true } },
   { id: "tenant-1", name: "Maya Chen", role: "Tenant", phone: "+13105550103", pin: "4444", propertyIds: ["p-1"], unit: "3B" },
   { id: "vendor-1", name: "Carlos Plumbing", role: "Vendor", phone: "+13105550104", pin: "5555", propertyIds: ["p-1"], trade: "Plumbing" }
@@ -15,7 +14,7 @@ export const properties = [
     plan: "$149/mo base + $39/property",
     units: ["2A", "3B", "7C"],
     ownerId: "owner-1",
-    managerId: "pm-1",
+    managerId: "admin-1",
     adminId: "admin-1",
     rules: "Plumbing under $300 goes to Carlos first. Unit 3B needs owner approval above $150. HVAC always requires manager review. Emergencies: active water, gas smell, sparking, no lock."
   }

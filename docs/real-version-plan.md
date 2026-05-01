@@ -31,6 +31,8 @@ This keeps the product simple for non-technical users while avoiding separate po
 
 Usually the property manager who created the property profile.
 
+By default, the admin is also the property manager for the property. A separate property manager role should only be added when the admin explicitly delegates day-to-day maintenance operations to someone else.
+
 Can:
 
 - create property profiles

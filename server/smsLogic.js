@@ -37,7 +37,7 @@ export function getPropertyForPerson(person) {
 
 export function getPrimaryContacts(property) {
   return {
-    manager: people.find((person) => person.id === property.managerId) || people.find((person) => person.role === "Manager"),
+    manager: people.find((person) => person.id === property.managerId) || people.find((person) => person.id === property.adminId) || people.find((person) => person.role === "Manager"),
     owner: people.find((person) => person.id === property.ownerId),
     admin: people.find((person) => person.id === property.adminId)
   };

@@ -30,8 +30,7 @@ import {
 import "./styles.css";
 
 const people = [
-  { id: "admin-1", name: "Jordan Lee", role: "Admin", phone: "(310) 555-0100", pin: "1111", propertyIds: ["p-1", "p-2"] },
-  { id: "pm-1", name: "Sam Rivera", role: "Manager", phone: "(310) 555-0101", pin: "2222", propertyIds: ["p-1"] },
+  { id: "admin-1", name: "Jordan Lee", role: "Admin", phone: "(310) 555-0100", pin: "1111", propertyIds: ["p-1", "p-2"], managesPropertyIds: ["p-1"] },
   { id: "owner-1", name: "Priya Shah", role: "Owner", phone: "(310) 555-0102", pin: "3333", propertyIds: ["p-1"] },
   { id: "tenant-1", name: "Maya Chen", role: "Tenant", phone: "(310) 555-0103", pin: "4444", propertyIds: ["p-1"], unit: "3B" },
   { id: "vendor-1", name: "Carlos Plumbing", role: "Vendor", phone: "(310) 555-0104", pin: "5555", propertyIds: ["p-1"], trade: "Plumbing" }
@@ -46,6 +45,7 @@ const properties = [
     plan: "$149/mo base + $39/property",
     units: ["2A", "3B", "7C"],
     ownerId: "owner-1",
+    managerId: "admin-1",
     adminId: "admin-1",
     rules: "Plumbing under $300 goes to Carlos first. Unit 3B needs owner approval above $150. HVAC always requires manager review. Emergencies: active water, gas smell, sparking, no lock."
   },
@@ -57,6 +57,7 @@ const properties = [
     plan: "Payment required before tenant SMS goes live",
     units: ["A", "B"],
     ownerId: "owner-1",
+    managerId: "admin-1",
     adminId: "admin-1",
     rules: "All dispatches need admin review until vendors are configured."
   }
@@ -429,7 +430,7 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
           <button className="secondary"><CreditCard size={16} /> Manage billing</button>
         </div>
         <div className="people-list">
-          <MiniRow icon={<Users />} label="Admin" value="Jordan Lee · (310) 555-0100" />
+          <MiniRow icon={<Users />} label="Admin / manager" value="Jordan Lee · (310) 555-0100" />
           <MiniRow icon={<UserRound />} label="Owner" value="Priya Shah · (310) 555-0102" />
           <MiniRow icon={<Home />} label="Units" value={property.units.join(", ")} />
           <MiniRow icon={<Wrench />} label="Rules" value={property.rules} />
