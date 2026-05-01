@@ -235,7 +235,7 @@ function App() {
       ],
       messages: [
         sms("tenant", request.issue),
-        sms("relay", `Thanks. RelayDesk classified this as ${triage.trade}. Manager review is next.`)
+        sms("relay", `Thanks. LivingRelay classified this as ${triage.trade}. Manager review is next.`)
       ]
     };
     setOrders((current) => [order, ...current]);
@@ -287,7 +287,7 @@ function App() {
         <section className="login-card">
           <div className="brand-lock">
             <div className="app-mark"><Wrench size={22} /></div>
-            <span>RelayDesk</span>
+            <span>LivingRelay</span>
           </div>
           <h1>One URL. Role-specific PIN access.</h1>
           <p>Property managers, owners, tenants, and vendors enter the same place. Phone + PIN decides what they can see and do.</p>

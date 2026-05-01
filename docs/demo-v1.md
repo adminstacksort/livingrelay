@@ -1,6 +1,6 @@
 # Demo V1
 
-This is the reference demo for RelayDesk.
+This is the reference demo for LivingRelay.
 
 ## Purpose
 

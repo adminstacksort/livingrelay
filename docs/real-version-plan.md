@@ -2,7 +2,7 @@
 
 ## Product Thesis
 
-RelayDesk should be an SMS-first AI maintenance coordinator for small property managers.
+LivingRelay should be an SMS-first AI maintenance coordinator for small property managers.
 
 It should not try to replace AppFolio, Buildium, Rent Manager, or accounting systems at first. It should sit above existing workflows and handle the operational pain: tenant intake, triage, approvals, vendor coordination, updates, reminders, invoices, and owner records.
 
@@ -13,7 +13,7 @@ Everyone can use the same URL, but identity and role are determined by PIN.
 Example:
 
 ```text
-https://relaydesk.app
+https://livingrelay.app
 ```
 
 A user enters a phone number and PIN. The app resolves:
@@ -128,7 +128,7 @@ Initial admin setup:
 1. Admin creates property profile.
 2. Admin adds tenants, owners, vendors, and their own phone number.
 3. Each person receives an intro SMS with their role and PIN.
-4. Tenants can text the RelayDesk number to start a maintenance request.
+4. Tenants can text the LivingRelay number to start a maintenance request.
 
 Tenant flow:
 

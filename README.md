@@ -1,6 +1,6 @@
-# RelayDesk
+# LivingRelay
 
-RelayDesk is an AI-assisted maintenance coordination product for small property managers.
+LivingRelay is an AI-assisted maintenance coordination product for small property managers.
 
 The project has two useful checkpoints:
 
