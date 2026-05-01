@@ -4,7 +4,7 @@ import { auditLog, invoices, people, properties, recordAudit, saveState, vendors
 import { composeActionMessage, handleInboundCommand } from "./smsLogic.js";
 import { getTwilioStatus, sendSms } from "./twilioClient.js";
 import { startVendorQuoteCalls } from "./elevenLabsCalls.js";
-import { selectDemoQuote, simulateVendorOutreach } from "./demoOutreach.js";
+import { runFullFlowDemo, selectDemoQuote, simulateVendorOutreach } from "./demoOutreach.js";
 
 const app = express();
 const port = Number(process.env.SERVER_PORT || 8787);
@@ -134,6 +134,15 @@ app.post("/api/work-orders/:id/demo-outreach", (req, res) => {
 
 app.post("/api/work-orders/:id/select-quote", (req, res) => {
   const result = selectDemoQuote(req.params.id, req.body.quoteId);
+  if (result.error) {
+    res.status(404).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.post("/api/work-orders/:id/full-flow-demo", (req, res) => {
+  const result = runFullFlowDemo(req.params.id);
   if (result.error) {
     res.status(404).json(result);
     return;

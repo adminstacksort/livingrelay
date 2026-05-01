@@ -302,6 +302,28 @@ textarea:focus {
   margin-bottom: 12px;
 }
 
+.demo-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid #cdded8;
+  border-radius: 8px;
+  background: #edf8f4;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.demo-banner h2 {
+  font-size: 20px;
+}
+
+.demo-banner p {
+  margin-top: 5px;
+  color: #4f5d59;
+  line-height: 1.4;
+}
+
 .panel {
   padding: 16px;
   min-width: 0;
@@ -690,6 +712,46 @@ select {
   font-weight: 850;
 }
 
+.full-flow {
+  border: 1px solid #d8d0c3;
+  border-radius: 8px;
+  background: #fffdfa;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.flow-steps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.flow-steps article {
+  border: 1px solid #e8e0d4;
+  border-radius: 8px;
+  background: #fbf6ef;
+  padding: 12px;
+}
+
+.flow-steps span {
+  color: #8a5f53;
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.flow-steps strong {
+  display: block;
+  margin-top: 5px;
+}
+
+.flow-steps p {
+  margin-top: 6px;
+  color: #4f5d59;
+  line-height: 1.4;
+}
+
 .send-status {
   margin-top: 10px;
   color: #1c675b;
@@ -713,6 +775,7 @@ select {
   }
 
   .subscription-card,
+  .demo-banner,
   .invoice-row {
     flex-direction: column;
     align-items: stretch;
@@ -745,6 +808,10 @@ select {
   }
 
   .quote-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .flow-steps {
     grid-template-columns: 1fr;
   }
 

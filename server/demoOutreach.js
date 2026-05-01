@@ -73,6 +73,34 @@ export function selectDemoQuote(orderId, quoteId) {
   return { order, quote };
 }
 
+export function runFullFlowDemo(orderId) {
+  const outreach = simulateVendorOutreach(orderId);
+  if (outreach.error) return outreach;
+
+  const firstAvailable = outreach.outcomes.find((quote) => quote.outcome === "Available") || outreach.outcomes[0];
+  const selected = selectDemoQuote(orderId, firstAvailable.id);
+  if (selected.error) return selected;
+
+  const order = selected.order;
+  order.managerApproved = true;
+  order.ownerApproved = true;
+  order.status = "Demo completed";
+  order.demoFlow = [
+    { persona: "Tenant", action: "Texted issue", detail: order.issue },
+    { persona: "LivingRelay", action: "Parsed and triaged", detail: `${order.severity} ${order.trade}, estimate $${order.estimate}` },
+    { persona: "Admin / manager", action: "Received options", detail: `${outreach.outcomes.length} vendors reviewed` },
+    { persona: "Owner", action: "Approved spend", detail: `Approved estimated repair for Unit ${order.unit}` },
+    { persona: "Vendor", action: "Provided quote", detail: `${firstAvailable.vendorName}: ${firstAvailable.quote}, ${firstAvailable.availability}` },
+    { persona: "Admin / manager", action: "Selected vendor", detail: firstAvailable.vendorName },
+    { persona: "Tenant", action: "Received update", detail: `Vendor selected; scheduling next` },
+    { persona: "Owner", action: "Invoice ready", detail: "Invoice stored for off-platform payment and tax bundle" }
+  ];
+  order.timeline.push(event("Full demo flow completed", "Tenant, manager, owner, vendor, invoice, and audit path simulated."));
+  saveState();
+  recordAudit("demo", "Ran full flow demo", order.id);
+  return { order, demoFlow: order.demoFlow };
+}
+
 function buildNote(option, response) {
   if (response.outcome === "Declined") return `${option.name} cannot take this job soon enough.`;
   if (response.outcome === "Needs photos") return `${option.name} requested photos before confirming dispatch.`;

@@ -311,6 +311,11 @@ function App() {
     await loadState();
   }
 
+  async function runFullFlowDemo(orderId) {
+    await fetch(`/api/work-orders/${orderId}/full-flow-demo`, { method: "POST" });
+    await loadState();
+  }
+
   async function addInvoice(order) {
     if (appData) {
       await fetch(`/api/work-orders/${order.id}/invoices`, {
@@ -413,6 +418,8 @@ function App() {
         <Metric icon={<ReceiptText />} label="2026 invoices" value={formatMoney(metrics.invoiceTotal)} />
       </section>
 
+      <DemoModeBanner activeOrder={activeOrder} runFullFlowDemo={runFullFlowDemo} />
+
       {(user.role === "Admin" || user.role === "Manager") && (
         <AdminManagerView
           property={activeProperty}
@@ -430,6 +437,7 @@ function App() {
           reloadState={loadState}
           runDemoOutreach={runDemoOutreach}
           selectDemoQuote={selectDemoQuote}
+          runFullFlowDemo={runFullFlowDemo}
         />
       )}
 
@@ -471,7 +479,7 @@ function App() {
   );
 }
 
-function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice, sendSms, sendStatus, people, vendors, auditLog, reloadState, runDemoOutreach, selectDemoQuote }) {
+function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice, sendSms, sendStatus, people, vendors, auditLog, reloadState, runDemoOutreach, selectDemoQuote, runFullFlowDemo }) {
   const vendor = vendors.find((item) => item.id === activeOrder.vendorId);
   const admin = people.find((person) => person.id === property.adminId);
   const owner = people.find((person) => person.id === property.ownerId);
@@ -539,12 +547,32 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
             <button className="ghost" onClick={() => runDemoOutreach(activeOrder.id)}>
               <Bot size={16} /> Demo outreach
             </button>
+            <button className="ghost" onClick={() => runFullFlowDemo(activeOrder.id)}>
+              <SparkleIcon /> Full demo
+            </button>
           </div>
           {sendStatus && <p className="send-status">{sendStatus}</p>}
         </article>
         <DemoOutreachPanel order={activeOrder} selectDemoQuote={selectDemoQuote} />
+        <FullFlowPanel order={activeOrder} />
         <Timeline items={activeOrder.timeline} />
       </div>
+    </section>
+  );
+}
+
+function DemoModeBanner({ activeOrder, runFullFlowDemo }) {
+  if (!activeOrder) return null;
+  return (
+    <section className="demo-banner">
+      <div>
+        <span className="eyebrow">Demo mode</span>
+        <h2>Show the whole LivingRelay loop</h2>
+        <p>Simulate tenant report, AI triage, manager review, owner approval, vendor quote, tenant update, invoice, and audit trail.</p>
+      </div>
+      <button className="primary" onClick={() => runFullFlowDemo(activeOrder.id)}>
+        <Bot size={16} /> Run full demo
+      </button>
     </section>
   );
 }
@@ -678,6 +706,32 @@ function DemoOutreachPanel({ order, selectDemoQuote }) {
       </div>
     </div>
   );
+}
+
+function FullFlowPanel({ order }) {
+  const steps = order.demoFlow || [];
+  if (!steps.length) return null;
+  return (
+    <div className="full-flow">
+      <div>
+        <span className="eyebrow">All personas</span>
+        <h3>Full flow demo</h3>
+      </div>
+      <div className="flow-steps">
+        {steps.map((step, index) => (
+          <article key={`${step.persona}-${index}`}>
+            <span>{step.persona}</span>
+            <strong>{step.action}</strong>
+            <p>{step.detail}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SparkleIcon() {
+  return <Bot size={16} />;
 }
 
 function OwnerView({ property, orders, invoices, patchInvoice }) {
