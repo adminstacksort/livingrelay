@@ -60,8 +60,8 @@ App behavior:
 
 1. Match `From` to a person phone number.
 2. Resolve role and property/unit/vendor relationship.
-3. If tenant: parse the issue, create or update a work order, and notify manager/admin/owner based on each person's notification settings.
-4. If manager: parse approval commands like `APPROVE`, `VENDOR Carlos`, `CALL ME`, `CLOSE`.
+3. If tenant: parse the issue, create or update a work order, use Anthropic to prepare 5 local vendor options with estimated ranges, and notify manager/admin/owner based on each person's notification settings.
+4. If manager: parse approval commands like `APPROVE`, `VENDOR 1`, `VENDOR 2`, `CALL ME`, `CLOSE`.
 5. If owner: parse `APPROVE`, `DENY`, questions, and `PAID`.
 6. If vendor: parse `ACCEPT`, `DECLINE`, ETA, invoice/photo messages.
 7. Store every message on the work order timeline.
@@ -80,6 +80,56 @@ The default should be:
 - owner: tenant reports + key updates, but not every update
 
 Tenant report notifications are informational unless the message is an explicit approval request.
+
+### Anthropic Vendor Research
+
+When a tenant reports an issue, LivingRelay can call Anthropic with web search enabled to find five local vendor options.
+
+Required env:
+
+```text
+ANTHROPIC_API_KEY
+ANTHROPIC_MODEL=claude-sonnet-4-20250514
+```
+
+If no Anthropic key is present, the app falls back to configured/demo vendors so local development still works.
+
+The manager SMS includes:
+
+- vendor name
+- phone number
+- estimated range
+- availability note
+- reply instructions, such as `VENDOR 1`
+
+### ElevenLabs Vendor Quote Calls
+
+After vendor options are prepared, LivingRelay can start outbound quote/availability calls through ElevenLabs Conversational AI.
+
+Required env:
+
+```text
+ELEVENLABS_API_KEY
+ELEVENLABS_AGENT_ID
+ELEVENLABS_AGENT_PHONE_NUMBER_ID
+ENABLE_VENDOR_CALLS=true
+```
+
+Calls are disabled unless `ENABLE_VENDOR_CALLS=true`. This prevents accidental calls during development.
+
+The ElevenLabs agent receives dynamic variables:
+
+- work order ID
+- property name/address
+- unit
+- trade
+- urgency
+- issue description
+- estimated amount
+- tenant name
+- vendor name
+
+The first agent goal should be: collect whether the vendor can take the job, earliest availability, rough quote/callout fee, and whether they need photos or access details.
 
 ### Twilio Console Setup
 

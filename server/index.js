@@ -3,6 +3,7 @@ import express from "express";
 import { invoices, people, properties, vendors, workOrders } from "./data.js";
 import { composeActionMessage, handleInboundCommand } from "./smsLogic.js";
 import { getTwilioStatus, sendSms } from "./twilioClient.js";
+import { startVendorQuoteCalls } from "./elevenLabsCalls.js";
 
 const app = express();
 const port = Number(process.env.SERVER_PORT || 8787);
@@ -36,9 +37,16 @@ app.post("/api/twilio/inbound", async (req, res) => {
   try {
     const from = req.body.From;
     const body = req.body.Body || "";
-    const outcome = handleInboundCommand({ from, body });
+    const outcome = await handleInboundCommand({ from, body });
 
     for (const action of outcome.actions) {
+      if (action.type === "call_vendor_quotes") {
+        const quoteResult = await startVendorQuoteCalls(action.orderId);
+        if (!quoteResult.started && quoteResult.reason) {
+          console.log(`[Vendor quote calls skipped] ${quoteResult.reason}`);
+        }
+        continue;
+      }
       const outbound = composeActionMessage(action);
       if (outbound) {
         await sendSms(outbound);

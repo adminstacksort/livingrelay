@@ -1,4 +1,5 @@
 import { event, message, people, properties, vendors, workOrders } from "./data.js";
+import { findVendorOptions } from "./anthropicVendorSearch.js";
 
 export function normalizePhone(value = "") {
   const digits = String(value).replace(/\D/g, "");
@@ -68,7 +69,7 @@ function notificationActionsForProperty(property, topic, orderId) {
     .map(({ type }) => ({ type, orderId }));
 }
 
-export function createWorkOrderFromTenant({ tenant, body }) {
+export async function createWorkOrderFromTenant({ tenant, body }) {
   const property = getPropertyForPerson(tenant);
   const triage = classifyIssue(body);
   const vendor = vendors.find((item) => item.trade === triage.trade) || vendors[0];
@@ -98,6 +99,8 @@ export function createWorkOrderFromTenant({ tenant, body }) {
       message("relay", `Thanks ${tenant.name.split(" ")[0]}. LivingRelay classified this as ${triage.trade}. A manager is reviewing now.`)
     ]
   };
+  order.vendorOptions = await findVendorOptions({ property, order, configuredVendors: vendors });
+  order.timeline.push(event("AI found vendor options", `${order.vendorOptions.length} local options prepared for manager review.`));
   workOrders.unshift(order);
   return order;
 }
@@ -115,7 +118,7 @@ export function latestOpenOrderForPerson(person) {
   return workOrders.find((order) => order.propertyId === property.id && order.status !== "Closed");
 }
 
-export function handleInboundCommand({ from, body }) {
+export async function handleInboundCommand({ from, body }) {
   const person = findPersonByPhone(from);
   if (!person) {
     return {
@@ -129,10 +132,13 @@ export function handleInboundCommand({ from, body }) {
   const order = latestOpenOrderForPerson(person);
 
   if (person.role === "Tenant") {
-    const created = createWorkOrderFromTenant({ tenant: person, body: normalizedBody });
+    const created = await createWorkOrderFromTenant({ tenant: person, body: normalizedBody });
     return {
       response: `Thanks ${person.name.split(" ")[0]}. We opened ${created.id} for Unit ${created.unit}. A manager is reviewing it now.`,
-      actions: notificationActionsForProperty(getPropertyForPerson(person), "tenant_report", created.id)
+      actions: [
+        ...notificationActionsForProperty(getPropertyForPerson(person), "tenant_report", created.id),
+        { type: "call_vendor_quotes", orderId: created.id }
+      ]
     };
   }
 
@@ -155,6 +161,24 @@ export function handleInboundCommand({ from, body }) {
       };
     }
     if (command.startsWith("VENDOR")) {
+      const selectedIndex = Number(command.match(/VENDOR\s*([1-5])/)?.[1]);
+      if (selectedIndex && order.vendorOptions?.[selectedIndex - 1]) {
+        const selected = order.vendorOptions[selectedIndex - 1];
+        const existingVendor = vendors.find((vendor) => vendor.phone === selected.phone);
+        if (!existingVendor) {
+          vendors.push({
+            id: `v-${vendors.length + 1}`,
+            name: selected.name,
+            trade: selected.trade || order.trade,
+            phone: selected.phone,
+            preferred: false
+          });
+          order.vendorId = `v-${vendors.length}`;
+        } else {
+          order.vendorId = existingVendor.id;
+        }
+        order.timeline.push(event("Manager selected vendor by SMS", `${person.name} selected ${selected.name}.`));
+      }
       order.status = "Vendor coordination";
       order.timeline.push(event("Vendor dispatch requested by SMS", `${person.name} requested vendor coordination.`));
       return { response: `${order.id} queued for vendor outreach.`, actions: [{ type: "notify_vendor", orderId: order.id }] };
@@ -214,7 +238,7 @@ export function composeActionMessage(action) {
   const messages = {
     notify_manager: {
       to: contacts.manager.phone,
-      body: `${order.id}: ${order.severity} ${order.trade} issue in Unit ${order.unit}. ${order.issue} Estimate ${order.estimate}. Reply APPROVE to approve.`
+      body: `${order.id}: ${order.severity} ${order.trade} issue in Unit ${order.unit}. ${order.issue}\n\nVendor options:\n${formatVendorOptions(order)}\n\nReply APPROVE to approve, or VENDOR 1-5 to pick one.`
     },
     notify_owner_tenant_report: {
       to: contacts.owner.phone,
@@ -259,4 +283,20 @@ export function composeActionMessage(action) {
   };
 
   return messages[action.type] || null;
+}
+
+function formatVendorOptions(order) {
+  const options = order.vendorOptions?.length
+    ? order.vendorOptions
+    : vendors.filter((vendor) => vendor.trade === order.trade).map((vendor) => ({
+      name: vendor.name,
+      phone: vendor.phone,
+      estimate: `$${order.estimate}`,
+      availability: "Needs confirmation"
+    }));
+
+  return options
+    .slice(0, 5)
+    .map((option, index) => `${index + 1}. ${option.name} ${option.phone} ${option.estimate} ${option.availability}`)
+    .join("\n");
 }
