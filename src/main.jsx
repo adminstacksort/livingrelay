@@ -297,6 +297,20 @@ function App() {
     }
   }
 
+  async function runDemoOutreach(orderId) {
+    await fetch(`/api/work-orders/${orderId}/demo-outreach`, { method: "POST" });
+    await loadState();
+  }
+
+  async function selectDemoQuote(orderId, quoteId) {
+    await fetch(`/api/work-orders/${orderId}/select-quote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ quoteId })
+    });
+    await loadState();
+  }
+
   async function addInvoice(order) {
     if (appData) {
       await fetch(`/api/work-orders/${order.id}/invoices`, {
@@ -414,6 +428,8 @@ function App() {
           vendors={vendorsData}
           auditLog={auditData}
           reloadState={loadState}
+          runDemoOutreach={runDemoOutreach}
+          selectDemoQuote={selectDemoQuote}
         />
       )}
 
@@ -455,7 +471,7 @@ function App() {
   );
 }
 
-function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice, sendSms, sendStatus, people, vendors, auditLog, reloadState }) {
+function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice, sendSms, sendStatus, people, vendors, auditLog, reloadState, runDemoOutreach, selectDemoQuote }) {
   const vendor = vendors.find((item) => item.id === activeOrder.vendorId);
   const admin = people.find((person) => person.id === property.adminId);
   const owner = people.find((person) => person.id === property.ownerId);
@@ -520,9 +536,13 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
             <button className="ghost" onClick={() => addInvoice(activeOrder)}>
               <ReceiptText size={16} /> Create invoice
             </button>
+            <button className="ghost" onClick={() => runDemoOutreach(activeOrder.id)}>
+              <Bot size={16} /> Demo outreach
+            </button>
           </div>
           {sendStatus && <p className="send-status">{sendStatus}</p>}
         </article>
+        <DemoOutreachPanel order={activeOrder} selectDemoQuote={selectDemoQuote} />
         <Timeline items={activeOrder.timeline} />
       </div>
     </section>
@@ -611,6 +631,49 @@ function AdminTools({ property, people, vendors, auditLog, reloadState }) {
             <strong>{item.action}</strong>
             <span>{item.detail}</span>
           </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DemoOutreachPanel({ order, selectDemoQuote }) {
+  const outcomes = order.demoOutreach?.outcomes || [];
+  if (!outcomes.length) {
+    return (
+      <div className="demo-outreach empty">
+        <strong>Demo outreach</strong>
+        <span>Run demo outreach to simulate vendor calls, quote ranges, availability, and manager selection.</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="demo-outreach">
+      <div className="demo-head">
+        <div>
+          <span className="eyebrow">Demo mode</span>
+          <h3>Vendor outreach outcomes</h3>
+        </div>
+        <span className="pill">{order.demoOutreach.status}</span>
+      </div>
+      <div className="quote-grid">
+        {outcomes.map((quote) => (
+          <article className={order.selectedQuoteId === quote.id ? "quote-card selected" : "quote-card"} key={quote.id}>
+            <div className="quote-top">
+              <strong>{quote.vendorName}</strong>
+              <span>{quote.outcome}</span>
+            </div>
+            <p>{quote.notes}</p>
+            <dl>
+              <div><dt>Quote</dt><dd>{quote.quote}</dd></div>
+              <div><dt>Availability</dt><dd>{quote.availability}</dd></div>
+              <div><dt>Confidence</dt><dd>{quote.confidence}</dd></div>
+            </dl>
+            <button className="secondary wide" onClick={() => selectDemoQuote(order.id, quote.id)}>
+              <Check size={15} /> Select
+            </button>
+          </article>
         ))}
       </div>
     </div>
