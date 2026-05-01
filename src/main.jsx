@@ -3,385 +3,552 @@ import { createRoot } from "react-dom/client";
 import {
   AlertTriangle,
   ArrowRight,
+  Banknote,
+  Bell,
   Bot,
   Building2,
   Check,
   ChevronRight,
   ClipboardList,
-  Clock3,
+  CreditCard,
+  Download,
+  FileText,
   Home,
+  LockKeyhole,
   MessageSquare,
-  Mic,
-  PhoneCall,
+  Phone,
   Plus,
-  RefreshCcw,
+  ReceiptText,
   Send,
+  Settings2,
   ShieldCheck,
-  Sparkles,
+  Smartphone,
   UserRound,
-  Wrench,
-  X
+  Users,
+  Wrench
 } from "lucide-react";
 import "./styles.css";
 
-const vendors = [
-  { id: "carlos", name: "Carlos Plumbing", trade: "Plumbing", phone: "(323) 555-0142", eta: "Today, 2-5 PM", rate: "$145 callout" },
-  { id: "westside", name: "Westside Plumbing", trade: "Plumbing", phone: "(323) 555-0188", eta: "Tomorrow AM", rate: "$120 callout" },
-  { id: "nova", name: "Nova HVAC", trade: "HVAC", phone: "(424) 555-0195", eta: "Today, 4-6 PM", rate: "$165 callout" },
-  { id: "spark", name: "Spark Right Electric", trade: "Electrical", phone: "(310) 555-0119", eta: "Tomorrow, 10-1 PM", rate: "$155 callout" },
-  { id: "keyline", name: "Keyline Lock & Door", trade: "Locks", phone: "(213) 555-0171", eta: "Within 2 hours", rate: "$95 callout" },
-  { id: "apex", name: "Apex Appliance", trade: "Appliance", phone: "(626) 555-0148", eta: "Thursday", rate: "$110 callout" },
-  { id: "handy", name: "Handy General Repairs", trade: "General", phone: "(818) 555-0164", eta: "Tomorrow PM", rate: "$85 callout" }
+const people = [
+  { id: "admin-1", name: "Jordan Lee", role: "Admin", phone: "(310) 555-0100", pin: "1111", propertyIds: ["p-1", "p-2"] },
+  { id: "pm-1", name: "Sam Rivera", role: "Manager", phone: "(310) 555-0101", pin: "2222", propertyIds: ["p-1"] },
+  { id: "owner-1", name: "Priya Shah", role: "Owner", phone: "(310) 555-0102", pin: "3333", propertyIds: ["p-1"] },
+  { id: "tenant-1", name: "Maya Chen", role: "Tenant", phone: "(310) 555-0103", pin: "4444", propertyIds: ["p-1"], unit: "3B" },
+  { id: "vendor-1", name: "Carlos Plumbing", role: "Vendor", phone: "(310) 555-0104", pin: "5555", propertyIds: ["p-1"], trade: "Plumbing" }
 ];
 
-const defaultRules = `For plumbing under $300, use Carlos Plumbing first, then Westside Plumbing.
-For HVAC, ask me before dispatch.
-For Unit 3B, owner approval is needed above $150.
-If there is active water, gas smell, sparking, no heat, no AC in heat wave, or no lock, treat as urgent.
-For locks, use Keyline Lock & Door.
-For electrical, use Spark Right Electric.
-For appliance issues, use Apex Appliance.`;
-
-const samples = [
+const properties = [
   {
-    tenant: "Maya Chen",
-    unit: "3B",
-    issue: "Water is dripping from under the kitchen sink and the cabinet floor is wet. I put a bowl under it but it is still leaking.",
-    access: "Anytime after 1 PM. Please text before entering.",
-    photos: "sink-leak.jpg"
+    id: "p-1",
+    name: "Mar Vista Flats",
+    address: "11820 Pacific Ave, Los Angeles, CA",
+    subscription: "Active",
+    plan: "$149/mo base + $39/property",
+    units: ["2A", "3B", "7C"],
+    ownerId: "owner-1",
+    adminId: "admin-1",
+    rules: "Plumbing under $300 goes to Carlos first. Unit 3B needs owner approval above $150. HVAC always requires manager review. Emergencies: active water, gas smell, sparking, no lock."
   },
   {
-    tenant: "Andre Miles",
-    unit: "2A",
-    issue: "The bedroom outlet sparked when I plugged in my lamp and now the lights in that room are out.",
-    access: "I am home today until 6 PM.",
-    photos: ""
-  },
-  {
-    tenant: "Lina Patel",
-    unit: "7C",
-    issue: "The dishwasher runs but water stays pooled at the bottom after the cycle.",
-    access: "Tuesday or Thursday morning works best.",
-    photos: "dishwasher.jpg"
+    id: "p-2",
+    name: "Hilltop Duplex",
+    address: "420 Ridge Lane, Pasadena, CA",
+    subscription: "Trial needs payment",
+    plan: "Payment required before tenant SMS goes live",
+    units: ["A", "B"],
+    ownerId: "owner-1",
+    adminId: "admin-1",
+    rules: "All dispatches need admin review until vendors are configured."
   }
 ];
 
-function nowStamp() {
-  return new Date().toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  });
+const vendors = [
+  { id: "v-1", name: "Carlos Plumbing", trade: "Plumbing", phone: "(310) 555-0104", preferred: true, payment: "Off platform" },
+  { id: "v-2", name: "Nova HVAC", trade: "HVAC", phone: "(424) 555-0195", preferred: true, payment: "Off platform" },
+  { id: "v-3", name: "Spark Right Electric", trade: "Electrical", phone: "(310) 555-0119", preferred: true, payment: "Off platform" }
+];
+
+const seedOrders = [
+  {
+    id: "WO-2481",
+    propertyId: "p-1",
+    unit: "3B",
+    tenantId: "tenant-1",
+    trade: "Plumbing",
+    severity: "Urgent",
+    status: "Owner approval",
+    estimate: 325,
+    vendorId: "v-1",
+    issue: "Water is dripping under the kitchen sink and the cabinet floor is wet.",
+    access: "Anytime after 1 PM. Text before entering.",
+    managerApproved: true,
+    ownerApproved: false,
+    invoiceId: "inv-1",
+    timeline: [
+      event("Tenant texted issue", "Maya reported active water under kitchen sink."),
+      event("AI asked follow-up", "Requested access notes and photo."),
+      event("Manager approved", "Owner approval needed because Unit 3B estimate is above $150.")
+    ],
+    messages: [
+      sms("tenant", "Water is dripping under my kitchen sink."),
+      sms("relay", "Thanks Maya. Is water actively leaking right now? Please send a photo and access notes."),
+      sms("tenant", "Yes, still dripping. I can do after 1 PM."),
+      sms("relay", "Manager is reviewing now. We will keep this thread updated.")
+    ]
+  },
+  {
+    id: "WO-2482",
+    propertyId: "p-1",
+    unit: "2A",
+    tenantId: "tenant-1",
+    trade: "Electrical",
+    severity: "Normal",
+    status: "Vendor scheduled",
+    estimate: 185,
+    vendorId: "v-3",
+    issue: "Bedroom outlet sparked once and the lights in the room are out.",
+    access: "Today until 6 PM.",
+    managerApproved: true,
+    ownerApproved: true,
+    invoiceId: null,
+    timeline: [
+      event("Tenant submitted", "Issue classified as electrical."),
+      event("Manager approved", "Spark Right Electric selected."),
+      event("Vendor scheduled", "Vendor confirmed tomorrow 10 AM to 1 PM.")
+    ],
+    messages: [
+      sms("tenant", "The bedroom outlet sparked and the lights are out."),
+      sms("relay", "We are sending this to Spark Right Electric. Please avoid using the outlet until inspected.")
+    ]
+  }
+];
+
+const seedInvoices = [
+  {
+    id: "inv-1",
+    propertyId: "p-1",
+    orderId: "WO-2481",
+    vendor: "Carlos Plumbing",
+    amount: 325,
+    status: "Awaiting owner approval",
+    taxYear: "2026",
+    receivedAt: "Apr 30",
+    note: "Estimate only. Payment will happen off platform."
+  },
+  {
+    id: "inv-2",
+    propertyId: "p-1",
+    orderId: "WO-2409",
+    vendor: "Nova HVAC",
+    amount: 210,
+    status: "Paid off platform",
+    taxYear: "2026",
+    receivedAt: "Apr 12",
+    note: "Spring service call."
+  }
+];
+
+const defaultRequest = {
+  unit: "3B",
+  issue: "",
+  access: "",
+  photos: ""
+};
+
+function event(label, detail) {
+  return { label, detail, stamp: "Today" };
+}
+
+function sms(from, text) {
+  return { from, text, stamp: "Now" };
+}
+
+function formatMoney(value) {
+  return `$${value.toLocaleString()}`;
 }
 
 function classifyIssue(text) {
   const body = text.toLowerCase();
-  const matches = [
-    { trade: "Plumbing", words: ["leak", "sink", "toilet", "pipe", "water", "drain", "faucet"] },
-    { trade: "HVAC", words: ["heat", "ac", "air conditioning", "furnace", "thermostat"] },
-    { trade: "Electrical", words: ["outlet", "spark", "breaker", "light", "electrical", "power"] },
-    { trade: "Locks", words: ["lock", "key", "door", "stuck", "entry"] },
-    { trade: "Appliance", words: ["fridge", "dishwasher", "washer", "dryer", "oven", "stove"] }
-  ];
-  const hit = matches.find((item) => item.words.some((word) => body.includes(word)));
-  const urgentWords = ["active water", "leak", "gas", "spark", "no heat", "no ac", "flood", "lock", "cannot enter", "sewage"];
-  const urgent = urgentWords.some((word) => body.includes(word));
-  const severity = urgent ? "Urgent" : body.length > 160 ? "Medium" : "Normal";
+  const trade = body.includes("water") || body.includes("sink") || body.includes("toilet") || body.includes("leak")
+    ? "Plumbing"
+    : body.includes("heat") || body.includes("ac") || body.includes("thermostat")
+      ? "HVAC"
+      : body.includes("spark") || body.includes("outlet") || body.includes("power")
+        ? "Electrical"
+        : "General";
+  const urgent = ["leak", "active water", "gas", "spark", "no heat", "no lock", "flood"].some((word) => body.includes(word));
   return {
-    trade: hit?.trade || "General",
-    severity,
-    confidence: hit ? (urgent ? 94 : 88) : 71
-  };
-}
-
-function estimateCost(trade, severity) {
-  const base = {
-    Plumbing: 260,
-    HVAC: 420,
-    Electrical: 310,
-    Locks: 145,
-    Appliance: 225,
-    General: 175
-  }[trade];
-  return severity === "Urgent" ? Math.round(base * 1.25) : base;
-}
-
-function chooseVendor(trade, rulesText) {
-  const lower = rulesText.toLowerCase();
-  const tradeVendors = vendors.filter((vendor) => vendor.trade === trade);
-  const named = vendors.find((vendor) => lower.includes(vendor.name.toLowerCase()) && vendor.trade === trade);
-  return named || tradeVendors[0] || vendors.find((vendor) => vendor.trade === "General");
-}
-
-function needsOwnerApproval(unit, estimate, rulesText) {
-  const lower = rulesText.toLowerCase();
-  if (unit.toLowerCase() === "3b" && estimate > 150 && lower.includes("unit 3b")) return true;
-  const approvalMatch = lower.match(/owner approval.*?\$?(\d+)/);
-  return approvalMatch ? estimate > Number(approvalMatch[1]) : estimate > 500;
-}
-
-function createWorkOrder(form, rulesText) {
-  const triage = classifyIssue(form.issue);
-  const estimate = estimateCost(triage.trade, triage.severity);
-  const vendor = chooseVendor(triage.trade, rulesText);
-  const ownerApproval = needsOwnerApproval(form.unit, estimate, rulesText);
-  return {
-    id: `WO-${Math.floor(1000 + Math.random() * 9000)}`,
-    createdAt: nowStamp(),
-    status: "Manager review",
-    tenant: form.tenant,
-    unit: form.unit,
-    issue: form.issue,
-    access: form.access,
-    photos: form.photos,
-    triage,
-    estimate,
-    vendor,
-    ownerApproval,
-    managerApproved: false,
-    ownerApproved: false,
-    tenantMessage: `Thanks, ${form.tenant.split(" ")[0] || "there"}. We received your ${triage.trade.toLowerCase()} request for Unit ${form.unit}. The manager is reviewing it now and we will keep this thread updated.`,
-    managerMessage: `New ${triage.severity.toLowerCase()} ${triage.trade.toLowerCase()} request in Unit ${form.unit}. Estimated cost is about $${estimate}. Suggested vendor: ${vendor.name}. Tenant access: ${form.access || "not provided"}.`,
-    ownerMessage: `Approval requested for Unit ${form.unit}: ${triage.Trade || triage.trade} repair estimated at $${estimate}. Issue: ${form.issue}`,
-    vendorMessage: `Hi ${vendor.name}, can you take a ${triage.severity.toLowerCase()} ${triage.trade.toLowerCase()} job at Unit ${form.unit}? Tenant reports: "${form.issue}" Access notes: ${form.access || "not provided"}. Please confirm earliest slot and rough estimate.`,
-    timeline: [
-      { label: "Tenant submitted request", detail: `Unit ${form.unit} via intake page`, stamp: nowStamp() },
-      { label: "AI triaged issue", detail: `${triage.trade}, ${triage.severity}, ${triage.confidence}% confidence`, stamp: nowStamp() },
-      { label: "Manager review requested", detail: `Suggested ${vendor.name}; estimate $${estimate}`, stamp: nowStamp() }
-    ]
+    trade,
+    severity: urgent ? "Urgent" : "Normal",
+    estimate: trade === "Plumbing" ? 325 : trade === "HVAC" ? 425 : trade === "Electrical" ? 185 : 145
   };
 }
 
 function App() {
-  const [rules, setRules] = useState(defaultRules);
-  const [form, setForm] = useState(samples[0]);
-  const [orders, setOrders] = useState(() => [createWorkOrder(samples[1], defaultRules)]);
-  const [selectedId, setSelectedId] = useState(orders[0]?.id);
-  const selected = orders.find((order) => order.id === selectedId) || orders[0];
-  const metrics = useMemo(() => {
-    return {
-      open: orders.filter((order) => order.status !== "Closed").length,
-      review: orders.filter((order) => order.status.includes("review")).length,
-      urgent: orders.filter((order) => order.triage.severity === "Urgent").length
-    };
-  }, [orders]);
+  const [session, setSession] = useState(null);
+  const [phone, setPhone] = useState("(310) 555-0100");
+  const [pin, setPin] = useState("1111");
+  const [activePropertyId, setActivePropertyId] = useState("p-1");
+  const [orders, setOrders] = useState(seedOrders);
+  const [invoices, setInvoices] = useState(seedInvoices);
+  const [activeOrderId, setActiveOrderId] = useState(seedOrders[0].id);
+  const [request, setRequest] = useState(defaultRequest);
+  const activeProperty = properties.find((property) => property.id === activePropertyId) || properties[0];
+  const visibleOrders = orders.filter((order) => order.propertyId === activeProperty.id);
+  const activeOrder = visibleOrders.find((order) => order.id === activeOrderId) || visibleOrders[0];
+  const user = session ? people.find((person) => person.id === session.userId) : null;
 
-  function updateSelected(patch, timelineItem) {
+  function login(event) {
+    event.preventDefault();
+    const normalized = phone.replace(/\D/g, "");
+    const match = people.find((person) => person.phone.replace(/\D/g, "").endsWith(normalized.slice(-10)) && person.pin === pin);
+    if (!match) return;
+    setSession({ userId: match.id });
+    setActivePropertyId(match.propertyIds[0]);
+  }
+
+  function createOrder(event) {
+    event.preventDefault();
+    const triage = classifyIssue(request.issue);
+    const tenant = people.find((person) => person.id === "tenant-1");
+    const vendor = vendors.find((item) => item.trade === triage.trade) || vendors[0];
+    const needsOwner = request.unit === "3B" && triage.estimate > 150;
+    const id = `WO-${Math.floor(3000 + Math.random() * 6000)}`;
+    const order = {
+      id,
+      propertyId: activeProperty.id,
+      unit: request.unit,
+      tenantId: tenant.id,
+      trade: triage.trade,
+      severity: triage.severity,
+      status: "Manager review",
+      estimate: triage.estimate,
+      vendorId: vendor.id,
+      issue: request.issue,
+      access: request.access,
+      managerApproved: false,
+      ownerApproved: !needsOwner,
+      invoiceId: null,
+      timeline: [
+        event("Tenant request created", `Unit ${request.unit} submitted from mobile web.`),
+        event("AI triaged request", `${triage.severity} ${triage.trade}; suggested ${vendor.name}.`)
+      ],
+      messages: [
+        sms("tenant", request.issue),
+        sms("relay", `Thanks. RelayDesk classified this as ${triage.trade}. Manager review is next.`)
+      ]
+    };
+    setOrders((current) => [order, ...current]);
+    setActiveOrderId(id);
+    setRequest(defaultRequest);
+  }
+
+  function patchOrder(patch, label, detail) {
     setOrders((current) =>
-      current.map((order) => {
-        if (order.id !== selected.id) return order;
-        return {
-          ...order,
-          ...patch,
-          timeline: timelineItem ? [...order.timeline, { ...timelineItem, stamp: nowStamp() }] : order.timeline
-        };
-      })
+      current.map((order) =>
+        order.id === activeOrder.id
+          ? { ...order, ...patch, timeline: [...order.timeline, event(label, detail)] }
+          : order
+      )
     );
   }
 
-  function submitRequest(event) {
-    event.preventDefault();
-    const order = createWorkOrder(form, rules);
-    setOrders((current) => [order, ...current]);
-    setSelectedId(order.id);
+  function addInvoice(order) {
+    const id = `inv-${invoices.length + 1}`;
+    setInvoices((current) => [
+      {
+        id,
+        propertyId: order.propertyId,
+        orderId: order.id,
+        vendor: vendors.find((vendor) => vendor.id === order.vendorId)?.name || "Vendor",
+        amount: order.estimate,
+        status: "Sent to owner",
+        taxYear: "2026",
+        receivedAt: "Today",
+        note: "Generated from approved estimate. Payment remains off platform."
+      },
+      ...current
+    ]);
+    patchOrder({ invoiceId: id }, "Invoice record created", "Owner can view this invoice and mark off-platform payment later.");
   }
 
-  function loadSample() {
-    const next = samples[Math.floor(Math.random() * samples.length)];
-    setForm(next);
+  const metrics = useMemo(() => {
+    const open = visibleOrders.filter((order) => order.status !== "Closed").length;
+    const approvals = visibleOrders.filter((order) => order.status.includes("approval") || order.status === "Manager review").length;
+    const invoiceTotal = invoices
+      .filter((invoice) => invoice.propertyId === activeProperty.id)
+      .reduce((sum, invoice) => sum + invoice.amount, 0);
+    return { open, approvals, invoiceTotal };
+  }, [activeProperty.id, invoices, visibleOrders]);
+
+  if (!session) {
+    return (
+      <main className="login-screen">
+        <section className="login-card">
+          <div className="brand-lock">
+            <div className="app-mark"><Wrench size={22} /></div>
+            <span>RelayDesk</span>
+          </div>
+          <h1>One URL. Role-specific PIN access.</h1>
+          <p>Property managers, owners, tenants, and vendors enter the same place. Phone + PIN decides what they can see and do.</p>
+          <form className="stack" onSubmit={login}>
+            <label>
+              Phone
+              <input value={phone} onChange={(event) => setPhone(event.target.value)} />
+            </label>
+            <label>
+              PIN
+              <input value={pin} onChange={(event) => setPin(event.target.value)} inputMode="numeric" />
+            </label>
+            <button className="primary wide" type="submit"><LockKeyhole size={16} /> Enter</button>
+          </form>
+          <div className="pin-grid">
+            {people.map((person) => (
+              <button key={person.id} onClick={() => { setPhone(person.phone); setPin(person.pin); }}>
+                <strong>{person.role}</strong>
+                <span>{person.pin}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      </main>
+    );
   }
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div className="brand">
-          <div className="brand-mark"><Wrench size={20} /></div>
-          <div>
-            <h1>RelayDesk</h1>
-            <p>AI maintenance coordination for small property managers</p>
-          </div>
+    <main className="mobile-shell">
+      <header className="app-header">
+        <div>
+          <span className="eyebrow">Shared URL session</span>
+          <h1>{activeProperty.name}</h1>
+          <p>{user.name} · {user.role}</p>
         </div>
-        <div className="top-actions">
-          <button className="ghost" onClick={loadSample}><RefreshCcw size={16} /> Load sample</button>
-          <button className="primary" onClick={submitRequest}><Plus size={16} /> New work order</button>
-        </div>
+        <button className="icon-button" onClick={() => setSession(null)} aria-label="Sign out"><LockKeyhole size={18} /></button>
       </header>
 
-      <section className="metrics-grid">
-        <Metric icon={<ClipboardList />} label="Open work orders" value={metrics.open} />
-        <Metric icon={<AlertTriangle />} label="Urgent items" value={metrics.urgent} />
-        <Metric icon={<Clock3 />} label="Need review" value={metrics.review} />
-        <Metric icon={<ShieldCheck />} label="Avg response target" value="12m" />
+      <section className="property-switcher">
+        {properties
+          .filter((property) => user.propertyIds.includes(property.id))
+          .map((property) => (
+            <button
+              key={property.id}
+              className={property.id === activeProperty.id ? "active" : ""}
+              onClick={() => setActivePropertyId(property.id)}
+            >
+              {property.name}
+            </button>
+          ))}
       </section>
 
-      <section className="workspace">
-        <aside className="panel tenant-panel">
-          <SectionTitle icon={<Home />} eyebrow="Tenant intake" title="Report a maintenance issue" />
-          <form className="stack" onSubmit={submitRequest}>
-            <label>
-              Tenant name
-              <input value={form.tenant} onChange={(event) => setForm({ ...form, tenant: event.target.value })} />
-            </label>
-            <label>
-              Unit
-              <input value={form.unit} onChange={(event) => setForm({ ...form, unit: event.target.value })} />
-            </label>
-            <label>
-              What is happening?
-              <textarea rows="5" value={form.issue} onChange={(event) => setForm({ ...form, issue: event.target.value })} />
-            </label>
-            <label>
-              Access notes
-              <textarea rows="3" value={form.access} onChange={(event) => setForm({ ...form, access: event.target.value })} />
-            </label>
-            <label>
-              Photo or video names
-              <input value={form.photos} onChange={(event) => setForm({ ...form, photos: event.target.value })} placeholder="Optional" />
-            </label>
-            <button className="primary wide" type="submit"><Send size={16} /> Submit request</button>
-          </form>
+      <section className="mobile-metrics">
+        <Metric icon={<ClipboardList />} label="Open" value={metrics.open} />
+        <Metric icon={<Bell />} label="Approvals" value={metrics.approvals} />
+        <Metric icon={<ReceiptText />} label="2026 invoices" value={formatMoney(metrics.invoiceTotal)} />
+      </section>
 
-          <div className="rule-box">
-            <SectionTitle icon={<Mic />} eyebrow="Manager voice rules" title="Dispatch policy" compact />
-            <textarea rows="8" value={rules} onChange={(event) => setRules(event.target.value)} />
-          </div>
-        </aside>
+      {(user.role === "Admin" || user.role === "Manager") && (
+        <AdminManagerView
+          property={activeProperty}
+          orders={visibleOrders}
+          invoices={invoices}
+          activeOrder={activeOrder}
+          setActiveOrderId={setActiveOrderId}
+          patchOrder={patchOrder}
+          addInvoice={addInvoice}
+        />
+      )}
 
-        <section className="panel board-panel">
-          <SectionTitle icon={<Building2 />} eyebrow="Operations" title="Maintenance desk" />
-          <div className="order-layout">
-            <div className="order-list">
-              {orders.map((order) => (
-                <button
-                  key={order.id}
-                  className={`order-card ${selected?.id === order.id ? "active" : ""}`}
-                  onClick={() => setSelectedId(order.id)}
-                >
-                  <div className="order-card-top">
-                    <strong>{order.id}</strong>
-                    <span className={order.triage.severity === "Urgent" ? "badge urgent" : "badge"}>{order.triage.severity}</span>
-                  </div>
-                  <span>{order.unit} · {order.triage.trade}</span>
-                  <p>{order.issue}</p>
-                </button>
-              ))}
-            </div>
+      {user.role === "Owner" && (
+        <OwnerView
+          property={activeProperty}
+          orders={visibleOrders}
+          invoices={invoices.filter((invoice) => invoice.propertyId === activeProperty.id)}
+          patchInvoice={(invoiceId, status) => setInvoices((current) => current.map((invoice) => invoice.id === invoiceId ? { ...invoice, status } : invoice))}
+        />
+      )}
 
-            {selected && (
-              <div className="detail-pane">
-                <div className="detail-header">
-                  <div>
-                    <span className="eyebrow">{selected.id} · {selected.createdAt}</span>
-                    <h2>Unit {selected.unit}: {selected.triage.trade}</h2>
-                  </div>
-                  <span className="status-pill">{selected.status}</span>
-                </div>
+      {user.role === "Tenant" && (
+        <TenantView request={request} setRequest={setRequest} createOrder={createOrder} orders={visibleOrders} />
+      )}
 
-                <div className="triage-grid">
-                  <InfoTile icon={<Bot />} label="AI triage" value={`${selected.triage.trade} · ${selected.triage.confidence}%`} />
-                  <InfoTile icon={<AlertTriangle />} label="Urgency" value={selected.triage.severity} />
-                  <InfoTile icon={<Wrench />} label="Vendor" value={selected.vendor.name} />
-                  <InfoTile icon={<ClipboardList />} label="Estimate" value={`$${selected.estimate}`} />
-                </div>
+      {user.role === "Vendor" && (
+        <VendorView orders={visibleOrders.filter((order) => order.vendorId === "v-1")} />
+      )}
 
-                <div className="issue-box">
-                  <h3>Tenant issue</h3>
-                  <p>{selected.issue}</p>
-                  <span>Access: {selected.access || "Not provided"}</span>
-                </div>
-
-                <div className="actions-grid">
-                  <ActionCard
-                    icon={<UserRound />}
-                    title="Manager approval"
-                    body={selected.managerMessage}
-                    done={selected.managerApproved}
-                    cta="Approve dispatch"
-                    onClick={() => updateSelected(
-                      {
-                        managerApproved: true,
-                        status: selected.ownerApproval ? "Owner approval" : "Vendor coordination"
-                      },
-                      {
-                        label: "Manager approved",
-                        detail: selected.ownerApproval ? "Owner approval required before dispatch" : "Ready for vendor coordination"
-                      }
-                    )}
-                  />
-                  <ActionCard
-                    icon={<Building2 />}
-                    title="Owner approval"
-                    body={selected.ownerApproval ? selected.ownerMessage : "No owner approval required under current rules."}
-                    done={!selected.ownerApproval || selected.ownerApproved}
-                    disabled={!selected.ownerApproval || !selected.managerApproved}
-                    cta="Owner approved"
-                    onClick={() => updateSelected(
-                      { ownerApproved: true, status: "Vendor coordination" },
-                      { label: "Owner approved", detail: "Dispatch cleared by owner" }
-                    )}
-                  />
-                  <ActionCard
-                    icon={<PhoneCall />}
-                    title="Vendor coordination"
-                    body={selected.vendorMessage}
-                    done={["Vendor scheduled", "Closed"].includes(selected.status)}
-                    disabled={!selected.managerApproved || (selected.ownerApproval && !selected.ownerApproved)}
-                    cta="Send to vendor"
-                    onClick={() => updateSelected(
-                      { status: "Vendor scheduled" },
-                      { label: "Vendor contacted", detail: `${selected.vendor.name} received scope and access notes` }
-                    )}
-                  />
-                  <ActionCard
-                    icon={<MessageSquare />}
-                    title="Tenant update"
-                    body={selected.tenantMessage}
-                    done={selected.status === "Closed"}
-                    disabled={selected.status === "Manager review"}
-                    cta="Close request"
-                    onClick={() => updateSelected(
-                      { status: "Closed" },
-                      { label: "Tenant notified and request closed", detail: "Completion confirmation recorded" }
-                    )}
-                  />
-                </div>
-
-                <div className="timeline">
-                  <h3>Timeline</h3>
-                  {selected.timeline.map((item, index) => (
-                    <div className="timeline-item" key={`${item.label}-${index}`}>
-                      <div className="dot">{index + 1}</div>
-                      <div>
-                        <strong>{item.label}</strong>
-                        <p>{item.detail}</p>
-                        <span>{item.stamp}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
+      <section className="integration-strip">
+        <IntegrationCard icon={<Smartphone />} title="Twilio SMS" text="Ready for inbound/outbound webhooks once credentials are added." />
+        <IntegrationCard icon={<CreditCard />} title="Stripe billing" text="Subscription gate for property profiles; payments not required for repairs." />
+        <IntegrationCard icon={<Banknote />} title="Off-platform repair payment" text="Owners mark invoices paid and export bundles for taxes." />
       </section>
     </main>
   );
 }
 
+function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice }) {
+  const vendor = vendors.find((item) => item.id === activeOrder.vendorId);
+  return (
+    <section className="split-view">
+      <div className="panel">
+        <SectionTitle icon={<Settings2 />} title="Property setup" eyebrow="Admin controls" />
+        <div className="subscription-card">
+          <div>
+            <span className="eyebrow">Subscription</span>
+            <h3>{property.subscription}</h3>
+            <p>{property.plan}</p>
+          </div>
+          <button className="secondary"><CreditCard size={16} /> Manage billing</button>
+        </div>
+        <div className="people-list">
+          <MiniRow icon={<Users />} label="Admin" value="Jordan Lee · (310) 555-0100" />
+          <MiniRow icon={<UserRound />} label="Owner" value="Priya Shah · (310) 555-0102" />
+          <MiniRow icon={<Home />} label="Units" value={property.units.join(", ")} />
+          <MiniRow icon={<Wrench />} label="Rules" value={property.rules} />
+        </div>
+      </div>
+
+      <div className="panel">
+        <SectionTitle icon={<MessageSquare />} title="SMS work orders" eyebrow="Manager desk" />
+        <div className="order-tabs">
+          {orders.map((order) => (
+            <button key={order.id} className={order.id === activeOrder.id ? "active" : ""} onClick={() => setActiveOrderId(order.id)}>
+              <strong>{order.unit}</strong>
+              <span>{order.status}</span>
+            </button>
+          ))}
+        </div>
+        <article className="work-card">
+          <div className="work-head">
+            <div>
+              <span className="eyebrow">{activeOrder.id}</span>
+              <h2>{activeOrder.trade} · Unit {activeOrder.unit}</h2>
+            </div>
+            <span className={`pill ${activeOrder.severity === "Urgent" ? "urgent" : ""}`}>{activeOrder.severity}</span>
+          </div>
+          <p>{activeOrder.issue}</p>
+          <div className="decision-grid">
+            <MiniRow icon={<Bot />} label="AI summary" value={`${activeOrder.trade}, ${formatMoney(activeOrder.estimate)}, suggested ${vendor?.name}`} />
+            <MiniRow icon={<Phone />} label="Tenant access" value={activeOrder.access} />
+            <MiniRow icon={<Wrench />} label="Vendor SMS" value={`Send scope to ${vendor?.phone}: ${activeOrder.issue}`} />
+          </div>
+          <div className="button-grid">
+            <button className="primary" onClick={() => patchOrder({ managerApproved: true, status: "Owner approval" }, "Manager approved", "Owner approval requested by SMS.")}>
+              <Check size={16} /> Approve
+            </button>
+            <button className="secondary" onClick={() => patchOrder({ ownerApproved: true, status: "Vendor scheduled" }, "Owner approved", "Vendor coordination can begin.")}>
+              <ShieldCheck size={16} /> Owner approved
+            </button>
+            <button className="secondary" onClick={() => patchOrder({ status: "Vendor scheduled" }, "Vendor text sent", `${vendor?.name} received scope and access notes.`)}>
+              <Send size={16} /> Text vendor
+            </button>
+            <button className="ghost" onClick={() => addInvoice(activeOrder)}>
+              <ReceiptText size={16} /> Create invoice
+            </button>
+          </div>
+        </article>
+        <Timeline items={activeOrder.timeline} />
+      </div>
+    </section>
+  );
+}
+
+function OwnerView({ property, orders, invoices, patchInvoice }) {
+  return (
+    <section className="split-view">
+      <div className="panel">
+        <SectionTitle icon={<ShieldCheck />} title="Owner approvals" eyebrow={property.name} />
+        {orders.filter((order) => order.status === "Owner approval").map((order) => (
+          <article className="approval-card" key={order.id}>
+            <span className="eyebrow">{order.id} · Unit {order.unit}</span>
+            <h2>{formatMoney(order.estimate)} {order.trade} repair</h2>
+            <p>{order.issue}</p>
+            <div className="button-grid">
+              <button className="primary"><Check size={16} /> Approve by SMS</button>
+              <button className="ghost">Ask manager</button>
+            </div>
+          </article>
+        ))}
+      </div>
+      <div className="panel">
+        <SectionTitle icon={<ReceiptText />} title="Invoices and tax bundle" eyebrow="Off-platform payments" />
+        {invoices.map((invoice) => (
+          <InvoiceRow key={invoice.id} invoice={invoice} onPaid={() => patchInvoice(invoice.id, "Paid off platform")} />
+        ))}
+        <button className="secondary wide"><Download size={16} /> Email 2026 bundle</button>
+      </div>
+    </section>
+  );
+}
+
+function TenantView({ request, setRequest, createOrder, orders }) {
+  return (
+    <section className="split-view">
+      <div className="panel">
+        <SectionTitle icon={<Home />} title="Report an issue" eyebrow="Tenant mobile web" />
+        <form className="stack" onSubmit={createOrder}>
+          <label>
+            Unit
+            <input value={request.unit} onChange={(event) => setRequest({ ...request, unit: event.target.value })} />
+          </label>
+          <label>
+            What is happening?
+            <textarea rows="5" value={request.issue} onChange={(event) => setRequest({ ...request, issue: event.target.value })} placeholder="Example: water is leaking under the kitchen sink" />
+          </label>
+          <label>
+            Access notes
+            <textarea rows="3" value={request.access} onChange={(event) => setRequest({ ...request, access: event.target.value })} placeholder="When can a vendor enter?" />
+          </label>
+          <label>
+            Photos/videos
+            <input value={request.photos} onChange={(event) => setRequest({ ...request, photos: event.target.value })} placeholder="Attach later by SMS in v1" />
+          </label>
+          <button className="primary wide" type="submit"><Send size={16} /> Send to manager</button>
+        </form>
+      </div>
+      <div className="panel">
+        <SectionTitle icon={<MessageSquare />} title="My updates" eyebrow="SMS mirror" />
+        {orders.map((order) => (
+          <article className="update-card" key={order.id}>
+            <span className="eyebrow">{order.id} · {order.status}</span>
+            <p>{order.issue}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function VendorView({ orders }) {
+  return (
+    <section className="panel">
+      <SectionTitle icon={<Wrench />} title="Vendor jobs" eyebrow="SMS accepting flow" />
+      {orders.map((order) => (
+        <article className="approval-card" key={order.id}>
+          <span className="eyebrow">{order.id} · Unit {order.unit}</span>
+          <h2>{order.trade} request</h2>
+          <p>{order.issue}</p>
+          <div className="button-grid">
+            <button className="primary"><Check size={16} /> Accept</button>
+            <button className="ghost">Decline</button>
+          </div>
+        </article>
+      ))}
+    </section>
+  );
+}
+
 function Metric({ icon, label, value }) {
   return (
-    <div className="metric">
-      <div className="metric-icon">{icon}</div>
+    <div className="metric-card">
+      <div>{icon}</div>
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
   );
 }
 
-function SectionTitle({ icon, eyebrow, title, compact = false }) {
+function SectionTitle({ icon, eyebrow, title }) {
   return (
-    <div className={`section-title ${compact ? "compact" : ""}`}>
+    <div className="section-title">
       <div className="section-icon">{icon}</div>
       <div>
         <span className="eyebrow">{eyebrow}</span>
@@ -391,9 +558,9 @@ function SectionTitle({ icon, eyebrow, title, compact = false }) {
   );
 }
 
-function InfoTile({ icon, label, value }) {
+function MiniRow({ icon, label, value }) {
   return (
-    <div className="info-tile">
+    <div className="mini-row">
       <div>{icon}</div>
       <span>{label}</span>
       <strong>{value}</strong>
@@ -401,19 +568,47 @@ function InfoTile({ icon, label, value }) {
   );
 }
 
-function ActionCard({ icon, title, body, cta, done, disabled, onClick }) {
+function Timeline({ items }) {
   return (
-    <div className={`action-card ${done ? "done" : ""}`}>
-      <div className="action-head">
-        <div className="action-icon">{icon}</div>
-        <h3>{title}</h3>
-        {done ? <Check size={18} /> : <ChevronRight size={18} />}
+    <div className="timeline">
+      <h3>Timeline</h3>
+      {items.map((item, index) => (
+        <div className="timeline-item" key={`${item.label}-${index}`}>
+          <div className="dot">{index + 1}</div>
+          <div>
+            <strong>{item.label}</strong>
+            <p>{item.detail}</p>
+            <span>{item.stamp}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function InvoiceRow({ invoice, onPaid }) {
+  return (
+    <article className="invoice-row">
+      <div>
+        <span className="eyebrow">{invoice.orderId} · {invoice.receivedAt}</span>
+        <h3>{invoice.vendor}</h3>
+        <p>{invoice.note}</p>
       </div>
-      <p>{body}</p>
-      <button className={done ? "done-button" : "secondary"} disabled={disabled || done} onClick={onClick}>
-        {done ? <Check size={16} /> : <ArrowRight size={16} />}
-        {done ? "Done" : cta}
-      </button>
+      <div className="invoice-side">
+        <strong>{formatMoney(invoice.amount)}</strong>
+        <span>{invoice.status}</span>
+        <button className="ghost" onClick={onPaid}><Check size={15} /> Paid</button>
+      </div>
+    </article>
+  );
+}
+
+function IntegrationCard({ icon, title, text }) {
+  return (
+    <div className="integration-card">
+      <div>{icon}</div>
+      <strong>{title}</strong>
+      <span>{text}</span>
     </div>
   );
 }

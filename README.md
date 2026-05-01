@@ -2,7 +2,10 @@
 
 RelayDesk is an AI-assisted maintenance coordination product for small property managers.
 
-The current app is a **demo v1**: a single-page prototype showing the operating loop from tenant intake through triage, manager approval, owner approval, vendor coordination, tenant updates, and closeout.
+The project has two useful checkpoints:
+
+- `codex/relaydesk-demo-v1`: saved single-page concept demo.
+- `codex/relaydesk-real-v1`: current mobile-first prototype for the real product direction.
 
 ## Run The Demo
 
@@ -19,17 +22,18 @@ http://127.0.0.1:5173/
 
 Do not open `index.html` directly from Finder. The demo is a Vite/React app and should be run through the local dev server.
 
-## Current Demo Scope
+## Current Real V1 Prototype Scope
 
-- Tenant maintenance request form
-- AI-style issue triage
-- Manager dispatch rules
-- Vendor recommendation
+- Shared phone + PIN login
+- Role-aware views for admin/manager, owner, tenant, and vendor
+- Property subscription/payment placeholder
+- SMS-style work orders
+- Tenant request creation
 - Manager approval
-- Owner approval when thresholds require it
-- Vendor coordination message
-- Tenant status update
-- Work order timeline
+- Owner approval
+- Vendor dispatch
+- Invoice records and tax bundle action
+- Twilio/Stripe integration contract docs
 
 ## Next Product Direction
 
@@ -39,3 +43,5 @@ See:
 
 - `docs/demo-v1.md`
 - `docs/real-version-plan.md`
+- `docs/integrations.md`
+- `docs/build-next.md`
