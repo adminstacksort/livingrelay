@@ -637,6 +637,89 @@ select {
   line-height: 1.35;
 }
 
+.demo-control {
+  border: 1px solid #d8d0c3;
+  border-radius: 8px;
+  background: #fffdfa;
+  padding: 12px;
+}
+
+.demo-control-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.demo-status {
+  color: #1c675b;
+  font-size: 12px;
+  font-weight: 850;
+  text-align: right;
+}
+
+.scenario-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.scenario-card {
+  border: 1px solid #e8e0d4;
+  border-radius: 8px;
+  background: #fbf6ef;
+  padding: 10px;
+}
+
+.scenario-card span {
+  color: #8a5f53;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.scenario-card strong {
+  display: block;
+  margin-top: 4px;
+}
+
+.scenario-card p {
+  margin: 6px 0 10px;
+  color: #4f5d59;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.demo-reference {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.demo-reference div {
+  border: 1px solid #e8e0d4;
+  border-radius: 8px;
+  background: #fbf6ef;
+  padding: 10px;
+}
+
+.demo-reference strong,
+.demo-reference span {
+  display: block;
+}
+
+.demo-reference strong {
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.demo-reference span {
+  color: #5e6a66;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .demo-outreach {
   border: 1px solid #d8d0c3;
   border-radius: 8px;
@@ -812,6 +895,10 @@ select {
   }
 
   .flow-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .demo-reference {
     grid-template-columns: 1fr;
   }
 

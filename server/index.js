@@ -5,6 +5,7 @@ import { composeActionMessage, handleInboundCommand } from "./smsLogic.js";
 import { getTwilioStatus, sendSms } from "./twilioClient.js";
 import { startVendorQuoteCalls } from "./elevenLabsCalls.js";
 import { runFullFlowDemo, selectDemoQuote, simulateVendorOutreach } from "./demoOutreach.js";
+import { createDemoScenario, listDemoScenarios } from "./demoScenarios.js";
 
 const app = express();
 const port = Number(process.env.SERVER_PORT || 8787);
@@ -17,7 +18,12 @@ app.get("/api/health", (req, res) => {
 });
 
 app.get("/api/state", (req, res) => {
-  res.json({ people, properties, vendors, workOrders, invoices, auditLog, twilio: getTwilioStatus() });
+  res.json({ people, properties, vendors, workOrders, invoices, auditLog, twilio: getTwilioStatus(), demoScenarios: listDemoScenarios() });
+});
+
+app.post("/api/demo/scenario", (req, res) => {
+  const result = createDemoScenario(req.body.scenario);
+  res.json(result);
 });
 
 app.post("/api/admin/properties", (req, res) => {

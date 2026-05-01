@@ -196,6 +196,7 @@ function App() {
   const [request, setRequest] = useState(defaultRequest);
   const [twilioStatus, setTwilioStatus] = useState(null);
   const [sendStatus, setSendStatus] = useState("");
+  const [demoStatus, setDemoStatus] = useState("");
   const [appData, setAppData] = useState(null);
   const peopleData = appData?.people || people;
   const propertiesData = appData?.properties || properties;
@@ -313,6 +314,24 @@ function App() {
 
   async function runFullFlowDemo(orderId) {
     await fetch(`/api/work-orders/${orderId}/full-flow-demo`, { method: "POST" });
+    await loadState();
+  }
+
+  async function createDemoScenario(scenario) {
+    setDemoStatus("Building demo scenario...");
+    const response = await fetch("/api/demo/scenario", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scenario })
+    });
+    const data = await response.json();
+    if (data.order?.id) {
+      setActiveOrderId(data.order.id);
+      setActivePropertyId(data.order.propertyId);
+      setDemoStatus(`${data.order.id} is ready.`);
+    } else {
+      setDemoStatus("Demo scenario could not be created.");
+    }
     await loadState();
   }
 
@@ -434,10 +453,13 @@ function App() {
           people={peopleData}
           vendors={vendorsData}
           auditLog={auditData}
+          demoScenarios={appData?.demoScenarios || []}
+          demoStatus={demoStatus}
           reloadState={loadState}
           runDemoOutreach={runDemoOutreach}
           selectDemoQuote={selectDemoQuote}
           runFullFlowDemo={runFullFlowDemo}
+          createDemoScenario={createDemoScenario}
         />
       )}
 
@@ -479,7 +501,7 @@ function App() {
   );
 }
 
-function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice, sendSms, sendStatus, people, vendors, auditLog, reloadState, runDemoOutreach, selectDemoQuote, runFullFlowDemo }) {
+function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice, sendSms, sendStatus, people, vendors, auditLog, demoScenarios, demoStatus, reloadState, runDemoOutreach, selectDemoQuote, runFullFlowDemo, createDemoScenario }) {
   const vendor = vendors.find((item) => item.id === activeOrder.vendorId);
   const admin = people.find((person) => person.id === property.adminId);
   const owner = people.find((person) => person.id === property.ownerId);
@@ -502,6 +524,12 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
           <MiniRow icon={<Wrench />} label="Rules" value={property.rules} />
         </div>
         <AdminTools property={property} people={people} vendors={vendors} auditLog={auditLog} reloadState={reloadState} />
+        <DemoControlCenter
+          people={people}
+          scenarios={demoScenarios}
+          demoStatus={demoStatus}
+          createDemoScenario={createDemoScenario}
+        />
       </div>
 
       <div className="panel">
@@ -660,6 +688,55 @@ function AdminTools({ property, people, vendors, auditLog, reloadState }) {
             <span>{item.detail}</span>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function DemoControlCenter({ people, scenarios, demoStatus, createDemoScenario }) {
+  const fallbackScenarios = [
+    { id: "leak", title: "Kitchen leak", trade: "Plumbing", severity: "Urgent", estimate: 325, tenantText: "Kitchen sink leak with water under the cabinet." },
+    { id: "heat", title: "No heat", trade: "HVAC", severity: "Urgent", estimate: 425, tenantText: "Heat is not turning on and the thermostat is blank." },
+    { id: "spark", title: "Outlet spark", trade: "Electrical", severity: "Urgent", estimate: 185, tenantText: "Bedroom outlet sparked and lights are out." }
+  ];
+  const availableScenarios = scenarios.length ? scenarios : fallbackScenarios;
+  const rolePeople = people.filter((person) => ["Admin", "Owner", "Tenant", "Vendor"].includes(person.role));
+
+  return (
+    <div className="demo-control">
+      <div className="demo-control-head">
+        <div>
+          <span className="eyebrow">Demo console</span>
+          <h3>Launch a clean scenario</h3>
+        </div>
+        {demoStatus && <span className="demo-status">{demoStatus}</span>}
+      </div>
+      <div className="scenario-grid">
+        {availableScenarios.map((scenario) => (
+          <article key={scenario.id} className="scenario-card">
+            <span>{scenario.trade} · {scenario.severity}</span>
+            <strong>{scenario.title}</strong>
+            <p>{scenario.tenantText}</p>
+            <button className="secondary wide" onClick={() => createDemoScenario(scenario.id)}>
+              <Bot size={15} /> Run
+            </button>
+          </article>
+        ))}
+      </div>
+      <div className="demo-reference">
+        <div>
+          <strong>Role logins</strong>
+          {rolePeople.map((person) => (
+            <span key={person.id}>{person.role}: {person.phone} / {person.pin}</span>
+          ))}
+        </div>
+        <div>
+          <strong>SMS commands</strong>
+          <span>APPROVE WO-1234</span>
+          <span>VENDOR WO-1234 1</span>
+          <span>PAID WO-1234</span>
+          <span>CLOSE WO-1234</span>
+        </div>
       </div>
     </div>
   );
