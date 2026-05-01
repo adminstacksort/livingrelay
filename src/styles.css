@@ -540,6 +540,14 @@ textarea:focus {
   line-height: 1.4;
 }
 
+.send-status {
+  margin-top: 10px;
+  color: #1c675b;
+  font-size: 13px;
+  font-weight: 780;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 860px) {
   .mobile-shell {
     width: min(100vw - 18px, 620px);

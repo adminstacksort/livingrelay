@@ -13,9 +13,35 @@ TWILIO_MESSAGING_NUMBER
 TWILIO_STATUS_CALLBACK_URL
 ```
 
+### Local API
+
+The local API runs on:
+
+```text
+http://127.0.0.1:8787
+```
+
+Health check:
+
+```text
+GET /api/health
+```
+
+Send test SMS:
+
+```text
+POST /api/messages/send
+Content-Type: application/json
+
+{
+  "to": "+13105550104",
+  "body": "Test from LivingRelay"
+}
+```
+
 ### Inbound SMS Webhook
 
-Future endpoint:
+Endpoint:
 
 ```text
 POST /api/twilio/inbound
@@ -40,9 +66,31 @@ App behavior:
 6. If vendor: parse `ACCEPT`, `DECLINE`, ETA, invoice/photo messages.
 7. Store every message on the work order timeline.
 
+### Twilio Console Setup
+
+Twilio cannot call `127.0.0.1` directly. For local testing, expose the API with a tunnel:
+
+```bash
+ngrok http 8787
+```
+
+or:
+
+```bash
+cloudflared tunnel --url http://127.0.0.1:8787
+```
+
+Then set the Twilio Messaging webhook for the LivingRelay number to:
+
+```text
+https://YOUR-TUNNEL-URL/api/twilio/inbound
+```
+
+Use `HTTP POST`.
+
 ### Outbound SMS
 
-Future function:
+Function:
 
 ```text
 sendSms({ to, body, workOrderId, messageType })

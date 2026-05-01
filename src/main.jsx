@@ -193,6 +193,8 @@ function App() {
   const [invoices, setInvoices] = useState(seedInvoices);
   const [activeOrderId, setActiveOrderId] = useState(seedOrders[0].id);
   const [request, setRequest] = useState(defaultRequest);
+  const [twilioStatus, setTwilioStatus] = useState(null);
+  const [sendStatus, setSendStatus] = useState("");
   const activeProperty = properties.find((property) => property.id === activePropertyId) || properties[0];
   const visibleOrders = orders.filter((order) => order.propertyId === activeProperty.id);
   const activeOrder = visibleOrders.find((order) => order.id === activeOrderId) || visibleOrders[0];
@@ -251,6 +253,27 @@ function App() {
           : order
       )
     );
+  }
+
+  async function checkTwilio() {
+    const response = await fetch("/api/health");
+    const data = await response.json();
+    setTwilioStatus(data.twilio);
+  }
+
+  async function sendSms(to, body) {
+    setSendStatus("Sending SMS...");
+    try {
+      const response = await fetch("/api/messages/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to, body })
+      });
+      const data = await response.json();
+      setSendStatus(data.sent ? `Sent: ${data.sid}` : `Not sent: ${data.error || "unknown error"}`);
+    } catch (error) {
+      setSendStatus(`Not sent: ${error.message}`);
+    }
   }
 
   function addInvoice(order) {
@@ -355,6 +378,8 @@ function App() {
           setActiveOrderId={setActiveOrderId}
           patchOrder={patchOrder}
           addInvoice={addInvoice}
+          sendSms={sendSms}
+          sendStatus={sendStatus}
         />
       )}
 
@@ -376,7 +401,12 @@ function App() {
       )}
 
       <section className="integration-strip">
-        <IntegrationCard icon={<Smartphone />} title="Twilio SMS" text="Ready for inbound/outbound webhooks once credentials are added." />
+        <IntegrationCard
+          icon={<Smartphone />}
+          title="Twilio SMS"
+          text={twilioStatus?.configured ? `Configured from ${twilioStatus.from}` : "Check local API configuration."}
+          action={<button className="ghost" onClick={checkTwilio}>Check</button>}
+        />
         <IntegrationCard icon={<CreditCard />} title="Stripe billing" text="Subscription gate for property profiles; payments not required for repairs." />
         <IntegrationCard icon={<Banknote />} title="Off-platform repair payment" text="Owners mark invoices paid and export bundles for taxes." />
       </section>
@@ -384,7 +414,7 @@ function App() {
   );
 }
 
-function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice }) {
+function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice, sendSms, sendStatus }) {
   const vendor = vendors.find((item) => item.id === activeOrder.vendorId);
   return (
     <section className="split-view">
@@ -437,13 +467,17 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
             <button className="secondary" onClick={() => patchOrder({ ownerApproved: true, status: "Vendor scheduled" }, "Owner approved", "Vendor coordination can begin.")}>
               <ShieldCheck size={16} /> Owner approved
             </button>
-            <button className="secondary" onClick={() => patchOrder({ status: "Vendor scheduled" }, "Vendor text sent", `${vendor?.name} received scope and access notes.`)}>
+            <button className="secondary" onClick={() => {
+              patchOrder({ status: "Vendor scheduled" }, "Vendor text sent", `${vendor?.name} received scope and access notes.`);
+              sendSms?.(vendor?.phone, `${activeOrder.id}: ${activeOrder.trade} job at ${property.name}, Unit ${activeOrder.unit}. Issue: ${activeOrder.issue}. Reply ACCEPT or DECLINE.`);
+            }}>
               <Send size={16} /> Text vendor
             </button>
             <button className="ghost" onClick={() => addInvoice(activeOrder)}>
               <ReceiptText size={16} /> Create invoice
             </button>
           </div>
+          {sendStatus && <p className="send-status">{sendStatus}</p>}
         </article>
         <Timeline items={activeOrder.timeline} />
       </div>
@@ -603,12 +637,13 @@ function InvoiceRow({ invoice, onPaid }) {
   );
 }
 
-function IntegrationCard({ icon, title, text }) {
+function IntegrationCard({ icon, title, text, action }) {
   return (
     <div className="integration-card">
       <div>{icon}</div>
       <strong>{title}</strong>
       <span>{text}</span>
+      {action}
     </div>
   );
 }
