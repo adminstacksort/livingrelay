@@ -1,4 +1,4 @@
-import { event, message, people, properties, vendors, workOrders } from "./data.js";
+import { event, invoices, message, people, properties, recordAudit, saveState, vendors, workOrders } from "./data.js";
 import { findVendorOptions } from "./anthropicVendorSearch.js";
 
 export function normalizePhone(value = "") {
@@ -105,7 +105,12 @@ export async function createWorkOrderFromTenant({ tenant, body }) {
   return order;
 }
 
-export function latestOpenOrderForPerson(person) {
+export function latestOpenOrderForPerson(person, body = "") {
+  const explicitId = body.toUpperCase().match(/WO-\d+/)?.[0];
+  if (explicitId) {
+    const explicit = workOrders.find((order) => order.id === explicitId);
+    if (explicit) return explicit;
+  }
   if (!person) return null;
   if (person.role === "Tenant") {
     return workOrders.find((order) => order.tenantId === person.id && order.status !== "Closed");
@@ -129,7 +134,14 @@ export async function handleInboundCommand({ from, body }) {
 
   const normalizedBody = body.trim();
   const command = normalizedBody.toUpperCase();
-  const order = latestOpenOrderForPerson(person);
+  const order = latestOpenOrderForPerson(person, normalizedBody);
+
+  if (command === "HELP") {
+    return {
+      response: "LivingRelay commands: STATUS, STATUS WO-1234, APPROVE WO-1234, DENY WO-1234, VENDOR WO-1234 1, PAID WO-1234, CLOSE WO-1234.",
+      actions: []
+    };
+  }
 
   if (person.role === "Tenant") {
     const created = await createWorkOrderFromTenant({ tenant: person, body: normalizedBody });
@@ -148,8 +160,15 @@ export async function handleInboundCommand({ from, body }) {
 
   order.messages.push(message(person.role.toLowerCase(), normalizedBody));
 
+  if (command.startsWith("STATUS")) {
+    return {
+      response: `${order.id}: ${order.status}. ${order.trade} at Unit ${order.unit}. Estimate $${order.estimate}.`,
+      actions: []
+    };
+  }
+
   if (person.role === "Manager" || person.role === "Admin") {
-    if (command === "APPROVE") {
+    if (command.startsWith("APPROVE")) {
       order.managerApproved = true;
       order.status = order.ownerApproved ? "Vendor coordination" : "Owner approval";
       order.timeline.push(event("Manager approved by SMS", `${person.name} approved ${order.id}.`));
@@ -161,7 +180,7 @@ export async function handleInboundCommand({ from, body }) {
       };
     }
     if (command.startsWith("VENDOR")) {
-      const selectedIndex = Number(command.match(/VENDOR\s*([1-5])/)?.[1]);
+      const selectedIndex = Number(command.match(/(?:VENDOR)(?:\s+WO-\d+)?\s*([1-5])/)?.[1]);
       if (selectedIndex && order.vendorOptions?.[selectedIndex - 1]) {
         const selected = order.vendorOptions[selectedIndex - 1];
         const existingVendor = vendors.find((vendor) => vendor.phone === selected.phone);
@@ -181,29 +200,34 @@ export async function handleInboundCommand({ from, body }) {
       }
       order.status = "Vendor coordination";
       order.timeline.push(event("Vendor dispatch requested by SMS", `${person.name} requested vendor coordination.`));
+      saveState();
       return { response: `${order.id} queued for vendor outreach.`, actions: [{ type: "notify_vendor", orderId: order.id }] };
     }
-    if (command === "CLOSE") {
+    if (command.startsWith("CLOSE")) {
       order.status = "Closed";
       order.timeline.push(event("Closed by SMS", `${person.name} closed ${order.id}.`));
+      recordAudit(person.name, "Closed work order", order.id);
       return { response: `${order.id} is closed.`, actions: [{ type: "notify_tenant_closed", orderId: order.id }] };
     }
   }
 
   if (person.role === "Owner") {
-    if (command === "APPROVE") {
+    if (command.startsWith("APPROVE")) {
       order.ownerApproved = true;
       order.status = "Vendor coordination";
       order.timeline.push(event("Owner approved by SMS", `${person.name} approved ${order.id}.`));
       return { response: `${order.id} approved. Manager has been notified.`, actions: [{ type: "notify_manager_owner_approved", orderId: order.id }] };
     }
-    if (command === "DENY") {
+    if (command.startsWith("DENY")) {
       order.status = "Owner denied";
       order.timeline.push(event("Owner denied by SMS", `${person.name} denied ${order.id}.`));
       return { response: `${order.id} marked denied. Manager has been notified.`, actions: [{ type: "notify_manager_owner_denied", orderId: order.id }] };
     }
-    if (command === "PAID") {
+    if (command.startsWith("PAID")) {
       order.timeline.push(event("Owner marked paid by SMS", `${person.name} marked the invoice paid off platform.`));
+      const invoice = invoices.find((item) => item.id === order.invoiceId);
+      if (invoice) invoice.status = "Paid off platform";
+      saveState();
       return { response: `${order.id} invoice marked paid off platform.`, actions: [] };
     }
   }
@@ -238,7 +262,7 @@ export function composeActionMessage(action) {
   const messages = {
     notify_manager: {
       to: contacts.manager.phone,
-      body: `${order.id}: ${order.severity} ${order.trade} issue in Unit ${order.unit}. ${order.issue}\n\nVendor options:\n${formatVendorOptions(order)}\n\nReply APPROVE to approve, or VENDOR 1-5 to pick one.`
+      body: `${order.id}: ${order.severity} ${order.trade} issue in Unit ${order.unit}. ${order.issue}\n\nVendor options:\n${formatVendorOptions(order)}\n\nReview: ${reviewLink(order)}\nReply APPROVE ${order.id} or VENDOR ${order.id} 1-5.`
     },
     notify_owner_tenant_report: {
       to: contacts.owner.phone,
@@ -299,4 +323,9 @@ function formatVendorOptions(order) {
     .slice(0, 5)
     .map((option, index) => `${index + 1}. ${option.name} ${option.phone} ${option.estimate} ${option.availability}`)
     .join("\n");
+}
+
+function reviewLink(order) {
+  const base = process.env.APP_PUBLIC_URL || "http://127.0.0.1:5173";
+  return `${base}/?review=${encodeURIComponent(order.id)}`;
 }

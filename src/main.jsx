@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AlertTriangle,
@@ -196,15 +196,35 @@ function App() {
   const [request, setRequest] = useState(defaultRequest);
   const [twilioStatus, setTwilioStatus] = useState(null);
   const [sendStatus, setSendStatus] = useState("");
-  const activeProperty = properties.find((property) => property.id === activePropertyId) || properties[0];
+  const [appData, setAppData] = useState(null);
+  const peopleData = appData?.people || people;
+  const propertiesData = appData?.properties || properties;
+  const vendorsData = appData?.vendors || vendors;
+  const auditData = appData?.auditLog || [];
+  const activeProperty = propertiesData.find((property) => property.id === activePropertyId) || propertiesData[0];
   const visibleOrders = orders.filter((order) => order.propertyId === activeProperty.id);
   const activeOrder = visibleOrders.find((order) => order.id === activeOrderId) || visibleOrders[0];
-  const user = session ? people.find((person) => person.id === session.userId) : null;
+  const user = session ? peopleData.find((person) => person.id === session.userId) : null;
+
+  useEffect(() => {
+    loadState();
+  }, []);
+
+  async function loadState() {
+    const response = await fetch("/api/state");
+    const data = await response.json();
+    setAppData(data);
+    setOrders(data.workOrders || seedOrders);
+    setInvoices(data.invoices || seedInvoices);
+    setTwilioStatus(data.twilio);
+    const reviewId = new URLSearchParams(window.location.search).get("review");
+    if (reviewId) setActiveOrderId(reviewId);
+  }
 
   function login(event) {
     event.preventDefault();
     const normalized = phone.replace(/\D/g, "");
-    const match = people.find((person) => person.phone.replace(/\D/g, "").endsWith(normalized.slice(-10)) && person.pin === pin);
+    const match = peopleData.find((person) => person.phone.replace(/\D/g, "").endsWith(normalized.slice(-10)) && person.pin === pin);
     if (!match) return;
     setSession({ userId: match.id });
     setActivePropertyId(match.propertyIds[0]);
@@ -213,8 +233,8 @@ function App() {
   function createOrder(event) {
     event.preventDefault();
     const triage = classifyIssue(request.issue);
-    const tenant = people.find((person) => person.id === "tenant-1");
-    const vendor = vendors.find((item) => item.trade === triage.trade) || vendors[0];
+    const tenant = peopleData.find((person) => person.id === "tenant-1");
+    const vendor = vendorsData.find((item) => item.trade === triage.trade) || vendorsData[0];
     const needsOwner = request.unit === "3B" && triage.estimate > 150;
     const id = `WO-${Math.floor(3000 + Math.random() * 6000)}`;
     const order = {
@@ -277,7 +297,16 @@ function App() {
     }
   }
 
-  function addInvoice(order) {
+  async function addInvoice(order) {
+    if (appData) {
+      await fetch(`/api/work-orders/${order.id}/invoices`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: order.estimate, note: "Generated from manager review. Payment remains off platform." })
+      });
+      await loadState();
+      return;
+    }
     const id = `inv-${invoices.length + 1}`;
     setInvoices((current) => [
       {
@@ -327,7 +356,7 @@ function App() {
             <button className="primary wide" type="submit"><LockKeyhole size={16} /> Enter</button>
           </form>
           <div className="pin-grid">
-            {people.map((person) => (
+            {peopleData.map((person) => (
               <button key={person.id} onClick={() => { setPhone(person.phone); setPin(person.pin); }}>
                 <strong>{person.role}</strong>
                 <span>{person.pin}</span>
@@ -351,7 +380,7 @@ function App() {
       </header>
 
       <section className="property-switcher">
-        {properties
+        {propertiesData
           .filter((property) => user.propertyIds.includes(property.id))
           .map((property) => (
             <button
@@ -381,6 +410,10 @@ function App() {
           addInvoice={addInvoice}
           sendSms={sendSms}
           sendStatus={sendStatus}
+          people={peopleData}
+          vendors={vendorsData}
+          auditLog={auditData}
+          reloadState={loadState}
         />
       )}
 
@@ -389,7 +422,14 @@ function App() {
           property={activeProperty}
           orders={visibleOrders}
           invoices={invoices.filter((invoice) => invoice.propertyId === activeProperty.id)}
-          patchInvoice={(invoiceId, status) => setInvoices((current) => current.map((invoice) => invoice.id === invoiceId ? { ...invoice, status } : invoice))}
+          patchInvoice={async (invoiceId, status) => {
+            await fetch(`/api/invoices/${invoiceId}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status })
+            });
+            await loadState();
+          }}
         />
       )}
 
@@ -415,8 +455,10 @@ function App() {
   );
 }
 
-function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice, sendSms, sendStatus }) {
+function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice, sendSms, sendStatus, people, vendors, auditLog, reloadState }) {
   const vendor = vendors.find((item) => item.id === activeOrder.vendorId);
+  const admin = people.find((person) => person.id === property.adminId);
+  const owner = people.find((person) => person.id === property.ownerId);
   return (
     <section className="split-view">
       <div className="panel">
@@ -430,11 +472,12 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
           <button className="secondary"><CreditCard size={16} /> Manage billing</button>
         </div>
         <div className="people-list">
-          <MiniRow icon={<Users />} label="Admin / manager" value="Jordan Lee · (310) 555-0100" />
-          <MiniRow icon={<UserRound />} label="Owner" value="Priya Shah · (310) 555-0102" />
+          <MiniRow icon={<Users />} label="Admin / manager" value={`${admin?.name || "Admin"} · ${admin?.phone || ""}`} />
+          <MiniRow icon={<UserRound />} label="Owner" value={`${owner?.name || "Owner"} · ${owner?.phone || ""}`} />
           <MiniRow icon={<Home />} label="Units" value={property.units.join(", ")} />
           <MiniRow icon={<Wrench />} label="Rules" value={property.rules} />
         </div>
+        <AdminTools property={property} people={people} vendors={vendors} auditLog={auditLog} reloadState={reloadState} />
       </div>
 
       <div className="panel">
@@ -486,7 +529,103 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
   );
 }
 
+function AdminTools({ property, people, vendors, auditLog, reloadState }) {
+  const [personForm, setPersonForm] = useState({ name: "", role: "Tenant", phone: "", unit: property.units[0] || "", trade: "Plumbing" });
+  const [vendorForm, setVendorForm] = useState({ name: "", trade: "Plumbing", phone: "" });
+  const notifyPeople = people.filter((person) => ["Admin", "Owner"].includes(person.role));
+
+  async function addPerson(event) {
+    event.preventDefault();
+    await fetch("/api/admin/people", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...personForm, propertyId: property.id })
+    });
+    setPersonForm({ name: "", role: "Tenant", phone: "", unit: property.units[0] || "", trade: "Plumbing" });
+    await reloadState();
+  }
+
+  async function addVendor(event) {
+    event.preventDefault();
+    await fetch("/api/admin/vendors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(vendorForm)
+    });
+    setVendorForm({ name: "", trade: "Plumbing", phone: "" });
+    await reloadState();
+  }
+
+  async function updateNotify(person, key, value) {
+    await fetch(`/api/people/${person.id}/notify`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [key]: value })
+    });
+    await reloadState();
+  }
+
+  return (
+    <div className="admin-tools">
+      <h3>Setup</h3>
+      <form className="compact-form" onSubmit={addPerson}>
+        <input placeholder="Name" value={personForm.name} onChange={(event) => setPersonForm({ ...personForm, name: event.target.value })} />
+        <input placeholder="Phone" value={personForm.phone} onChange={(event) => setPersonForm({ ...personForm, phone: event.target.value })} />
+        <select value={personForm.role} onChange={(event) => setPersonForm({ ...personForm, role: event.target.value })}>
+          <option>Tenant</option>
+          <option>Owner</option>
+          <option>Vendor</option>
+        </select>
+        <input placeholder="Unit or trade" value={personForm.role === "Vendor" ? personForm.trade : personForm.unit} onChange={(event) => personForm.role === "Vendor" ? setPersonForm({ ...personForm, trade: event.target.value }) : setPersonForm({ ...personForm, unit: event.target.value })} />
+        <button className="secondary" type="submit"><Plus size={15} /> Add person</button>
+      </form>
+
+      <form className="compact-form" onSubmit={addVendor}>
+        <input placeholder="Vendor" value={vendorForm.name} onChange={(event) => setVendorForm({ ...vendorForm, name: event.target.value })} />
+        <input placeholder="Trade" value={vendorForm.trade} onChange={(event) => setVendorForm({ ...vendorForm, trade: event.target.value })} />
+        <input placeholder="Phone" value={vendorForm.phone} onChange={(event) => setVendorForm({ ...vendorForm, phone: event.target.value })} />
+        <button className="secondary" type="submit"><Wrench size={15} /> Add vendor</button>
+      </form>
+
+      <h3>Notifications</h3>
+      {notifyPeople.map((person) => (
+        <div className="notify-row" key={person.id}>
+          <strong>{person.name}</strong>
+          {[
+            ["tenantReports", "Tenant reports"],
+            ["everyUpdate", "Every update"],
+            ["keyUpdates", "Key updates"]
+          ].map(([key, label]) => (
+            <label className="check-row" key={key}>
+              <input type="checkbox" checked={person.notify?.[key] !== false && (key !== "everyUpdate" || person.notify?.everyUpdate === true)} onChange={(event) => updateNotify(person, key, event.target.checked)} />
+              {label}
+            </label>
+          ))}
+        </div>
+      ))}
+
+      <h3>Audit</h3>
+      <div className="audit-list">
+        {auditLog.slice(0, 5).map((item) => (
+          <div key={item.id}>
+            <strong>{item.action}</strong>
+            <span>{item.detail}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function OwnerView({ property, orders, invoices, patchInvoice }) {
+  async function emailBundle() {
+    await fetch(`/api/properties/${property.id}/tax-bundle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ year: "2026" })
+    });
+  }
+
   return (
     <section className="split-view">
       <div className="panel">
@@ -508,7 +647,7 @@ function OwnerView({ property, orders, invoices, patchInvoice }) {
         {invoices.map((invoice) => (
           <InvoiceRow key={invoice.id} invoice={invoice} onPaid={() => patchInvoice(invoice.id, "Paid off platform")} />
         ))}
-        <button className="secondary wide"><Download size={16} /> Email 2026 bundle</button>
+        <button className="secondary wide" onClick={emailBundle}><Download size={16} /> Email 2026 bundle</button>
       </div>
     </section>
   );
