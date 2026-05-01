@@ -42,6 +42,32 @@ export function getPrimaryContacts(property) {
   };
 }
 
+function wantsNotification(person, topic) {
+  if (!person) return false;
+  if (topic === "tenant_report") return person.notify?.tenantReports !== false;
+  if (topic === "every_update") return person.notify?.everyUpdate === true;
+  if (topic === "key_update") return person.notify?.keyUpdates !== false;
+  return true;
+}
+
+function notificationActionsForProperty(property, topic, orderId) {
+  const contacts = getPrimaryContacts(property);
+  const seen = new Set();
+  const candidates = [
+    { person: contacts.manager, type: "notify_manager" },
+    { person: contacts.owner, type: "notify_owner_tenant_report" },
+    { person: contacts.admin, type: "notify_admin_tenant_report" }
+  ];
+
+  return candidates
+    .filter(({ person }) => {
+      if (!person || seen.has(person.id) || !wantsNotification(person, topic)) return false;
+      seen.add(person.id);
+      return true;
+    })
+    .map(({ type }) => ({ type, orderId }));
+}
+
 export function createWorkOrderFromTenant({ tenant, body }) {
   const property = getPropertyForPerson(tenant);
   const triage = classifyIssue(body);
@@ -106,7 +132,7 @@ export function handleInboundCommand({ from, body }) {
     const created = createWorkOrderFromTenant({ tenant: person, body: normalizedBody });
     return {
       response: `Thanks ${person.name.split(" ")[0]}. We opened ${created.id} for Unit ${created.unit}. A manager is reviewing it now.`,
-      actions: [{ type: "notify_manager", orderId: created.id }]
+      actions: notificationActionsForProperty(getPropertyForPerson(person), "tenant_report", created.id)
     };
   }
 
@@ -125,7 +151,7 @@ export function handleInboundCommand({ from, body }) {
         response: order.ownerApproved
           ? `${order.id} approved. Reply VENDOR to send the job to the preferred vendor.`
           : `${order.id} approved. Owner approval is required next.`,
-        actions: order.ownerApproved ? [] : [{ type: "notify_owner", orderId: order.id }]
+        actions: order.ownerApproved ? [] : [{ type: "notify_owner_approval", orderId: order.id }]
       };
     }
     if (command.startsWith("VENDOR")) {
@@ -190,7 +216,15 @@ export function composeActionMessage(action) {
       to: contacts.manager.phone,
       body: `${order.id}: ${order.severity} ${order.trade} issue in Unit ${order.unit}. ${order.issue} Estimate ${order.estimate}. Reply APPROVE to approve.`
     },
-    notify_owner: {
+    notify_owner_tenant_report: {
+      to: contacts.owner.phone,
+      body: `${order.id}: tenant reported a ${order.severity.toLowerCase()} ${order.trade.toLowerCase()} issue at ${property.name}, Unit ${order.unit}. Estimate ${order.estimate}. No approval needed yet unless manager requests it.`
+    },
+    notify_admin_tenant_report: {
+      to: contacts.admin.phone,
+      body: `${order.id}: new tenant report at ${property.name}, Unit ${order.unit}. ${order.severity} ${order.trade}. Manager review started.`
+    },
+    notify_owner_approval: {
       to: contacts.owner.phone,
       body: `${order.id}: approve ${order.trade} repair for Unit ${order.unit}? Estimate $${order.estimate}. Reply APPROVE or DENY.`
     },

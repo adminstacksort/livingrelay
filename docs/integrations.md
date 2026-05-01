@@ -60,11 +60,26 @@ App behavior:
 
 1. Match `From` to a person phone number.
 2. Resolve role and property/unit/vendor relationship.
-3. If tenant: create or update a work order.
+3. If tenant: parse the issue, create or update a work order, and notify manager/admin/owner based on each person's notification settings.
 4. If manager: parse approval commands like `APPROVE`, `VENDOR Carlos`, `CALL ME`, `CLOSE`.
 5. If owner: parse `APPROVE`, `DENY`, questions, and `PAID`.
 6. If vendor: parse `ACCEPT`, `DECLINE`, ETA, invoice/photo messages.
 7. Store every message on the work order timeline.
+
+### Notification Settings
+
+Admins and owners should be able to choose:
+
+- `tenantReports`: notify as soon as a tenant reports a new issue.
+- `everyUpdate`: notify on every meaningful status update.
+- `keyUpdates`: notify only for important events such as approval requests, billing/invoice updates, vendor decline, completion, or overdue reminders.
+
+The default should be:
+
+- property manager/admin: tenant reports + every update + key updates
+- owner: tenant reports + key updates, but not every update
+
+Tenant report notifications are informational unless the message is an explicit approval request.
 
 ### Twilio Console Setup
 
