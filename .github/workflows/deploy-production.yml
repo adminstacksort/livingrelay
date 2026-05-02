@@ -22,7 +22,7 @@ concurrency:
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}/livingrelay
   PRODUCTION_DEPLOY_WEBHOOK_URL: ${{ secrets.PRODUCTION_DEPLOY_WEBHOOK_URL }}
-  REPO_SYNC_TOKEN_CONFIGURED: ${{ secrets.REPO_SYNC_TOKEN != '' }}
+  PRODUCTION_DEPLOY_KEY_CONFIGURED: ${{ secrets.PRODUCTION_DEPLOY_KEY != '' }}
 
 jobs:
   deploy:
@@ -65,15 +65,19 @@ jobs:
             ${{ env.IMAGE_NAME }}:production-${{ github.sha }}
 
       - name: Mirror code to production repo
-        if: ${{ vars.PRODUCTION_REPOSITORY != '' && env.REPO_SYNC_TOKEN_CONFIGURED == 'true' }}
+        if: ${{ vars.PRODUCTION_REPOSITORY != '' && env.PRODUCTION_DEPLOY_KEY_CONFIGURED == 'true' }}
         env:
           TARGET_REPOSITORY: ${{ vars.PRODUCTION_REPOSITORY }}
-          REPO_SYNC_TOKEN: ${{ secrets.REPO_SYNC_TOKEN }}
+          DEPLOY_KEY: ${{ secrets.PRODUCTION_DEPLOY_KEY }}
         run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${DEPLOY_KEY}" > ~/.ssh/livingrelay-production-deploy-key
+          chmod 600 ~/.ssh/livingrelay-production-deploy-key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote add production "https://x-access-token:${REPO_SYNC_TOKEN}@github.com/${TARGET_REPOSITORY}.git"
-          git push production HEAD:main --force-with-lease
+          git remote add production "git@github.com:${TARGET_REPOSITORY}.git"
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/livingrelay-production-deploy-key -o IdentitiesOnly=yes" git push production HEAD:main --force-with-lease
 
       - name: Trigger production runtime deploy
         if: ${{ env.PRODUCTION_DEPLOY_WEBHOOK_URL != '' }}

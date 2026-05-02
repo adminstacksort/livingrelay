@@ -52,13 +52,15 @@ PRODUCTION_REPOSITORY=adminstacksort/livingrelay-production
 Configure these as GitHub Actions repository or environment secrets:
 
 ```text
-REPO_SYNC_TOKEN
+DEV_DEPLOY_KEY
+STAGING_DEPLOY_KEY
+PRODUCTION_DEPLOY_KEY
 DEV_DEPLOY_WEBHOOK_URL
 STAGING_DEPLOY_WEBHOOK_URL
 PRODUCTION_DEPLOY_WEBHOOK_URL
 ```
 
-`REPO_SYNC_TOKEN` should be a fine-grained GitHub token with contents read/write access to only the dev, staging, and production mirror repositories.
+Each `*_DEPLOY_KEY` is an SSH private key whose public key is installed as a write deploy key on only that environment's mirror repository.
 
 The deploy webhook secrets are optional if the hosting platform deploys directly from GHCR image tags. When present, the workflow calls them after publishing the image.
 

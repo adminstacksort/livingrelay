@@ -17,7 +17,7 @@ concurrency:
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}/livingrelay
   STAGING_DEPLOY_WEBHOOK_URL: ${{ secrets.STAGING_DEPLOY_WEBHOOK_URL }}
-  REPO_SYNC_TOKEN_CONFIGURED: ${{ secrets.REPO_SYNC_TOKEN != '' }}
+  STAGING_DEPLOY_KEY_CONFIGURED: ${{ secrets.STAGING_DEPLOY_KEY != '' }}
 
 jobs:
   deploy:
@@ -59,15 +59,19 @@ jobs:
             ${{ env.IMAGE_NAME }}:staging-${{ github.sha }}
 
       - name: Mirror code to staging repo
-        if: ${{ vars.STAGING_REPOSITORY != '' && env.REPO_SYNC_TOKEN_CONFIGURED == 'true' }}
+        if: ${{ vars.STAGING_REPOSITORY != '' && env.STAGING_DEPLOY_KEY_CONFIGURED == 'true' }}
         env:
           TARGET_REPOSITORY: ${{ vars.STAGING_REPOSITORY }}
-          REPO_SYNC_TOKEN: ${{ secrets.REPO_SYNC_TOKEN }}
+          DEPLOY_KEY: ${{ secrets.STAGING_DEPLOY_KEY }}
         run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${DEPLOY_KEY}" > ~/.ssh/livingrelay-staging-deploy-key
+          chmod 600 ~/.ssh/livingrelay-staging-deploy-key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote add staging "https://x-access-token:${REPO_SYNC_TOKEN}@github.com/${TARGET_REPOSITORY}.git"
-          git push staging HEAD:main --force-with-lease
+          git remote add staging "git@github.com:${TARGET_REPOSITORY}.git"
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/livingrelay-staging-deploy-key -o IdentitiesOnly=yes" git push staging HEAD:main --force-with-lease
 
       - name: Trigger staging runtime deploy
         if: ${{ env.STAGING_DEPLOY_WEBHOOK_URL != '' }}
