@@ -12,7 +12,7 @@ export function normalizePhone(value = "") {
 
 export function classifyIssue(text = "") {
   const body = text.toLowerCase();
-  const trade = body.includes("water") || body.includes("sink") || body.includes("toilet") || body.includes("leak")
+  const trade = ["water", "sink", "toilet", "leak", "drip", "faucet", "shower", "drain", "pipe", "garbage disposal"].some((word) => body.includes(word))
     ? "Plumbing"
     : body.includes("heat") || body.includes("ac") || body.includes("thermostat")
       ? "HVAC"

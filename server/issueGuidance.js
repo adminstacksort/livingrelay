@@ -17,6 +17,7 @@ const ESCALATION_WORDS = [
 ];
 
 const FIXED_WORDS = ["fixed", "resolved", "done", "works now", "stopped", "all good"];
+const NEGATED_FIXED_WORDS = ["not fixed", "not resolved", "not done", "still broken", "still leaking", "still drips", "still dripping", "didn't fix", "didnt fix"];
 
 export function buildInitialGuidance({ order, tenant, mediaItems = [] }) {
   const guidance = guidanceForOrder(order);
@@ -69,6 +70,16 @@ export function needsImmediateManagerNotice(order) {
 function guidanceForOrder(order) {
   const body = order.issue.toLowerCase();
   if (order.trade === "Plumbing") {
+    if (body.includes("shower") || body.includes("tub")) {
+      return {
+        steps: [
+          "1. Turn the handle fully off and do not force it past its normal stop.",
+          "2. If dripping continues, put a towel down and note whether it is from the shower head, tub spout, or handle.",
+          "3. Send a close-up photo of the handle/spout and tell me if there is a separate shutoff panel nearby."
+        ],
+        safety: "If water is actively running and will not stop, reply STILL."
+      };
+    }
     if (body.includes("toilet")) {
       return {
         steps: [
@@ -122,6 +133,19 @@ function nextGuidanceForOrder(order, body, mediaItems) {
   const gotMedia = mediaItems.length ? "I got the photo/video. " : "";
   const lower = body.toLowerCase();
   if (order.trade === "Plumbing") {
+    const originalIssue = order.issue.toLowerCase();
+    if (originalIssue.includes("shower") || originalIssue.includes("tub") || lower.includes("shower") || lower.includes("tub")) {
+      if (lower.includes("shower head") || lower.includes("tub spout") || lower.includes("handle")) {
+        return {
+          summary: "Confirmed shower/tub drip source.",
+          response: `${gotMedia}Got it. Make sure the handle is fully off without forcing it. If it still drips after 5 minutes, reply STILL and I will escalate to the manager; if it stopped, reply DONE.`
+        };
+      }
+      return {
+        summary: "Asked tenant for shower/tub drip source.",
+        response: `${gotMedia}Is the drip coming from the shower head, tub spout, or handle? Reply DONE if it stopped, or STILL if it continues after the handle is fully off.`
+      };
+    }
     if (lower.includes("valve") || lower.includes("turned")) {
       return {
         summary: "Asked tenant to confirm whether shutoff stopped water.",
@@ -157,5 +181,6 @@ function shouldEscalate(lower, mediaItems) {
 }
 
 function isFixed(lower) {
+  if (NEGATED_FIXED_WORDS.some((word) => lower.includes(word))) return false;
   return FIXED_WORDS.some((word) => lower.includes(word));
 }
