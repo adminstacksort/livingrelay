@@ -181,14 +181,44 @@ app.post("/api/site-admin/login", (req, res) => {
 });
 
 function requestHost(req) {
-  const forwardedHost = String(req.headers["x-forwarded-host"] || "").split(",")[0].trim();
+  const forwardedHost = forwardedRequestHost(req);
   return (forwardedHost || req.hostname || req.headers.host || "").split(":")[0].toLowerCase();
+}
+
+function forwardedRequestHost(req) {
+  return String(req.headers["x-forwarded-host"] || "").split(",")[0].trim();
+}
+
+function isLocalDevHost(req) {
+  if (forwardedRequestHost(req)) return false;
+  return process.env.NODE_ENV !== "production" && ["localhost", "127.0.0.1", "::1"].includes(requestHost(req));
 }
 
 function isSiteAdminHost(req) {
   const host = requestHost(req);
-  const localHosts = new Set(["localhost", "127.0.0.1", "::1"]);
-  return host === siteAdminHost || (process.env.NODE_ENV !== "production" && localHosts.has(host));
+  return host === siteAdminHost || isLocalDevHost(req);
+}
+
+function isDemoExperienceHost(req) {
+  const host = requestHost(req);
+  return host === demoHost || host === siteAdminHost || isLocalDevHost(req);
+}
+
+function hasSiteAdminSession(req) {
+  const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  return Boolean(token && siteAdminSessions.has(token));
+}
+
+function isDemoExperienceRequest(req, res) {
+  const host = requestHost(req);
+  if (host === demoHost || isLocalDevHost(req)) {
+    return true;
+  }
+  if (host === siteAdminHost && hasSiteAdminSession(req)) {
+    return true;
+  }
+  res.status(404).json({ error: "Demo mode is only available at demo.livingrelay.com or from the site admin console." });
+  return false;
 }
 
 function requireSiteAdminHost(req, res, next) {
@@ -200,8 +230,7 @@ function requireSiteAdminHost(req, res, next) {
 }
 
 function requireSiteAdminSession(req, res, next) {
-  const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
-  if (token && siteAdminSessions.has(token)) {
+  if (hasSiteAdminSession(req)) {
     next();
     return;
   }
@@ -615,6 +644,7 @@ app.post("/api/work-orders/:id/book-vendor", async (req, res) => {
 
 app.post("/api/work-orders/:id/vendor-outreach", async (req, res) => {
   try {
+    if (req.body.mode === "demo" && !isDemoExperienceRequest(req, res)) return;
     const result = req.body.mode === "demo"
       ? createDemoVendorOutreach(req.params.id, { actor: req.body.actor || "manager" })
       : await startVendorQuoteCalls(req.params.id, {
@@ -787,6 +817,7 @@ app.post("/api/work-orders/:id/nudge", async (req, res) => {
 });
 
 app.post("/api/work-orders/:id/demo-outreach", (req, res) => {
+  if (!isDemoExperienceRequest(req, res)) return;
   const result = simulateVendorOutreach(req.params.id);
   if (result.error) {
     res.status(404).json(result);
@@ -796,6 +827,7 @@ app.post("/api/work-orders/:id/demo-outreach", (req, res) => {
 });
 
 app.post("/api/work-orders/:id/select-quote", (req, res) => {
+  if (!isDemoExperienceRequest(req, res)) return;
   const result = selectDemoQuote(req.params.id, req.body.quoteId);
   if (result.error) {
     res.status(404).json(result);
@@ -851,6 +883,7 @@ app.post("/api/work-orders/:id/live-calls/:callId/takeover", (req, res) => {
 });
 
 app.post("/api/work-orders/:id/full-flow-demo", (req, res) => {
+  if (!isDemoExperienceRequest(req, res)) return;
   const result = runFullFlowDemo(req.params.id);
   if (result.error) {
     res.status(404).json(result);
