@@ -625,6 +625,7 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
           </div>
           {sendStatus && <p className="send-status">{sendStatus}</p>}
         </article>
+        <TroubleshootingPanel order={activeOrder} />
         <LiveCallPanel order={activeOrder} updateLiveCall={updateLiveCall} />
         <DemoOutreachPanel order={activeOrder} selectDemoQuote={selectDemoQuote} />
         <FullFlowPanel order={activeOrder} />
@@ -866,6 +867,41 @@ function DemoOutreachPanel({ order, selectDemoQuote }) {
           </article>
         ))}
       </div>
+    </div>
+  );
+}
+
+function TroubleshootingPanel({ order }) {
+  const tenantMessages = (order.messages || []).filter((item) => ["tenant", "relay"].includes(item.from)).slice(-6);
+  const mediaItems = order.media || [];
+  if (!order.troubleshooting && !mediaItems.length && !tenantMessages.length) return null;
+
+  return (
+    <div className="troubleshooting-panel">
+      <div className="troubleshooting-head">
+        <div>
+          <span className="eyebrow">Tenant guidance</span>
+          <h3>{order.troubleshooting?.status || "Conversation"}</h3>
+        </div>
+        <span className="pill">{mediaItems.length} media</span>
+      </div>
+      <div className="guidance-thread">
+        {tenantMessages.map((item, index) => (
+          <div className={item.from === "tenant" ? "tenant-line" : "relay-line"} key={`${item.stamp}-${index}`}>
+            <strong>{item.from === "tenant" ? "Tenant" : "LivingRelay"}</strong>
+            <span>{item.text}</span>
+          </div>
+        ))}
+      </div>
+      {!!mediaItems.length && (
+        <div className="media-list">
+          {mediaItems.map((item, index) => (
+            <a href={item.url} target="_blank" rel="noreferrer" key={`${item.url}-${index}`}>
+              <FileText size={15} /> {item.contentType || "Media"} · {index + 1}
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

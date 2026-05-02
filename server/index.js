@@ -284,7 +284,8 @@ app.post("/api/twilio/inbound", async (req, res) => {
   try {
     const from = req.body.From;
     const body = req.body.Body || "";
-    const outcome = await handleInboundCommand({ from, body });
+    const mediaItems = extractTwilioMedia(req.body);
+    const outcome = await handleInboundCommand({ from, body, mediaItems });
 
     for (const action of outcome.actions) {
       if (action.type === "call_vendor_quotes") {
@@ -318,6 +319,15 @@ app.post("/api/twilio/inbound", async (req, res) => {
     `.trim());
   }
 });
+
+function extractTwilioMedia(body) {
+  const count = Number(body.NumMedia || 0);
+  return Array.from({ length: count }).map((_, index) => ({
+    url: body[`MediaUrl${index}`],
+    contentType: body[`MediaContentType${index}`],
+    receivedAt: new Date().toISOString()
+  })).filter((item) => item.url);
+}
 
 function escapeXml(value) {
   return String(value)

@@ -894,6 +894,81 @@ select {
   margin-bottom: 12px;
 }
 
+.troubleshooting-panel {
+  border: 1px solid #d8d0c3;
+  border-radius: 8px;
+  background: #fffdfa;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.troubleshooting-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.guidance-thread {
+  display: grid;
+  gap: 8px;
+}
+
+.guidance-thread div {
+  border: 1px solid #e8e0d4;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.tenant-line {
+  background: #fbf6ef;
+}
+
+.relay-line {
+  background: #edf8f4;
+}
+
+.guidance-thread strong,
+.guidance-thread span {
+  display: block;
+}
+
+.guidance-thread strong {
+  color: #26312f;
+  font-size: 12px;
+}
+
+.guidance-thread span {
+  margin-top: 4px;
+  color: #4f5d59;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.media-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.media-list a {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #e8e0d4;
+  border-radius: 8px;
+  background: #fbf6ef;
+  color: #26312f;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 820;
+  overflow-wrap: anywhere;
+}
+
 .live-call-panel {
   border: 1px solid #d8d0c3;
   border-radius: 8px;
@@ -1170,6 +1245,10 @@ select {
   }
 
   .call-transcript div {
+    grid-template-columns: 1fr;
+  }
+
+  .media-list {
     grid-template-columns: 1fr;
   }
 

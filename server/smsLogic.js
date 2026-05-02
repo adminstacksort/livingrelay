@@ -1,5 +1,6 @@
 import { event, invoices, message, people, properties, recordAudit, saveState, vendors, workOrders } from "./data.js";
 import { findVendorOptions } from "./anthropicVendorSearch.js";
+import { buildInitialGuidance, handleTenantTroubleshootingReply, needsImmediateManagerNotice } from "./issueGuidance.js";
 
 export function normalizePhone(value = "") {
   const digits = String(value).replace(/\D/g, "");
@@ -69,7 +70,7 @@ function notificationActionsForProperty(property, topic, orderId) {
     .map(({ type }) => ({ type, orderId }));
 }
 
-export async function createWorkOrderFromTenant({ tenant, body }) {
+export async function createWorkOrderFromTenant({ tenant, body, mediaItems = [] }) {
   const property = getPropertyForPerson(tenant);
   const triage = classifyIssue(body);
   const vendor = vendors.find((item) => item.trade === triage.trade) || vendors[0];
@@ -82,7 +83,7 @@ export async function createWorkOrderFromTenant({ tenant, body }) {
     tenantId: tenant.id,
     trade: triage.trade,
     severity: triage.severity,
-    status: "Manager review",
+    status: "Tenant troubleshooting",
     estimate: triage.estimate,
     vendorId: vendor.id,
     issue: body,
@@ -92,17 +93,35 @@ export async function createWorkOrderFromTenant({ tenant, body }) {
     invoiceId: null,
     timeline: [
       event("Tenant SMS received", body),
-      event("AI triaged request", `${triage.severity} ${triage.trade}; suggested ${vendor.name}.`)
+      event("AI triaged request", `${triage.severity} ${triage.trade}; tenant guidance started before vendor outreach.`)
     ],
     messages: [
       message("tenant", body),
-      message("relay", `Thanks ${tenant.name.split(" ")[0]}. LivingRelay classified this as ${triage.trade}. A manager is reviewing now.`)
-    ]
+    ],
+    media: mediaItems
   };
-  order.vendorOptions = await findVendorOptions({ property, order, configuredVendors: vendors });
-  order.timeline.push(event("AI found vendor options", `${order.vendorOptions.length} local options prepared for manager review.`));
+  const guidance = buildInitialGuidance({ order, tenant, mediaItems });
+  order.messages.push(message("relay", guidance));
+  order.troubleshooting = {
+    status: "Active",
+    startedAt: new Date().toISOString(),
+    guidanceCount: 1
+  };
   workOrders.unshift(order);
   return order;
+}
+
+export async function escalateTenantOrder({ order, tenant }) {
+  const property = properties.find((item) => item.id === order.propertyId) || getPropertyForPerson(tenant);
+  order.vendorOptions = await findVendorOptions({ property, order, configuredVendors: vendors });
+  order.troubleshooting = {
+    ...(order.troubleshooting || {}),
+    status: "Escalated",
+    escalatedAt: new Date().toISOString()
+  };
+  order.timeline.push(event("AI prepared vendor options", `${order.vendorOptions.length} local options prepared after tenant troubleshooting.`));
+  saveState();
+  return notificationActionsForProperty(property, "tenant_report", order.id);
 }
 
 export function latestOpenOrderForPerson(person, body = "") {
@@ -123,7 +142,7 @@ export function latestOpenOrderForPerson(person, body = "") {
   return workOrders.find((order) => order.propertyId === property.id && order.status !== "Closed");
 }
 
-export async function handleInboundCommand({ from, body }) {
+export async function handleInboundCommand({ from, body, mediaItems = [] }) {
   const person = findPersonByPhone(from);
   if (!person) {
     return {
@@ -144,13 +163,24 @@ export async function handleInboundCommand({ from, body }) {
   }
 
   if (person.role === "Tenant") {
-    const created = await createWorkOrderFromTenant({ tenant: person, body: normalizedBody });
+    if (order?.status === "Tenant troubleshooting") {
+      const outcome = handleTenantTroubleshootingReply({ order, tenant: person, body: normalizedBody, mediaItems });
+      if (outcome.escalate) {
+        return {
+          response: outcome.response,
+          actions: await escalateTenantOrder({ order, tenant: person })
+        };
+      }
+      return outcome;
+    }
+
+    const created = await createWorkOrderFromTenant({ tenant: person, body: normalizedBody, mediaItems });
+    const actions = needsImmediateManagerNotice(created)
+      ? [{ type: "notify_manager_guidance_started", orderId: created.id }]
+      : [];
     return {
-      response: `Thanks ${person.name.split(" ")[0]}. We opened ${created.id} for Unit ${created.unit}. A manager is reviewing it now.`,
-      actions: [
-        ...notificationActionsForProperty(getPropertyForPerson(person), "tenant_report", created.id),
-        { type: "call_vendor_quotes", orderId: created.id }
-      ]
+      response: created.messages.at(-1).text,
+      actions
     };
   }
 
@@ -271,6 +301,10 @@ export function composeActionMessage(action) {
     notify_admin_tenant_report: {
       to: contacts.admin.phone,
       body: `${order.id}: new tenant report at ${property.name}, Unit ${order.unit}. ${order.severity} ${order.trade}. Manager review started.`
+    },
+    notify_manager_guidance_started: {
+      to: contacts.manager.phone,
+      body: `${order.id}: ${order.severity} ${order.trade} issue in Unit ${order.unit}. LivingRelay is guiding the tenant through safe first steps before vendor outreach. Issue: ${order.issue}\n\nReview: ${reviewLink(order)}`
     },
     notify_owner_approval: {
       to: contacts.owner.phone,
