@@ -6,7 +6,7 @@ The active app now demonstrates:
 
 - shared phone + PIN login
 - role-aware mobile web surfaces
-- admin/manager property setup
+- manager property setup
 - subscription/payment placeholder
 - SMS-style work orders
 - tenant request creation
@@ -49,8 +49,8 @@ Use a simple full-stack app next:
 
 The first live milestone should prove:
 
-1. Admin creates paid property profile.
-2. Admin adds one tenant, one owner, one vendor.
+1. Manager creates paid property profile.
+2. Manager adds one tenant, one owner, one vendor.
 3. Tenant texts issue to Twilio number.
 4. Manager receives triage SMS.
 5. Manager approves by SMS.
@@ -70,7 +70,7 @@ The first live milestone should prove:
 - Base property monthly price
 - Additional property monthly price
 - First test property name/address
-- Admin phone
+- Manager phone
 - Owner phone
 - Tenant phone
 - Vendor phone

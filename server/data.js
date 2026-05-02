@@ -20,10 +20,10 @@ const seedState = {
       name: "Shah Property Group",
       status: "Active",
       plan: "$0/property + $25 vendor dispatch",
-      stripeCustomerId: "cus_demo_shah",
+      stripeCustomerId: "",
       billingPayerRole: "Owner",
       billingPayerPersonId: "owner-1",
-      billingSetupStatus: "Card on file",
+      billingSetupStatus: "Needs card",
       ownerSubscriptionStatus: "Free",
       ownerSubscriptionPlan: "Owner Subscription",
       productionVendorCallsEnabled: true,
@@ -34,26 +34,26 @@ const seedState = {
     { id: "site-admin-1", name: "Avery Stone", role: "Site Admin", phone: "+13105550199", pin: "9999", propertyIds: [], accountIds: ["acct-1"], notify: { platformAlerts: true } },
     { id: "admin-1", name: "Jordan Lee", role: "Manager", phone: "+13105550100", email: "jordan@shahproperty.example", pin: "1111", propertyIds: ["p-1", "p-2"], managesPropertyIds: ["p-1"], notify: { tenantReports: true, everyUpdate: true, keyUpdates: true } },
     { id: "owner-1", name: "Priya Shah", role: "Owner", phone: "+13105550102", email: "priya@shahproperty.example", pin: "3333", propertyIds: ["p-1"], notify: { tenantReports: true, everyUpdate: false, keyUpdates: true } },
-    { id: "tenant-1", name: "Maya Chen", role: "Tenant", phone: "+13105550103", pin: "4444", propertyIds: ["p-1"], unit: "3B" },
+    { id: "tenant-1", name: "Maya Chen", role: "Tenant", phone: "+13105550103", pin: "4444", propertyIds: ["p-1"], unit: "Garden flat" },
     { id: "vendor-1", name: "Carlos Plumbing", role: "Vendor", phone: "+13105550104", pin: "5555", propertyIds: ["p-1"], trade: "Plumbing" }
   ],
   properties: [
     {
       id: "p-1",
       accountId: "acct-1",
-      name: "Mar Vista Flats",
-      address: "11820 Pacific Ave, Los Angeles, CA",
+      name: "Noe Valley Duplex",
+      address: "11820 Sanchez St, San Francisco, CA",
       subscription: "Active",
       plan: "$0/property + $25 only when a vendor is booked",
-      units: ["2A", "3B", "7C"],
+      units: ["Garden flat", "Upper home"],
       ownerId: "owner-1",
       managerId: "admin-1",
       adminId: "admin-1",
       billingPayerRole: "Owner",
       billingPayerPersonId: "owner-1",
-      billingSetupStatus: "Card on file",
+      billingSetupStatus: "Needs card",
       approvalThreshold: 150,
-      rules: "Plumbing under $300 goes to Carlos first. Unit 3B needs owner approval above $150. HVAC always requires manager review. Emergencies: active water, gas smell, sparking, no lock.",
+      rules: "Plumbing under $300 goes to Carlos first. Any repair above $150 needs owner approval. HVAC always requires manager review. Emergencies: active water, gas smell, sparking, no lock.",
       dispatchSettings: {
         vendorOutreachMode: "manager_approval",
         autoOutreachAfterTenantConfirmed: false,
@@ -75,7 +75,7 @@ const seedState = {
     {
       id: "WO-2481",
       propertyId: "p-1",
-      unit: "3B",
+      unit: "Garden flat",
       tenantId: "tenant-1",
       trade: "Plumbing",
       severity: "Urgent",
@@ -99,7 +99,7 @@ const seedState = {
         questions: [
           "Are you available for this job, and what is your earliest arrival window?",
           "What callout, diagnostic, emergency, after-hours, or minimum labor fee applies?",
-          "Can you offer any property-manager, repeat-customer, or multi-unit discount?",
+          "Can you offer any repeat-customer or small-property discount?",
           "What warranty do you provide on labor and parts?",
           "Do you need tenant photos, access instructions, parking, gate code, or shutoff details before dispatch?",
           "Unless the property manager gives different instructions, can you send the invoice to the property manager, owner, and LivingRelay recordkeeping inbox?"
@@ -123,7 +123,7 @@ const seedState = {
       timeline: [
         event("Tenant texted issue", "Maya reported active water under kitchen sink."),
         event("AI asked follow-up", "Requested access notes and photo."),
-        event("Manager approved", "Owner approval needed because Unit 3B estimate is above $150.")
+        event("Manager approved", "Owner approval needed because the repair estimate is above $150.")
       ],
       messages: [
         message("tenant", "Water is dripping under my kitchen sink."),
@@ -227,36 +227,44 @@ function mergeLoadedState(loaded) {
   };
   const accounts = (loaded.accounts?.length ? loaded.accounts : seedState.accounts).map((account) => ({
     ...account,
+    stripeCustomerId: isDemoStripeCustomer(account.stripeCustomerId) ? "" : account.stripeCustomerId,
     plan: account.plan?.includes("$149") ? "$0/property + $25 vendor dispatch" : account.plan || "$0/property + $25 vendor dispatch",
     billingPayerRole: account.billingPayerRole || "Owner",
-    billingSetupStatus: account.billingSetupStatus || (account.stripeCustomerId ? "Card on file" : "Needs card"),
+    billingSetupStatus: isDemoStripeCustomer(account.stripeCustomerId) ? "Needs card" : account.billingSetupStatus || (account.stripeCustomerId ? "Card on file" : "Needs card"),
     ownerSubscriptionStatus: account.ownerSubscriptionStatus || "Free",
     ownerSubscriptionPlan: account.ownerSubscriptionPlan || "Owner Subscription",
     productionVendorCallsEnabled: account.productionVendorCallsEnabled !== false
   }));
   const people = ensureSiteAdmin(loaded.people || seedState.people, accounts)
     .map((person) => person.role === "Admin" ? { ...person, role: "Manager" } : person);
-  const properties = (loaded.properties || seedState.properties).map((property) => ({
-    ...property,
-    accountId: property.accountId || accounts[0]?.id || "acct-1",
-    plan: property.plan?.includes("$149") || property.plan?.includes("Payment required")
-      ? "$0/property + $25 only when a vendor is booked"
-      : property.plan || "$0/property + $25 only when a vendor is booked",
-    billingPayerRole: property.billingPayerRole || "Owner",
-    billingSetupStatus: property.billingSetupStatus || "Needs card",
-    launchNotificationStatus: property.launchNotificationStatus || "Pending setup",
-    dispatchSettings: {
-      vendorOutreachMode: "manager_approval",
-      autoOutreachAfterTenantConfirmed: false,
-      emergencyOutreachMode: "manager_approval",
-      maxVendorsToCall: 5,
-      requireTenantAvailabilityBeforeBooking: true,
-      inboundInvoiceEmail: process.env.INBOUND_EMAIL_ADDRESS || "invoices@livingrelay.com",
-      productionVendorCallsEnabled: true,
-      ...(property.dispatchSettings || {})
-    },
-    rules: String(property.rules || "").replace(/\badmin review\b/gi, "manager review")
-  }));
+  const properties = (loaded.properties || seedState.properties).map((property) => {
+    const accountId = property.accountId || accounts[0]?.id || "acct-1";
+    const account = accounts.find((item) => item.id === accountId);
+    const billingSetupStatus = account?.billingSetupStatus === "Card on file"
+      ? property.billingSetupStatus || "Card on file"
+      : "Needs card";
+    return {
+      ...property,
+      accountId,
+      plan: property.plan?.includes("$149") || property.plan?.includes("Payment required")
+        ? "$0/property + $25 only when a vendor is booked"
+        : property.plan || "$0/property + $25 only when a vendor is booked",
+      billingPayerRole: property.billingPayerRole || "Owner",
+      billingSetupStatus,
+      launchNotificationStatus: property.launchNotificationStatus || "Pending setup",
+      dispatchSettings: {
+        vendorOutreachMode: "manager_approval",
+        autoOutreachAfterTenantConfirmed: false,
+        emergencyOutreachMode: "manager_approval",
+        maxVendorsToCall: 5,
+        requireTenantAvailabilityBeforeBooking: true,
+        inboundInvoiceEmail: process.env.INBOUND_EMAIL_ADDRESS || "invoices@livingrelay.com",
+        productionVendorCallsEnabled: true,
+        ...(property.dispatchSettings || {})
+      },
+      rules: String(property.rules || "").replace(/\badmin review\b/gi, "manager review")
+    };
+  });
   const workOrders = (loaded.workOrders || seedState.workOrders).map((order) => ({
     ...order,
     demoFlow: order.demoFlow?.map((step) => ({
@@ -277,6 +285,10 @@ function mergeLoadedState(loaded) {
     billingEvents: loaded.billingEvents || seedState.billingEvents,
     auditLog: loaded.auditLog || []
   };
+}
+
+function isDemoStripeCustomer(customerId = "") {
+  return String(customerId).startsWith("cus_demo");
 }
 
 function ensureSiteAdmin(loadedPeople, accounts) {

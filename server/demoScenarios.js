@@ -8,7 +8,7 @@ const scenarios = {
     trade: "Plumbing",
     severity: "Urgent",
     estimate: 325,
-    unit: "3B",
+    unit: "Garden flat kitchen",
     access: "Tenant is home after 1 PM. Text before entering.",
     options: [
       ["Carlos Plumbing", "+13105550104", "$150-$400", "Preferred vendor"],
@@ -20,11 +20,11 @@ const scenarios = {
   },
   heat: {
     title: "No heat",
-    tenantText: "The heat is not turning on and the apartment is cold. Thermostat is blank.",
+    tenantText: "The heat is not turning on and the garden flat is cold. Thermostat is blank.",
     trade: "HVAC",
     severity: "Urgent",
     estimate: 425,
-    unit: "2A",
+    unit: "Garden flat",
     access: "Tenant can do today between 3 PM and 7 PM.",
     options: [
       ["Nova HVAC", "+14245550195", "$250-$550", "Preferred vendor"],
@@ -40,7 +40,7 @@ const scenarios = {
     trade: "Electrical",
     severity: "Urgent",
     estimate: 185,
-    unit: "7C",
+    unit: "Primary bedroom",
     access: "Tenant is available all afternoon.",
     options: [
       ["Spark Right Electric", "+13105550119", "$150-$350", "Preferred vendor"],

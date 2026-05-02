@@ -579,6 +579,10 @@ app.post("/api/billing/confirm-setup-session", async (req, res) => {
       return;
     }
     const setupIntent = await retrieveStripeSetupIntent(session.setup_intent);
+    if (session.status !== "complete" || setupIntent?.status !== "succeeded" || !setupIntent?.payment_method) {
+      res.status(400).json({ error: "payment method setup is not complete" });
+      return;
+    }
     const account = await completeBillingSetup({
       accountId: session.metadata?.accountId || setupIntent?.metadata?.accountId,
       customerId: session.customer || setupIntent?.customer,
@@ -596,6 +600,10 @@ app.post("/api/billing/confirm-owner-subscription", async (req, res) => {
     const session = await retrieveStripeCheckoutSession(req.body.sessionId);
     if (!session || session.mode !== "subscription") {
       res.status(400).json({ error: "subscription session not found" });
+      return;
+    }
+    if (session.status !== "complete" || session.payment_status !== "paid" || !session.subscription) {
+      res.status(400).json({ error: "owner subscription checkout is not complete" });
       return;
     }
     const account = completeOwnerSubscription({

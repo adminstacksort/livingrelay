@@ -33,3 +33,5 @@ Canonical domains:
 - Dev: `https://dev.livingrelay.com`
 - Staging: `https://staging.livingrelay.com`
 - Production: `https://livingrelay.com`
+- Production app/API alias: `https://app.livingrelay.com`
+- Site owner console: `https://admin.livingrelay.com`

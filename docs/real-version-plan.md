@@ -20,18 +20,16 @@ A user enters a phone number and PIN. The app resolves:
 
 - who they are
 - which property or unit they belong to
-- whether they are admin, property manager, owner, tenant, vendor, or staff
+- whether they are manager, owner, tenant, vendor, or internal staff
 - which actions they can take
 
 This keeps the product simple for non-technical users while avoiding separate portals for every role.
 
 ## Roles
 
-### Admin
+### Manager
 
 Usually the property manager who created the property profile.
-
-By default, the admin is also the property manager for the property. A separate property manager role should only be added when the admin explicitly delegates day-to-day maintenance operations to someone else.
 
 Can:
 
@@ -125,10 +123,10 @@ PIN login is good for low-friction property workflows, but high-privilege admin 
 
 The app should work natively over SMS.
 
-Initial admin setup:
+Initial manager setup:
 
-1. Admin creates property profile.
-2. Admin adds tenants, owners, vendors, and their own phone number.
+1. Manager creates property profile.
+2. Manager adds tenants, owners, vendors, and their own phone number.
 3. Each person receives an intro SMS with their role and PIN.
 4. Tenants can text the LivingRelay number to start a maintenance request.
 
@@ -255,7 +253,7 @@ Minimum entities:
 ## MVP Build Order
 
 1. Backend, database, and auth/PIN model.
-2. Admin setup for property, units, tenants, owners, vendors.
+2. Manager setup for property, units, tenants, owners, vendors.
 3. Shared URL login by phone + PIN.
 4. Tenant request page.
 5. Manager work-order desk.

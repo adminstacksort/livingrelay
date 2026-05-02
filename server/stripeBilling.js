@@ -32,6 +32,7 @@ export async function createStripeSetupSession({ account, successUrl, cancelUrl 
     success_url: checkoutReturnUrl(successUrl || baseUrl, "setup-complete"),
     cancel_url: checkoutReturnUrl(cancelUrl || baseUrl, "setup-cancelled"),
     "metadata[accountId]": account.id,
+    "setup_intent_data[usage]": "off_session",
     "setup_intent_data[metadata][accountId]": account.id
   });
 }
@@ -189,8 +190,18 @@ function appBaseUrl() {
 }
 
 function checkoutReturnUrl(rawUrl, billingStatus) {
-  const url = new URL(rawUrl || appBaseUrl());
+  const url = safeReturnUrl(rawUrl || appBaseUrl());
   url.searchParams.set("billing", billingStatus);
-  if (billingStatus === "setup-complete") url.searchParams.set("session_id", "{CHECKOUT_SESSION_ID}");
+  if (billingStatus.endsWith("-complete")) url.searchParams.set("session_id", "{CHECKOUT_SESSION_ID}");
   return url.toString();
+}
+
+function safeReturnUrl(rawUrl) {
+  const base = new URL(appBaseUrl());
+  try {
+    const url = new URL(rawUrl || base.toString(), base);
+    return url.origin === base.origin ? url : base;
+  } catch {
+    return base;
+  }
 }

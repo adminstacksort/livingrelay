@@ -25,7 +25,7 @@ Do not open `index.html` directly from Finder. The demo is a Vite/React app and 
 ## Current Real V1 Prototype Scope
 
 - Shared phone + PIN login
-- Role-aware views for admin/manager, owner, tenant, and vendor
+- Role-aware views for manager, owner, tenant, and vendor coordination
 - Property subscription/payment placeholder
 - SMS-style work orders
 - Tenant request creation

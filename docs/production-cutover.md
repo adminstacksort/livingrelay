@@ -6,7 +6,7 @@ Use this scope for the first real property manager:
 
 - One admin account
 - One paid property
-- Units, tenants, owner, preferred vendors
+- Homes/spaces, residents, owner, preferred vendors
 - Tenant SMS issue intake
 - AI troubleshooting before escalation
 - Manager review

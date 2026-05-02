@@ -40,7 +40,7 @@ const people = [
   { id: "site-admin-1", name: "Avery Stone", role: "Site Admin", phone: "(310) 555-0199", pin: "9999", propertyIds: [], accountIds: ["acct-1"] },
   { id: "admin-1", name: "Jordan Lee", role: "Manager", phone: "(310) 555-0100", pin: "1111", propertyIds: ["p-1", "p-2"], managesPropertyIds: ["p-1"] },
   { id: "owner-1", name: "Priya Shah", role: "Owner", phone: "(310) 555-0102", pin: "3333", propertyIds: ["p-1"] },
-  { id: "tenant-1", name: "Maya Chen", role: "Tenant", phone: "(310) 555-0103", pin: "4444", propertyIds: ["p-1"], unit: "ADU" },
+  { id: "tenant-1", name: "Maya Chen", role: "Tenant", phone: "(310) 555-0103", pin: "4444", propertyIds: ["p-1"], unit: "Garden flat" },
   { id: "vendor-1", name: "Carlos Plumbing", role: "Vendor", phone: "(310) 555-0104", pin: "5555", propertyIds: ["p-1"], trade: "Plumbing" }
 ];
 
@@ -52,27 +52,27 @@ const properties = [
   {
     id: "p-1",
     accountId: "acct-1",
-    name: "Mar Vista Bungalow",
-    address: "11820 Pacific Ave, Los Angeles, CA",
+    name: "Noe Valley Duplex",
+    address: "11820 Sanchez St, San Francisco, CA",
     subscription: "Active",
     plan: "$0/property + $25 only when a vendor is booked",
-    units: ["Main house", "ADU", "Guest house"],
+    units: ["Garden flat", "Upper home"],
     ownerId: "owner-1",
     managerId: "admin-1",
     adminId: "admin-1",
     billingPayerRole: "Owner",
     billingPayerPersonId: "owner-1",
     billingSetupStatus: "Card on file",
-    rules: "Plumbing under $300 goes to Carlos first. ADU jobs need owner approval above $150. HVAC always requires manager review. Emergencies: active water, gas smell, sparking, no lock."
+    rules: "Plumbing under $300 goes to Carlos first. Any repair above $150 needs owner approval. HVAC always requires manager review. Emergencies: active water, gas smell, sparking, no lock."
   },
   {
     id: "p-2",
     accountId: "acct-1",
-    name: "Hilltop House + Casita",
-    address: "420 Ridge Lane, Pasadena, CA",
+    name: "Brooklyn Brownstone",
+    address: "420 Dean St, Brooklyn, NY",
     subscription: "Ready, no monthly charge",
     plan: "$0/property + $25 only when a vendor is booked",
-    units: ["Main house", "Casita"],
+    units: ["Parlor floor", "Garden level"],
     ownerId: "owner-1",
     managerId: "admin-1",
     adminId: "admin-1",
@@ -93,7 +93,7 @@ const seedOrders = [
   {
     id: "WO-2481",
     propertyId: "p-1",
-    unit: "ADU",
+    unit: "Garden flat",
     tenantId: "tenant-1",
     trade: "Plumbing",
     severity: "Urgent",
@@ -109,7 +109,7 @@ const seedOrders = [
     timeline: [
       event("Tenant texted issue", "Maya reported active water under kitchen sink."),
       event("AI asked follow-up", "Requested access notes and photo."),
-      event("Manager approved", "Owner approval needed because the ADU estimate is above $150.")
+      event("Manager approved", "Owner approval needed because the repair estimate is above $150.")
     ],
     messages: [
       sms("tenant", "Water is dripping under my kitchen sink."),
@@ -208,7 +208,7 @@ const seedBillingEvents = [
 ];
 
 const defaultRequest = {
-  unit: "ADU",
+  unit: "Garden flat",
   issue: "",
   access: "",
   photos: ""
@@ -403,6 +403,10 @@ function App() {
     : authPeople.find((person) => person.phone.replace(/\D/g, "").endsWith(normalizedLoginPhone.slice(-10)) && person.pin === pin);
   const route = parseDashboardRoute();
 
+  function authHeaders(headers = {}) {
+    return siteAdminToken ? { ...headers, Authorization: `Bearer ${siteAdminToken}` } : headers;
+  }
+
   useEffect(() => {
     loadState();
     confirmBillingReturn();
@@ -527,7 +531,7 @@ function App() {
     const triage = classifyIssue(request.issue);
     const tenant = peopleData.find((person) => person.id === "tenant-1");
     const vendor = vendorsData.find((item) => item.trade === triage.trade) || vendorsData[0];
-    const needsOwner = request.unit === "ADU" && triage.estimate > 150;
+    const needsOwner = triage.estimate > 150;
     const id = `WO-${Math.floor(3000 + Math.random() * 6000)}`;
     const order = {
       id,
@@ -602,21 +606,21 @@ function App() {
   }
 
   async function runDemoOutreach(orderId) {
-    await fetch(`/api/work-orders/${orderId}/demo-outreach`, { method: "POST" });
+    await fetch(`/api/work-orders/${orderId}/demo-outreach`, { method: "POST", headers: authHeaders() });
     await loadState();
   }
 
   async function selectDemoQuote(orderId, quoteId) {
     await fetch(`/api/work-orders/${orderId}/select-quote`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ quoteId })
     });
     await loadState();
   }
 
   async function runFullFlowDemo(orderId) {
-    await fetch(`/api/work-orders/${orderId}/full-flow-demo`, { method: "POST" });
+    await fetch(`/api/work-orders/${orderId}/full-flow-demo`, { method: "POST", headers: authHeaders() });
     await loadState();
   }
 
@@ -624,7 +628,7 @@ function App() {
     setDemoStatus("Building demo scenario...");
     const response = await fetch("/api/demo/scenario", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ scenario })
     });
     const data = await response.json();
@@ -670,7 +674,7 @@ function App() {
     setSendStatus(mode === "demo" ? "Generating demo vendor call outcomes..." : mode === "test" ? "Calling your phone as the test vendor..." : "Starting vendor outreach...");
     const response = await fetch(`/api/work-orders/${orderId}/vendor-outreach`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ actor: user?.name || "manager", mode, demoFallback: true, testVendorPhone: mode === "test" ? user?.phone : "" })
     });
     const data = await response.json();
@@ -714,7 +718,7 @@ function App() {
       return;
     }
     patchOrder(
-      { status: "Vendor scheduled", dispatchFee: { status: "Needs billing setup", amount: 25, reason: "Connect Stripe to charge automatically." } },
+      { status: "Vendor scheduled", dispatchFee: { status: "Needs billing setup", amount: 25, reason: "Add a payment method before dispatch fees can be collected automatically." } },
       "Vendor booked",
       "LivingRelay coordination fee applies now."
     );
@@ -960,7 +964,7 @@ function App() {
         <VendorView orders={visibleOrders.filter((order) => order.vendorId === "v-1")} />
       )}
 
-      {user.role === "Site Admin" ? (
+      {user.role === "Site Admin" && (
         <section className="integration-strip">
           <IntegrationCard
             icon={<Smartphone />}
@@ -972,19 +976,6 @@ function App() {
           />
           <IntegrationCard icon={<CreditCard />} title="Revenue infrastructure" text={stripeData.configured ? "Stripe dispatch billing is ready." : `Missing: ${stripeData.missing?.join(", ") || "Stripe keys"}.`} />
           <IntegrationCard icon={<Database />} title="Admin console isolation" text="The admin console is host-gated to admin.livingrelay.com and protected by password login." />
-        </section>
-      ) : (
-        <section className="integration-strip">
-          <IntegrationCard
-            icon={<Smartphone />}
-            title="Twilio SMS"
-            text={twilioStatus?.configured ? `Configured from ${twilioStatus.from}` : "Check local API configuration."}
-            status={twilioCheck.message}
-            statusTone={twilioCheck.state}
-            action={<button className="ghost" onClick={checkTwilio} disabled={twilioCheck.state === "checking"}>{twilioCheck.state === "checking" ? "Checking" : "Check"}</button>}
-          />
-          <IntegrationCard icon={<CreditCard />} title="Stripe billing" text={stripeData.configured ? "$25 dispatch billing is configured." : `Needed for dispatch fees: ${stripeData.missing?.join(", ") || "Stripe keys"}.`} />
-        <IntegrationCard icon={<Banknote />} title="Vendor invoices" text="Vendors are paid directly outside LivingRelay; we track delivery and paid status." />
         </section>
       )}
     </main>
@@ -1033,9 +1024,9 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
         </nav>
         <div className="landing-hero-grid">
           <div className="hero-copy">
-            <span className="hero-kicker">Property maintenance over SMS</span>
+            <span className="hero-kicker">City home maintenance over SMS</span>
             <h1>LivingRelay</h1>
-            <p>One shared workspace for managers, owners, and tenants. Tenant texts become triaged work orders, approvals, vendor coordination, and tax-ready records.</p>
+            <p>One shared workspace for rental homes, duplexes, townhomes, and small multifamily properties. Resident texts become triaged work orders, approvals, vendor coordination, and tax-ready records.</p>
             <div className="hero-actions">
               <button className="primary" onClick={() => setLandingMode("create")}><Building2 size={17} /> Create a property</button>
               <button className="secondary" onClick={() => setLandingMode("login")}><LockKeyhole size={17} /> Log into your property</button>
@@ -1074,14 +1065,14 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
               </>
             ) : (
               <>
-                <SectionTitle icon={<Building2 />} title="Create your first property" eyebrow="Self-serve setup" />
+                <SectionTitle icon={<Home />} title="Create your first property" eyebrow="Self-serve setup" />
                 <form className="signup-form" onSubmit={createOnboardingProperty}>
-                  <label>Property name<input required value={signupForm.propertyName} onChange={(event) => updateSignup("propertyName", event.target.value)} placeholder="Mar Vista Flats" /></label>
+                  <label>Property name<input required value={signupForm.propertyName} onChange={(event) => updateSignup("propertyName", event.target.value)} placeholder="Noe Valley Duplex" /></label>
                   <label>Your name<input required value={signupForm.managerName} onChange={(event) => updateSignup("managerName", event.target.value)} placeholder="Jordan Lee" /></label>
                   <label>Phone<input required value={signupForm.managerPhone} onChange={(event) => updateSignup("managerPhone", event.target.value)} placeholder="(310) 555-0100" /></label>
                   <label>PIN<input value={signupForm.pin} onChange={(event) => updateSignup("pin", event.target.value)} inputMode="numeric" placeholder="Auto-generate" /></label>
                   <label>Address<input value={signupForm.address} onChange={(event) => updateSignup("address", event.target.value)} placeholder="11820 Pacific Ave" /></label>
-                  <label>Units<input value={signupForm.units} onChange={(event) => updateSignup("units", event.target.value)} placeholder="1, 2A, 3B" /></label>
+                  <label>Homes / spaces<input value={signupForm.units} onChange={(event) => updateSignup("units", event.target.value)} placeholder="Garden flat, upper home, parlor floor" /></label>
                   <label className="span-2">Account name<input value={signupForm.accountName} onChange={(event) => updateSignup("accountName", event.target.value)} placeholder="Optional" /></label>
                   <label className="span-2">Your role<select value={signupForm.role} onChange={(event) => updateSignup("role", event.target.value)}><option>Property manager</option><option>Owner</option><option>Owner and property manager</option></select></label>
                   <button className="primary wide" type="submit" disabled={signupStatus.state === "saving"}><ArrowRight size={16} /> {signupStatus.state === "saving" ? "Creating" : "Create property"}</button>
@@ -1094,7 +1085,7 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
       </section>
 
       <section className="value-band" id="how-it-works">
-        <article><MessageSquare size={22} /><strong>Tenants text once</strong><p>LivingRelay asks follow-ups, captures access notes, and creates a work order.</p></article>
+        <article><MessageSquare size={22} /><strong>Residents text once</strong><p>LivingRelay asks follow-ups, captures access notes, and creates a work order for the right home or space.</p></article>
         <article><ShieldCheck size={22} /><strong>Approvals stay clear</strong><p>Managers and owners see estimates, thresholds, invoices, and the full timeline.</p></article>
         <article><Wrench size={22} /><strong>Vendors stay coordinated</strong><p>Send vendor messages, book dispatches, and keep every repair update attached.</p></article>
         <article><FileText size={22} /><strong>Records are tax-ready</strong><p>Invoices and CSV exports stay organized by property and year.</p></article>
@@ -1104,7 +1095,7 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
         <div>
           <span className="eyebrow">Simple pricing</span>
           <h2>No monthly property fee.</h2>
-          <p>Start with your property, tenants, owner approvals, and vendor coordination. LivingRelay charges when coordination turns into a booked vendor dispatch.</p>
+          <p>Start with a city rental home, duplex, townhome, or small multifamily property, then add residents, owner approvals, and vendor coordination. LivingRelay charges when coordination turns into a booked vendor dispatch.</p>
         </div>
         <article className="price-card">
           <span>Launch price</span>
@@ -1190,7 +1181,7 @@ function LegacyLandingPage({ phone, setPhone, pin, setPin, sitePassword, setSite
           <span>LivingRelay</span>
         </div>
         <h1>{landingMode === "signup" ? "Add a property and start routing repairs." : "One URL. Role-specific PIN access."}</h1>
-        <p>{landingMode === "signup" ? "Create a customer account, property, and first manager login." : "Managers, owners, and tenants enter the same place. Phone + PIN decides what they can see and do."}</p>
+        <p>{landingMode === "signup" ? "Create a customer account, property, and first manager login." : "Managers, owners, and residents enter the same place. Phone + PIN decides what they can see and do."}</p>
         <div className="landing-toggle">
           <button className={landingMode === "login" ? "active" : ""} onClick={() => setLandingMode("login")}>Login</button>
           <button className={landingMode === "signup" ? "active" : ""} onClick={() => setLandingMode("signup")}>Add property</button>
@@ -1223,7 +1214,7 @@ function LegacyLandingPage({ phone, setPhone, pin, setPin, sitePassword, setSite
             <label>Account name<input required value={signupForm.accountName} onChange={(event) => setSignupForm({ ...signupForm, accountName: event.target.value })} /></label>
             <label>Property name<input required value={signupForm.propertyName} onChange={(event) => setSignupForm({ ...signupForm, propertyName: event.target.value })} /></label>
             <label>Address<input value={signupForm.address} onChange={(event) => setSignupForm({ ...signupForm, address: event.target.value })} /></label>
-            <label>Units<input placeholder="2A, 3B, 7C" value={signupForm.units} onChange={(event) => setSignupForm({ ...signupForm, units: event.target.value })} /></label>
+            <label>Homes / spaces<input placeholder="Garden flat, upper home, parlor floor" value={signupForm.units} onChange={(event) => setSignupForm({ ...signupForm, units: event.target.value })} /></label>
             <label>Manager name<input required value={signupForm.managerName} onChange={(event) => setSignupForm({ ...signupForm, managerName: event.target.value })} /></label>
             <label>Manager phone<input required value={signupForm.managerPhone} onChange={(event) => setSignupForm({ ...signupForm, managerPhone: event.target.value })} /></label>
             <button className="primary wide" type="submit" disabled={signupStatus.state === "saving"}><Plus size={16} /> Create property</button>
@@ -1593,7 +1584,7 @@ function AdminDirectory({ people, properties, accounts, reloadState }) {
           }}>{accounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select></label>
           <label>Property<select value={form.propertyId} onChange={(event) => setForm({ ...form, propertyId: event.target.value })}><option value="">No property</option>{accountProperties.map((property) => <option value={property.id} key={property.id}>{property.name}</option>)}</select></label>
           <label>PIN<input value={form.pin} placeholder="Auto-generate" onChange={(event) => setForm({ ...form, pin: event.target.value })} /></label>
-          <label>{form.role === "Vendor" ? "Trade" : "Unit"}<input value={form.role === "Vendor" ? form.trade : form.unit} onChange={(event) => form.role === "Vendor" ? setForm({ ...form, trade: event.target.value }) : setForm({ ...form, unit: event.target.value })} /></label>
+          <label>{form.role === "Vendor" ? "Trade" : "Home / space"}<input value={form.role === "Vendor" ? form.trade : form.unit} onChange={(event) => form.role === "Vendor" ? setForm({ ...form, trade: event.target.value }) : setForm({ ...form, unit: event.target.value })} /></label>
           <button className="primary wide" type="submit"><Plus size={16} /> Create user</button>
         </form>
       </section>
@@ -1653,7 +1644,7 @@ function AdminProperties({ properties, people, accounts, reloadState, setActiveP
                 <span>{property.subscription}</span>
                 <strong>{property.name}</strong>
                 <p>{accounts.find((account) => account.id === property.accountId)?.name || "Unassigned account"} · {property.address}</p>
-                <p>{property.units?.length || 0} units · {property.plan} · Payer: {property.billingPayerRole || "Owner"}</p>
+                <p>{property.units?.length || 0} homes / spaces · {property.plan} · Payer: {property.billingPayerRole || "Owner"}</p>
               </div>
               <div className="record-actions">
                 <button className="ghost" onClick={() => { setActivePropertyId(property.id); setAdminSection("operations"); }}><ChevronRight size={15} /> Open</button>
@@ -1671,7 +1662,7 @@ function AdminProperties({ properties, people, accounts, reloadState, setActiveP
           <label>Name<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
           <label>Account<select value={form.accountId} onChange={(event) => setForm({ ...form, accountId: event.target.value })}>{accounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select></label>
           <label>Address<input value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} /></label>
-          <label>Units<input placeholder="A, B, 101" value={form.units} onChange={(event) => setForm({ ...form, units: event.target.value })} /></label>
+          <label>Homes / spaces<input placeholder="Garden flat, upper home, parlor floor" value={form.units} onChange={(event) => setForm({ ...form, units: event.target.value })} /></label>
           <label>Manager<select value={form.adminId} onChange={(event) => setForm({ ...form, adminId: event.target.value })}>{people.filter((person) => person.role === "Manager").map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}</select></label>
           <label>Owner<select value={form.ownerId} onChange={(event) => setForm({ ...form, ownerId: event.target.value })}>{people.filter((person) => person.role === "Owner").map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}</select></label>
           <label>Your role<select value={form.creatorRole} onChange={(event) => setForm({ ...form, creatorRole: event.target.value })}><option>Property manager</option><option>Owner</option><option>Owner and property manager</option></select></label>
@@ -1703,7 +1694,7 @@ function AdminWorkOrders({ orders, properties, people, vendors, accounts, reload
       <section className="panel">
         <SectionTitle icon={<ClipboardList />} title="Support and dispatch load" eyebrow="All customer issues" />
         <DataTable
-          columns={["ID", "Account", "Property", "Unit", "Trade", "Status", "Estimate"]}
+          columns={["ID", "Account", "Property", "Space", "Trade", "Status", "Estimate"]}
           rows={orders.map((order) => [
             <button className="link-button" onClick={() => { setActivePropertyId(order.propertyId); setActiveOrderId(order.id); setAdminSection("operations"); }}>{order.id}</button>,
             accounts.find((account) => account.id === properties.find((property) => property.id === order.propertyId)?.accountId)?.name || "Unassigned",
@@ -1719,7 +1710,7 @@ function AdminWorkOrders({ orders, properties, people, vendors, accounts, reload
         <SectionTitle icon={<Plus />} title="Create customer issue" eyebrow="Support action" />
         <form className="admin-form" onSubmit={createWorkOrder}>
           <label>Property<select value={form.propertyId} onChange={(event) => setForm({ ...form, propertyId: event.target.value, unit: properties.find((property) => property.id === event.target.value)?.units?.[0] || "" })}>{properties.map((property) => <option value={property.id} key={property.id}>{accounts.find((account) => account.id === property.accountId)?.name || "Account"} · {property.name}</option>)}</select></label>
-          <label>Unit<input value={form.unit} list="admin-unit-options" onChange={(event) => setForm({ ...form, unit: event.target.value })} /><datalist id="admin-unit-options">{selectedProperty?.units?.map((unit) => <option value={unit} key={unit} />)}</datalist></label>
+          <label>Home / space<input value={form.unit} list="admin-unit-options" onChange={(event) => setForm({ ...form, unit: event.target.value })} /><datalist id="admin-unit-options">{selectedProperty?.units?.map((unit) => <option value={unit} key={unit} />)}</datalist></label>
           <label>Tenant<select value={form.tenantId} onChange={(event) => setForm({ ...form, tenantId: event.target.value })}><option value="">Unassigned</option>{people.filter((person) => person.role === "Tenant").map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}</select></label>
           <label>Vendor<select value={form.vendorId} onChange={(event) => setForm({ ...form, vendorId: event.target.value })}><option value="">Unassigned</option>{vendors.map((vendor) => <option value={vendor.id} key={vendor.id}>{vendor.name} · {vendor.trade}</option>)}</select></label>
           <label>Trade<input value={form.trade} onChange={(event) => setForm({ ...form, trade: event.target.value })} /></label>
@@ -1880,7 +1871,7 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
         <div className="people-list">
           <MiniRow icon={<Users />} label="Manager" value={`${manager?.name || "Manager"} · ${manager?.phone || ""}`} />
           <MiniRow icon={<UserRound />} label="Owner" value={`${owner?.name || "Owner"} · ${owner?.phone || ""}`} />
-          <MiniRow icon={<Home />} label="Units" value={property.units.join(", ")} />
+          <MiniRow icon={<Home />} label="Homes / spaces" value={property.units.join(", ")} />
           <MiniRow icon={<Wrench />} label="Rules" value={property.rules} />
         </div>
         <AdminTools property={property} people={people} vendors={vendors} auditLog={auditLog} reloadState={reloadState} />
@@ -1914,7 +1905,7 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
           <div className="work-head">
             <div>
               <span className="eyebrow">{activeOrder.id}</span>
-              <h2>{activeOrder.trade} · Unit {activeOrder.unit}</h2>
+              <h2>{activeOrder.trade} · {activeOrder.unit}</h2>
             </div>
             <span className={`pill ${activeOrder.severity === "Urgent" ? "urgent" : ""}`}>{activeOrder.severity}</span>
           </div>
@@ -1935,7 +1926,7 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
             </button>
             <button className="secondary" onClick={() => {
               bookVendor(activeOrder);
-              sendSms?.(vendor?.phone, `${activeOrder.id}: ${activeOrder.trade} job at ${property.name}, Unit ${activeOrder.unit}. Issue: ${activeOrder.issue}. Reply ACCEPT or DECLINE.`);
+              sendSms?.(vendor?.phone, `${activeOrder.id}: ${activeOrder.trade} job at ${property.name}, ${activeOrder.unit}. Issue: ${activeOrder.issue}. Reply ACCEPT or DECLINE.`);
             }}>
               <Send size={16} /> Book vendor
             </button>
@@ -2147,7 +2138,7 @@ function AdminTools({ property, people, vendors, auditLog, reloadState }) {
           <option>Owner</option>
           <option>Vendor</option>
         </select>
-        <input placeholder="Unit or trade" value={personForm.role === "Vendor" ? personForm.trade : personForm.unit} onChange={(event) => personForm.role === "Vendor" ? setPersonForm({ ...personForm, trade: event.target.value }) : setPersonForm({ ...personForm, unit: event.target.value })} />
+        <input placeholder="Home / space or trade" value={personForm.role === "Vendor" ? personForm.trade : personForm.unit} onChange={(event) => personForm.role === "Vendor" ? setPersonForm({ ...personForm, trade: event.target.value }) : setPersonForm({ ...personForm, unit: event.target.value })} />
         <button className="secondary" type="submit"><Plus size={15} /> Add person</button>
       </form>
 
@@ -2206,7 +2197,7 @@ function StaleNudgePanel({ staleOrders, setActiveOrderId, nudgeOrder, nudgeStale
         {staleOrders.length ? staleOrders.slice(0, 4).map((order) => (
           <article key={order.id} className="stale-card">
             <div>
-              <span>{order.id} · Unit {order.unit} · {order.hoursIdle ?? "?"}h idle</span>
+              <span>{order.id} · {order.unit} · {order.hoursIdle ?? "?"}h idle</span>
               <strong>{order.nextAction}</strong>
               <p>{order.status} · {order.trade}</p>
             </div>
@@ -2435,7 +2426,7 @@ function LiveCallPanel({ order, updateLiveCall }) {
     return (
       <div className="live-call-panel empty">
         <strong>Live vendor calls</strong>
-        <span>Run demo outreach or ElevenLabs vendor calls to monitor conversations here.</span>
+        <span>Started vendor calls will appear here so you can listen in or join when needed.</span>
       </div>
     );
   }
@@ -2474,8 +2465,8 @@ function LiveCallPanel({ order, updateLiveCall }) {
                 <UserRound size={15} /> Take over
               </button>
             </div>
-            {call.monitorUrl && <span className="monitor-url">ElevenLabs monitor ready</span>}
-            {call.listenInAvailable && <span className="monitor-url">Twilio listen-in path ready</span>}
+            {call.monitorUrl && <span className="monitor-url">Call monitor ready</span>}
+            {call.listenInAvailable && <span className="monitor-url">Listen-in ready</span>}
             {audioState[call.id] && <span className="monitor-url">{audioState[call.id]}</span>}
             {call.listener && <span className="monitor-url">{call.listener.name} listening</span>}
             {call.takeover && <span className="monitor-url">Takeover: {call.takeover.name}</span>}
@@ -2528,6 +2519,7 @@ function BillingTab({ property, account, people, invoices, orders, billingEvents
   const payer = payerRole === "Property manager" ? manager : owner;
   const billingSetupStatus = property.billingSetupStatus || account?.billingSetupStatus || (account?.stripeCustomerId ? "Card on file" : "Needs card");
   const billingReady = billingSetupStatus === "Card on file";
+  const paymentSetupAvailable = stripe.configured;
   const dispatchTotal = billingEvents.reduce((sum, event) => sum + Number(event.amount || 0), 0);
   const vendorBookedCount = orders.filter((order) => order.status === "Vendor scheduled" || order.dispatchFee?.status === "Submitted to Stripe").length;
 
@@ -2542,7 +2534,11 @@ function BillingTab({ property, account, people, invoices, orders, billingEvents
   }
 
   async function startBillingSession(kind) {
-    setStatus(kind === "portal" ? "Opening Stripe billing portal..." : "Preparing Stripe setup...");
+    if (!paymentSetupAvailable) {
+      setStatus("Payment setup is temporarily unavailable. LivingRelay support has been notified.");
+      return;
+    }
+    setStatus(kind === "portal" ? "Opening card management..." : "Preparing secure payment setup...");
     const response = await fetch(`/api/billing/${kind === "portal" ? "portal" : "setup"}-session`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2561,7 +2557,7 @@ function BillingTab({ property, account, people, invoices, orders, billingEvents
       window.location.href = data.url;
       return;
     }
-    setStatus(data.error || "Stripe is not configured yet.");
+    setStatus(data.url ? "" : "Payment setup is temporarily unavailable. Please try again shortly or contact LivingRelay support.");
   }
 
   return (
@@ -2570,12 +2566,12 @@ function BillingTab({ property, account, people, invoices, orders, billingEvents
         <SectionTitle icon={<CreditCard />} title="Billing" eyebrow={property.name} />
         {!billingReady && (
           <div className="billing-required">
-            <span className="eyebrow">Card required</span>
-            <h3>Save billing before tenant SMS goes live</h3>
-            <p>Properties are free to add, but LivingRelay needs a card on file now so the $25 coordination fee can be collected if vendor dispatch is booked later.</p>
+            <span className="eyebrow">Payment method needed</span>
+            <h3>Add a card before resident SMS goes live</h3>
+            <p>Properties are free to add. A card is only charged if LivingRelay books a vendor dispatch for this property.</p>
             <div className="button-grid">
               <button className="primary" onClick={() => startBillingSession("setup")}><CreditCard size={16} /> Add card</button>
-              <button className="ghost" onClick={() => setStatus("Skipped for now. If a tenant reports an issue before billing is complete, we will text the account manager to finish setup before vendor dispatch.")}>Skip for now</button>
+              <button className="ghost" onClick={() => setStatus("Skipped for now. If a resident reports an issue before billing is complete, we will ask the property manager to finish setup before vendor dispatch.")}>Skip for now</button>
             </div>
           </div>
         )}
@@ -2586,21 +2582,21 @@ function BillingTab({ property, account, people, invoices, orders, billingEvents
           <MiniRow icon={<ReceiptText />} label="Fees recorded" value={formatMoney(dispatchTotal)} />
         </div>
         <div className="payer-card">
-          <span className="eyebrow">Default payer</span>
+          <span className="eyebrow">Who pays LivingRelay fees</span>
           <h3>{payerRole}</h3>
-          <p>{payer?.name || "No payer selected"} pays only the LivingRelay coordination fee. Vendor repair invoices are sent to the property manager and paid directly to the vendor outside the app.</p>
+          <p>{payer?.name || "No payer selected"} pays only the LivingRelay coordination fee. Vendor repair invoices stay separate and are paid directly to the vendor.</p>
           <div className="button-grid">
             <button className={payerRole === "Owner" ? "primary" : "ghost"} onClick={() => updatePayer("Owner")}><UserRound size={16} /> Owner pays</button>
             <button className={payerRole === "Property manager" ? "primary" : "ghost"} onClick={() => updatePayer("Property manager")}><Users size={16} /> Manager pays</button>
           </div>
         </div>
         <div className="payer-card">
-          <span className="eyebrow">Stripe</span>
-          <h3>{billingReady ? "Card on file" : billingSetupStatus}</h3>
-          <p>{stripe.configured ? `Customer ${account?.stripeCustomerId || "will be created automatically"}` : `Needed: ${stripe.missing?.join(", ") || "Stripe keys and app URL"}`}</p>
+          <span className="eyebrow">Payment method</span>
+          <h3>{billingReady ? "Card on file" : "No card on file"}</h3>
+          <p>{billingReady ? "LivingRelay will use this card only when a vendor dispatch is booked." : "Add a card when you are ready to activate vendor dispatch for this property."}</p>
           <div className="button-grid">
             <button className="secondary" onClick={() => startBillingSession("setup")}><CreditCard size={16} /> Save payment method</button>
-            <button className="ghost" onClick={() => startBillingSession("portal")}><ArrowRight size={16} /> Billing portal</button>
+            {billingReady && <button className="ghost" onClick={() => startBillingSession("portal")}><ArrowRight size={16} /> Manage card</button>}
           </div>
           {status && <p className="send-status">{status}</p>}
         </div>
@@ -2608,7 +2604,7 @@ function BillingTab({ property, account, people, invoices, orders, billingEvents
       <div className="panel">
         <SectionTitle icon={<ReceiptText />} title="Dispatch ledger" eyebrow="$25 coordination fee" />
         {billingEvents.map((event) => <BillingEventRow key={event.id} event={event} />)}
-        {!billingEvents.length && <p className="empty-copy">No dispatch fees yet. LLM advice, tenant intake, and property setup do not create a charge.</p>}
+        {!billingEvents.length && <p className="empty-copy">No dispatch fees yet. Resident intake, troubleshooting, and property setup do not create a charge.</p>}
         <SectionTitle icon={<Banknote />} title="Vendor invoices" eyebrow="Direct vendor payment" />
         {invoices.map((invoice) => <InvoiceRow key={invoice.id} invoice={invoice} onPaid={() => {}} />)}
       </div>
@@ -2683,7 +2679,7 @@ function OwnerView({ property, account, orders, invoices, patchInvoice, reloadSt
         <SectionTitle icon={<ShieldCheck />} title="Owner approvals" eyebrow={property.name} />
         {orders.filter((order) => order.status === "Owner approval").map((order) => (
           <article className="approval-card" key={order.id}>
-            <span className="eyebrow">{order.id} · Unit {order.unit}</span>
+            <span className="eyebrow">{order.id} · {order.unit}</span>
             <h2>{formatMoney(order.estimate)} {order.trade} repair</h2>
             <p>{order.issue}</p>
             <div className="button-grid">
@@ -2854,7 +2850,7 @@ function VendorView({ orders }) {
       <SectionTitle icon={<Wrench />} title="Vendor jobs" eyebrow="SMS accepting flow" />
       {orders.map((order) => (
         <article className="approval-card" key={order.id}>
-          <span className="eyebrow">{order.id} · Unit {order.unit}</span>
+          <span className="eyebrow">{order.id} · {order.unit}</span>
           <h2>{order.trade} request</h2>
           <p>{order.issue}</p>
           <div className="button-grid">
@@ -2957,7 +2953,7 @@ function BillingEventRow({ event }) {
       <div className="invoice-side">
         <strong>{formatMoney(Number(event.amount || 0))}</strong>
         <span>{event.status}</span>
-        {event.stripeInvoiceUrl && <a href={event.stripeInvoiceUrl} target="_blank" rel="noreferrer">Stripe invoice</a>}
+        {event.stripeInvoiceUrl && <a href={event.stripeInvoiceUrl} target="_blank" rel="noreferrer">Payment receipt</a>}
       </div>
     </article>
   );
@@ -2977,7 +2973,7 @@ function IntegrationCard({ icon, title, text, action, status, statusTone = "idle
 
 function startBrowserListen(call, setAudioState) {
   if (!call.browserListenUrl) {
-    setAudioState((current) => ({ ...current, [call.id]: "Browser audio requires Twilio register-call mode." }));
+    setAudioState((current) => ({ ...current, [call.id]: "Live audio is not available for this call yet." }));
     return;
   }
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -2994,7 +2990,7 @@ function startBrowserListen(call, setAudioState) {
   socket.onmessage = async (event) => {
     const message = JSON.parse(event.data);
     if (message.type === "ready") {
-      setAudioState((current) => ({ ...current, [call.id]: message.connected ? "Waiting for audio..." : "Connected; Twilio stream not active yet." }));
+      setAudioState((current) => ({ ...current, [call.id]: message.connected ? "Waiting for audio..." : "Connected; live audio is starting." }));
       return;
     }
     if (message.type === "media" && message.payload) {
@@ -3008,7 +3004,7 @@ function startBrowserListen(call, setAudioState) {
       const startAt = Math.max(nextStartTime, audioContext.currentTime + 0.02);
       source.start(startAt);
       nextStartTime = startAt + buffer.duration;
-      setAudioState((current) => ({ ...current, [call.id]: "Playing live Twilio audio." }));
+      setAudioState((current) => ({ ...current, [call.id]: "Playing live audio." }));
     }
   };
 }
