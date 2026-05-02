@@ -30,6 +30,10 @@ button {
   cursor: pointer;
 }
 
+a {
+  text-decoration: none;
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -541,6 +545,101 @@ textarea:focus {
   text-align: right;
 }
 
+.tax-panel {
+  border: 1px solid #d8d0c3;
+  border-radius: 8px;
+  background: #fffdfa;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.tax-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.tax-head select {
+  width: 116px;
+  flex: 0 0 auto;
+}
+
+.tax-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.tax-grid article {
+  border: 1px solid #e8e0d4;
+  border-radius: 8px;
+  background: #fbf6ef;
+  padding: 10px;
+}
+
+.tax-grid span {
+  color: #8a5f53;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.tax-grid strong {
+  display: block;
+  margin-top: 4px;
+}
+
+.tax-grid p {
+  margin-top: 5px;
+  color: #5e6a66;
+  font-size: 12px;
+}
+
+.schedule-preview {
+  display: grid;
+  gap: 7px;
+  border: 1px solid #e8e0d4;
+  border-radius: 8px;
+  background: #fbf6ef;
+  padding: 10px;
+  margin-top: 10px;
+}
+
+.schedule-preview > strong {
+  font-size: 14px;
+}
+
+.schedule-preview > span {
+  color: #5e6a66;
+  font-size: 12px;
+}
+
+.schedule-preview div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  border-top: 1px solid #e1d9cd;
+  padding-top: 7px;
+}
+
+.schedule-preview div span {
+  color: #4f5d59;
+  font-size: 12px;
+}
+
+.schedule-preview div strong {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.tax-disclaimer {
+  margin: 10px 0 0;
+  color: #6b756f;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .integration-strip {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1030,6 +1129,10 @@ select {
 
   .invoice-side span {
     text-align: left;
+  }
+
+  .tax-grid {
+    grid-template-columns: 1fr;
   }
 }
 

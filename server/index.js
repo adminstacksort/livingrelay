@@ -8,6 +8,7 @@ import { runFullFlowDemo, selectDemoQuote, simulateVendorOutreach } from "./demo
 import { createDemoScenario, listDemoScenarios } from "./demoScenarios.js";
 import { getStaleWorkOrders, nudgeStaleWorkOrders, nudgeWorkOrder } from "./staleNudges.js";
 import { getLiveCalls, listenToCall, takeOverCall } from "./liveCallControl.js";
+import { buildTaxCsv, buildTaxSummary, recordTaxBundleAudit } from "./taxExports.js";
 
 const app = express();
 const port = Number(process.env.SERVER_PORT || 8787);
@@ -249,9 +250,20 @@ app.patch("/api/invoices/:id", (req, res) => {
 
 app.post("/api/properties/:id/tax-bundle", (req, res) => {
   const year = req.body.year || "2026";
-  const bundle = invoices.filter((invoice) => invoice.propertyId === req.params.id && invoice.taxYear === year);
-  recordAudit("owner", "Generated tax bundle", `${bundle.length} invoices for ${year}.`);
-  res.json({ year, count: bundle.length, invoices: bundle });
+  const summary = recordTaxBundleAudit(req.params.id, year);
+  res.json({ ...summary, count: summary.invoices.length });
+});
+
+app.get("/api/properties/:id/tax-summary", (req, res) => {
+  res.json(buildTaxSummary(req.params.id, req.query.year || "2026"));
+});
+
+app.get("/api/properties/:id/tax-spreadsheet.csv", (req, res) => {
+  const year = req.query.year || "2026";
+  const csv = buildTaxCsv(req.params.id, year);
+  res.header("content-type", "text/csv");
+  res.attachment(`livingrelay-${req.params.id}-${year}-expenses.csv`);
+  res.send(csv);
 });
 
 app.post("/api/messages/send", async (req, res) => {

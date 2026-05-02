@@ -954,12 +954,27 @@ function SparkleIcon() {
 }
 
 function OwnerView({ property, orders, invoices, patchInvoice }) {
+  const [taxSummary, setTaxSummary] = useState(null);
+  const [taxYear, setTaxYear] = useState("2026");
+
+  useEffect(() => {
+    loadTaxSummary();
+  }, [property.id, taxYear]);
+
+  async function loadTaxSummary() {
+    const response = await fetch(`/api/properties/${property.id}/tax-summary?year=${taxYear}`);
+    const data = await response.json();
+    setTaxSummary(data);
+  }
+
   async function emailBundle() {
-    await fetch(`/api/properties/${property.id}/tax-bundle`, {
+    const response = await fetch(`/api/properties/${property.id}/tax-bundle`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ year: "2026" })
+      body: JSON.stringify({ year: taxYear })
     });
+    const data = await response.json();
+    setTaxSummary(data);
   }
 
   return (
@@ -980,12 +995,76 @@ function OwnerView({ property, orders, invoices, patchInvoice }) {
       </div>
       <div className="panel">
         <SectionTitle icon={<ReceiptText />} title="Invoices and tax bundle" eyebrow="Off-platform payments" />
+        <TaxPacketPanel
+          property={property}
+          year={taxYear}
+          setYear={setTaxYear}
+          summary={taxSummary}
+          emailBundle={emailBundle}
+        />
         {invoices.map((invoice) => (
           <InvoiceRow key={invoice.id} invoice={invoice} onPaid={() => patchInvoice(invoice.id, "Paid off platform")} />
         ))}
-        <button className="secondary wide" onClick={emailBundle}><Download size={16} /> Email 2026 bundle</button>
       </div>
     </section>
+  );
+}
+
+function TaxPacketPanel({ property, year, setYear, summary, emailBundle }) {
+  const spreadsheetUrl = `/api/properties/${property.id}/tax-spreadsheet.csv?year=${year}`;
+  return (
+    <div className="tax-panel">
+      <div className="tax-head">
+        <div>
+          <span className="eyebrow">Owner tax packet</span>
+          <h3>{formatMoney(summary?.totalExpenses || 0)} deductible expenses</h3>
+        </div>
+        <select value={year} onChange={(event) => setYear(event.target.value)}>
+          <option>2026</option>
+          <option>2025</option>
+          <option>2024</option>
+        </select>
+      </div>
+      <div className="tax-grid">
+        {(summary?.categories || []).map((category) => (
+          <article key={category.key}>
+            <span>Schedule E line {category.scheduleELine}</span>
+            <strong>{category.label}</strong>
+            <p>{formatMoney(category.amount)} · {category.count} item{category.count === 1 ? "" : "s"}</p>
+          </article>
+        ))}
+        {!summary?.categories?.length && (
+          <article>
+            <span>Schedule E</span>
+            <strong>No expenses yet</strong>
+            <p>Invoices for this tax year will appear here.</p>
+          </article>
+        )}
+      </div>
+      <div className="schedule-preview">
+        <strong>Schedule E worksheet</strong>
+        <span>{summary?.scheduleE?.propertyAddress || property.address}</span>
+        {(summary?.scheduleE?.lines || []).map((line) => (
+          <div key={`${line.line}-${line.label}`}>
+            <span>Line {line.line}: {line.label}</span>
+            <strong>{formatMoney(line.amount)}</strong>
+          </div>
+        ))}
+        <div>
+          <span>Total expenses</span>
+          <strong>{formatMoney(summary?.scheduleE?.totalExpensesLine20 || 0)}</strong>
+        </div>
+      </div>
+      <p className="tax-disclaimer">{summary?.scheduleE?.disclaimer || "Draft worksheet only. Verify with a tax professional before filing."}</p>
+      <div className="button-grid">
+        <a className="secondary" href={spreadsheetUrl}>
+          <Download size={16} /> Spreadsheet
+        </a>
+        <button className="ghost" onClick={emailBundle}>
+          <FileText size={16} /> Build packet
+        </button>
+      </div>
+    </div>
   );
 }
 
