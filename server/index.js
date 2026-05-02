@@ -593,6 +593,18 @@ app.patch("/api/site-admin/accounts/:id", (req, res) => {
   res.json({ account });
 });
 
+app.delete("/api/site-admin/accounts/:id", (req, res) => {
+  const account = accounts.find((item) => item.id === req.params.id);
+  if (!account) {
+    res.status(404).json({ error: "account not found" });
+    return;
+  }
+  const summary = deleteAccountState(account.id);
+  saveState();
+  recordAudit("site-admin", "Deleted account", `${account.name} account deleted with ${summary.properties} properties, ${summary.people} people, ${summary.workOrders} work orders, and ${summary.invoices} invoices.`);
+  res.json({ deleted: true, accountId: account.id, summary });
+});
+
 app.post("/api/demo/scenario", (req, res) => {
   if (!isDemoExperienceRequest(req, res)) return;
   const result = createDemoScenario(req.body.scenario);
@@ -661,6 +673,18 @@ app.patch("/api/admin/properties/:id", (req, res) => {
   saveState();
   recordAudit("admin", "Updated property", `${property.name} admin settings updated.`);
   res.json({ property });
+});
+
+app.delete("/api/admin/properties/:id", (req, res) => {
+  const property = properties.find((item) => item.id === req.params.id);
+  if (!property) {
+    res.status(404).json({ error: "property not found" });
+    return;
+  }
+  const summary = deletePropertyState(property.id);
+  saveState();
+  recordAudit("admin", "Deleted property", `${property.name} deleted with ${summary.workOrders} work orders and ${summary.invoices} invoices.`);
+  res.json({ deleted: true, propertyId: property.id, summary });
 });
 
 app.post("/api/admin/people", (req, res) => {
@@ -1154,6 +1178,65 @@ app.patch("/api/invoices/:id", (req, res) => {
 function accountForProperty(propertyId) {
   const property = properties.find((item) => item.id === propertyId);
   return accounts.find((item) => item.id === property?.accountId);
+}
+
+function deleteAccountState(accountId) {
+  const accountPropertyIds = properties.filter((property) => property.accountId === accountId).map((property) => property.id);
+  const accountPersonIds = new Set(people
+    .filter((person) => person.role !== "Site Admin" && (
+      person.accountIds?.includes(accountId)
+      || person.propertyIds?.some((propertyId) => accountPropertyIds.includes(propertyId))
+      || person.managesPropertyIds?.some((propertyId) => accountPropertyIds.includes(propertyId))
+    ))
+    .map((person) => person.id));
+  const propertySummaries = accountPropertyIds.map((propertyId) => deletePropertyState(propertyId));
+  const deletedPeople = removeWhere(people, (person) => person.role !== "Site Admin" && accountPersonIds.has(person.id));
+  const deletedVendors = removeWhere(vendors, (vendor) => vendor.accountId === accountId || accountPersonIds.has(vendor.personId));
+  const deletedAccountBillingEvents = removeWhere(billingEvents, (event) => event.accountId === accountId);
+  removeWhere(accounts, (account) => account.id === accountId);
+  return propertySummaries.reduce((summary, propertySummary) => ({
+    properties: summary.properties + 1,
+    people: summary.people,
+    vendors: summary.vendors,
+    workOrders: summary.workOrders + propertySummary.workOrders,
+    invoices: summary.invoices + propertySummary.invoices,
+    billingEvents: summary.billingEvents + propertySummary.billingEvents
+  }), {
+    properties: 0,
+    people: deletedPeople,
+    vendors: deletedVendors,
+    workOrders: 0,
+    invoices: 0,
+    billingEvents: deletedAccountBillingEvents
+  });
+}
+
+function deletePropertyState(propertyId) {
+  const deletedWorkOrderIds = new Set(workOrders.filter((order) => order.propertyId === propertyId).map((order) => order.id));
+  const deletedWorkOrders = removeWhere(workOrders, (order) => order.propertyId === propertyId);
+  const deletedInvoices = removeWhere(invoices, (invoice) => invoice.propertyId === propertyId || deletedWorkOrderIds.has(invoice.orderId || invoice.workOrderId));
+  const deletedBillingEvents = removeWhere(billingEvents, (event) => event.propertyId === propertyId || deletedWorkOrderIds.has(event.orderId || event.workOrderId));
+  for (const person of people) {
+    person.propertyIds = (person.propertyIds || []).filter((id) => id !== propertyId);
+    person.managesPropertyIds = (person.managesPropertyIds || []).filter((id) => id !== propertyId);
+  }
+  removeWhere(properties, (property) => property.id === propertyId);
+  return {
+    workOrders: deletedWorkOrders,
+    invoices: deletedInvoices,
+    billingEvents: deletedBillingEvents
+  };
+}
+
+function removeWhere(items, predicate) {
+  let removed = 0;
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (predicate(items[index])) {
+      items.splice(index, 1);
+      removed += 1;
+    }
+  }
+  return removed;
 }
 
 function peopleForPhone(phone) {

@@ -303,6 +303,12 @@ select:focus {
   border-color: #d8d0c3;
 }
 
+.ghost.danger {
+  color: #9f1d1d;
+  border-color: #f0c7c7;
+  background: #fff7f7;
+}
+
 .disabled-link {
   opacity: 0.55;
   pointer-events: auto;
@@ -1205,6 +1211,12 @@ body:has(.login-card.admin-login-card) {
   border-color: #d8d8d5;
   background: #ffffff;
   color: #0a0a0a;
+}
+
+.admin-shell .ghost.danger {
+  color: #9f1d1d;
+  border-color: #efc6c6;
+  background: #fff8f8;
 }
 
 .admin-shell .ghost:hover,

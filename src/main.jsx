@@ -30,6 +30,7 @@ import {
   Sparkles,
   Smartphone,
   Radio,
+  Trash2,
   Upload,
   UserRound,
   Users,
@@ -2025,6 +2026,16 @@ function SiteAccounts({ accounts, properties, people, orders, invoices, reloadSt
     await reloadState();
   }
 
+  async function deleteAccount(account) {
+    const typed = window.prompt(`Delete ${account.name} and all linked properties, users, work orders, invoices, and billing events? Type the account name to confirm.`);
+    if (typed !== account.name) return;
+    await fetch(`/api/site-admin/accounts/${account.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${siteAdminToken}` }
+    });
+    await reloadState();
+  }
+
   return (
     <div className="admin-grid">
       <section className="panel">
@@ -2049,6 +2060,7 @@ function SiteAccounts({ accounts, properties, people, orders, invoices, reloadSt
                   <button className="ghost" onClick={() => updateAccount(account, { status: "Active" })}><Check size={15} /> Active</button>
                   <button className="ghost" onClick={() => updateAccount(account, { status: "Suspended" })}><AlertTriangle size={15} /> Suspend</button>
                   <button className="ghost" onClick={() => updateAccount(account, { productionVendorCallsEnabled: account.productionVendorCallsEnabled === false })}><Phone size={15} /> Calls {account.productionVendorCallsEnabled === false ? "on" : "off"}</button>
+                  <button className="ghost danger" onClick={() => deleteAccount(account)}><Trash2 size={15} /> Delete</button>
                 </div>
               </article>
             );
@@ -2165,6 +2177,17 @@ function AdminProperties({ properties, people, accounts, reloadState, setActiveP
     await reloadState();
   }
 
+  async function deleteProperty(property) {
+    const typed = window.prompt(`Delete ${property.name} and all linked work orders, invoices, and billing events? Type the property name to confirm.`);
+    if (typed !== property.name) return;
+    await fetch(`/api/admin/properties/${property.id}`, {
+      method: "DELETE"
+    });
+    const nextProperty = properties.find((item) => item.id !== property.id);
+    setActivePropertyId(nextProperty?.id || "");
+    await reloadState();
+  }
+
   return (
     <div className="admin-grid">
       <section className="panel">
@@ -2181,6 +2204,7 @@ function AdminProperties({ properties, people, accounts, reloadState, setActiveP
               <div className="record-actions">
                 <button className="ghost" onClick={() => { setActivePropertyId(property.id); setAdminSection("operations"); }}><ChevronRight size={15} /> Open</button>
                 <button className="ghost" onClick={() => { setActivePropertyId(property.id); setAdminSection("billing"); }}><CreditCard size={15} /> Billing</button>
+                <button className="ghost danger" onClick={() => deleteProperty(property)}><Trash2 size={15} /> Delete</button>
               </div>
             </article>
           ))}
