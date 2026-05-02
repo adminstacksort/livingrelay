@@ -71,7 +71,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add staging "git@github.com:${TARGET_REPOSITORY}.git"
-          GIT_SSH_COMMAND="ssh -i ~/.ssh/livingrelay-staging-deploy-key -o IdentitiesOnly=yes" git push staging HEAD:main --force-with-lease
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/livingrelay-staging-deploy-key -o IdentitiesOnly=yes" git push staging HEAD:main --force
 
       - name: Trigger staging runtime deploy
         if: ${{ env.STAGING_DEPLOY_WEBHOOK_URL != '' }}

@@ -77,7 +77,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add production "git@github.com:${TARGET_REPOSITORY}.git"
-          GIT_SSH_COMMAND="ssh -i ~/.ssh/livingrelay-production-deploy-key -o IdentitiesOnly=yes" git push production HEAD:main --force-with-lease
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/livingrelay-production-deploy-key -o IdentitiesOnly=yes" git push production HEAD:main --force
 
       - name: Trigger production runtime deploy
         if: ${{ env.PRODUCTION_DEPLOY_WEBHOOK_URL != '' }}
