@@ -45,3 +45,54 @@ See:
 - `docs/real-version-plan.md`
 - `docs/integrations.md`
 - `docs/build-next.md`
+# LivingRelay
+
+SMS-first maintenance coordination for small property managers.
+
+## Local Development
+
+```bash
+npm install
+npm run dev
+```
+
+Web: `http://127.0.0.1:5173`  
+API: `http://127.0.0.1:8787`
+
+## Production Build
+
+```bash
+npm run build
+npm start
+```
+
+The production server serves both:
+
+- built frontend from `dist`
+- API routes under `/api`
+
+## Readiness
+
+```bash
+curl http://127.0.0.1:8787/api/readiness
+```
+
+For AWS readiness, this should return `ok: true`.
+
+Required production env:
+
+- `APP_PUBLIC_URL`
+- `DATABASE_URL`
+- `SESSION_SECRET`
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_MESSAGING_NUMBER`
+- `ANTHROPIC_API_KEY`
+
+See `.env.example`, `docs/aws-deploy.md`, and `docs/production-cutover.md`.
+
+## Persistence
+
+Local development uses `data/local-state.json`.
+
+When `DATABASE_URL` is present, LivingRelay also persists the full application state to Postgres in `app_state`. The normalized production schema is in `db/schema.sql`; migrating individual API flows from snapshot state to table-backed repositories is the next backend hardening step.

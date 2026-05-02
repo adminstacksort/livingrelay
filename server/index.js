@@ -1,5 +1,7 @@
 import "dotenv/config";
 import express from "express";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { auditLog, invoices, people, properties, recordAudit, saveState, vendors, workOrders } from "./data.js";
 import { composeActionMessage, handleInboundCommand } from "./smsLogic.js";
 import { getTwilioStatus, sendSms } from "./twilioClient.js";
@@ -9,15 +11,25 @@ import { createDemoScenario, listDemoScenarios } from "./demoScenarios.js";
 import { getStaleWorkOrders, nudgeStaleWorkOrders, nudgeWorkOrder } from "./staleNudges.js";
 import { getLiveCalls, listenToCall, takeOverCall } from "./liveCallControl.js";
 import { buildTaxCsv, buildTaxSummary, recordTaxBundleAudit } from "./taxExports.js";
+import { getReadiness } from "./config.js";
 
 const app = express();
 const port = Number(process.env.SERVER_PORT || 8787);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distDir = path.join(__dirname, "..", "dist");
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+app.use(express.static(distDir));
 
-app.get("/api/health", (req, res) => {
-  res.json({ ok: true, service: "LivingRelay API", twilio: getTwilioStatus() });
+app.get("/api/health", async (req, res) => {
+  const readiness = await getReadiness();
+  res.json({ ok: true, service: "LivingRelay API", twilio: getTwilioStatus(), readiness });
+});
+
+app.get("/api/readiness", async (req, res) => {
+  const readiness = await getReadiness();
+  res.status(readiness.ok ? 200 : 503).json(readiness);
 });
 
 app.get("/api/state", (req, res) => {
@@ -320,6 +332,14 @@ app.post("/api/twilio/inbound", async (req, res) => {
   }
 });
 
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api")) {
+    next();
+    return;
+  }
+  res.sendFile(path.join(distDir, "index.html"));
+});
+
 function extractTwilioMedia(body) {
   const count = Number(body.NumMedia || 0);
   return Array.from({ length: count }).map((_, index) => ({
@@ -338,6 +358,9 @@ function escapeXml(value) {
     .replace(/'/g, "&apos;");
 }
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`LivingRelay API running on http://127.0.0.1:${port}`);
 });
+server.ref();
+const keepAlive = setInterval(() => {}, 2147483647);
+server.on("close", () => clearInterval(keepAlive));

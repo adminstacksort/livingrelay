@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadStateFromPostgres, saveStateToPostgres } from "./postgresState.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, "..", "data");
@@ -78,7 +79,7 @@ const seedState = {
   ]
 };
 
-export const state = loadState();
+export const state = await loadState();
 export const people = state.people;
 export const properties = state.properties;
 export const vendors = state.vendors;
@@ -89,6 +90,9 @@ export const auditLog = state.auditLog;
 export function saveState() {
   fs.mkdirSync(dataDir, { recursive: true });
   fs.writeFileSync(dataFile, JSON.stringify(state, null, 2));
+  saveStateToPostgres(state).catch((error) => {
+    console.log(`[Postgres save skipped] ${error.message}`);
+  });
 }
 
 export function recordAudit(actor, action, detail) {
@@ -104,18 +108,29 @@ export function message(from, text) {
   return { from, text, stamp: new Date().toISOString() };
 }
 
-function loadState() {
+async function loadState() {
+  const postgresState = await loadStateFromPostgres();
+  if (postgresState) return mergeLoadedState(postgresState);
   if (!fs.existsSync(dataFile)) return seedState;
   try {
     const loaded = JSON.parse(fs.readFileSync(dataFile, "utf8"));
-    return {
-      ...seedState,
-      ...loaded,
-      auditLog: loaded.auditLog || []
-    };
+    return mergeLoadedState(loaded);
   } catch {
     return seedState;
   }
+}
+
+function mergeLoadedState(loaded) {
+  return {
+    ...seedState,
+    ...loaded,
+    people: loaded.people || seedState.people,
+    properties: loaded.properties || seedState.properties,
+    vendors: loaded.vendors || seedState.vendors,
+    workOrders: loaded.workOrders || seedState.workOrders,
+    invoices: loaded.invoices || seedState.invoices,
+    auditLog: loaded.auditLog || []
+  };
 }
 
 function audit(actor, action, detail) {

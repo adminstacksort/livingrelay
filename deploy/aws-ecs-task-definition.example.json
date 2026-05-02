@@ -1,0 +1,51 @@
+{
+  "family": "livingrelay-api",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::<account-id>:role/ecsTaskExecutionRole",
+  "containerDefinitions": [
+    {
+      "name": "livingrelay",
+      "image": "<account-id>.dkr.ecr.<region>.amazonaws.com/livingrelay:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8787,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "SERVER_PORT", "value": "8787" },
+        { "name": "DATABASE_SSL", "value": "true" },
+        { "name": "ENABLE_VENDOR_CALLS", "value": "false" }
+      ],
+      "secrets": [
+        { "name": "APP_PUBLIC_URL", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/APP_PUBLIC_URL" },
+        { "name": "SESSION_SECRET", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/SESSION_SECRET" },
+        { "name": "DATABASE_URL", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/DATABASE_URL" },
+        { "name": "TWILIO_ACCOUNT_SID", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/TWILIO_ACCOUNT_SID" },
+        { "name": "TWILIO_AUTH_TOKEN", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/TWILIO_AUTH_TOKEN" },
+        { "name": "TWILIO_MESSAGING_NUMBER", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/TWILIO_MESSAGING_NUMBER" },
+        { "name": "ANTHROPIC_API_KEY", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/ANTHROPIC_API_KEY" }
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8787/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 30
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/livingrelay",
+          "awslogs-region": "<region>",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}
