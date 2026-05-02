@@ -1,4 +1,5 @@
 import { people, properties, vendors, workOrders } from "./data.js";
+import { attachOutboundCallSessions } from "./liveCallControl.js";
 
 export async function startVendorQuoteCalls(orderId) {
   const order = workOrders.find((item) => item.id === orderId);
@@ -38,6 +39,7 @@ export async function startVendorQuoteCalls(orderId) {
     detail: calls.map((call) => `${call.vendor}: ${call.success ? call.callSid || call.conversation_id : call.error}`).join("; "),
     stamp: new Date().toISOString()
   });
+  attachOutboundCallSessions(order, calls);
   return { started: true, calls };
 }
 

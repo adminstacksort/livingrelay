@@ -1,4 +1,5 @@
 import { event, recordAudit, saveState, vendors, workOrders } from "./data.js";
+import { createVendorCallSessions } from "./liveCallControl.js";
 
 const demoResponses = [
   { availability: "Today 2-5 PM", quote: "$285 callout + parts", confidence: "High", outcome: "Available" },
@@ -38,6 +39,7 @@ export function simulateVendorOutreach(orderId) {
     completedAt: new Date().toISOString(),
     outcomes
   };
+  createVendorCallSessions(order, outcomes);
   order.status = "Vendor quotes received";
   order.timeline.push(event("Demo vendor outreach completed", `${outcomes.length} simulated vendor outcomes returned.`));
   saveState();

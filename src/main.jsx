@@ -23,6 +23,7 @@ import {
   Settings2,
   ShieldCheck,
   Smartphone,
+  Radio,
   UserRound,
   Users,
   Wrench
@@ -355,6 +356,15 @@ function App() {
     await loadState();
   }
 
+  async function updateLiveCall(orderId, callId, action) {
+    await fetch(`/api/work-orders/${orderId}/live-calls/${callId}/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actorId: user?.id })
+    });
+    await loadState();
+  }
+
   async function addInvoice(order) {
     if (appData) {
       await fetch(`/api/work-orders/${order.id}/invoices`, {
@@ -484,6 +494,7 @@ function App() {
           createDemoScenario={createDemoScenario}
           nudgeOrder={nudgeOrder}
           nudgeStaleOrders={nudgeStaleOrders}
+          updateLiveCall={updateLiveCall}
         />
       )}
 
@@ -525,7 +536,7 @@ function App() {
   );
 }
 
-function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice, sendSms, sendStatus, people, vendors, auditLog, staleOrders, demoScenarios, demoStatus, reloadState, runDemoOutreach, selectDemoQuote, runFullFlowDemo, createDemoScenario, nudgeOrder, nudgeStaleOrders }) {
+function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice, sendSms, sendStatus, people, vendors, auditLog, staleOrders, demoScenarios, demoStatus, reloadState, runDemoOutreach, selectDemoQuote, runFullFlowDemo, createDemoScenario, nudgeOrder, nudgeStaleOrders, updateLiveCall }) {
   const vendor = vendors.find((item) => item.id === activeOrder.vendorId);
   const admin = people.find((person) => person.id === property.adminId);
   const owner = people.find((person) => person.id === property.ownerId);
@@ -614,6 +625,7 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
           </div>
           {sendStatus && <p className="send-status">{sendStatus}</p>}
         </article>
+        <LiveCallPanel order={activeOrder} updateLiveCall={updateLiveCall} />
         <DemoOutreachPanel order={activeOrder} selectDemoQuote={selectDemoQuote} />
         <FullFlowPanel order={activeOrder} />
         <Timeline items={activeOrder.timeline} />
@@ -851,6 +863,63 @@ function DemoOutreachPanel({ order, selectDemoQuote }) {
             <button className="secondary wide" onClick={() => selectDemoQuote(order.id, quote.id)}>
               <Check size={15} /> Select
             </button>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LiveCallPanel({ order, updateLiveCall }) {
+  const calls = order.vendorCalls || [];
+  if (!calls.length) {
+    return (
+      <div className="live-call-panel empty">
+        <strong>Live vendor calls</strong>
+        <span>Run demo outreach or ElevenLabs vendor calls to monitor conversations here.</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="live-call-panel">
+      <div className="live-call-head">
+        <div>
+          <span className="eyebrow">Live vendor calls</span>
+          <h3>Listen or take over</h3>
+        </div>
+        <span className="pill">{calls.filter((call) => call.status === "Live").length} live</span>
+      </div>
+      <div className="call-grid">
+        {calls.map((call) => (
+          <article className="call-card" key={call.id}>
+            <div className="call-card-top">
+              <div>
+                <span>{call.status} · {call.mode}</span>
+                <strong>{call.vendorName}</strong>
+              </div>
+              <Radio size={18} />
+            </div>
+            <p>{call.summary}</p>
+            <div className="call-actions">
+              <button className="secondary" onClick={() => updateLiveCall(order.id, call.id, "listen")}>
+                <Phone size={15} /> Listen
+              </button>
+              <button className="ghost" onClick={() => updateLiveCall(order.id, call.id, "takeover")}>
+                <UserRound size={15} /> Take over
+              </button>
+            </div>
+            {call.monitorUrl && <span className="monitor-url">ElevenLabs monitor ready</span>}
+            {call.listener && <span className="monitor-url">{call.listener.name} listening</span>}
+            {call.takeover && <span className="monitor-url">Takeover: {call.takeover.name}</span>}
+            <div className="call-transcript">
+              {(call.transcript || []).slice(-4).map((line, index) => (
+                <div key={`${call.id}-line-${index}`}>
+                  <strong>{line.speaker}</strong>
+                  <span>{line.text}</span>
+                </div>
+              ))}
+            </div>
           </article>
         ))}
       </div>

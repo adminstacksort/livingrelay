@@ -7,6 +7,7 @@ import { startVendorQuoteCalls } from "./elevenLabsCalls.js";
 import { runFullFlowDemo, selectDemoQuote, simulateVendorOutreach } from "./demoOutreach.js";
 import { createDemoScenario, listDemoScenarios } from "./demoScenarios.js";
 import { getStaleWorkOrders, nudgeStaleWorkOrders, nudgeWorkOrder } from "./staleNudges.js";
+import { getLiveCalls, listenToCall, takeOverCall } from "./liveCallControl.js";
 
 const app = express();
 const port = Number(process.env.SERVER_PORT || 8787);
@@ -191,6 +192,33 @@ app.post("/api/work-orders/:id/demo-outreach", (req, res) => {
 
 app.post("/api/work-orders/:id/select-quote", (req, res) => {
   const result = selectDemoQuote(req.params.id, req.body.quoteId);
+  if (result.error) {
+    res.status(404).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.get("/api/work-orders/:id/live-calls", (req, res) => {
+  const result = getLiveCalls(req.params.id);
+  if (result.error) {
+    res.status(404).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.post("/api/work-orders/:id/live-calls/:callId/listen", (req, res) => {
+  const result = listenToCall(req.params.id, req.params.callId, req.body.actorId);
+  if (result.error) {
+    res.status(404).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.post("/api/work-orders/:id/live-calls/:callId/takeover", (req, res) => {
+  const result = takeOverCall(req.params.id, req.params.callId, req.body.actorId);
   if (result.error) {
     res.status(404).json(result);
     return;
