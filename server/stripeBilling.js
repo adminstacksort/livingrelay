@@ -32,7 +32,6 @@ export async function createStripeSetupSession({ account, successUrl, cancelUrl 
     success_url: checkoutReturnUrl(successUrl || baseUrl, "setup-complete"),
     cancel_url: checkoutReturnUrl(cancelUrl || baseUrl, "setup-cancelled"),
     "metadata[accountId]": account.id,
-    "setup_intent_data[usage]": "off_session",
     "setup_intent_data[metadata][accountId]": account.id
   });
 }
