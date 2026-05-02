@@ -661,6 +661,29 @@ textarea:focus {
   line-height: 1.4;
 }
 
+.integration-status {
+  border: 1px solid #d8d0c3;
+  border-radius: 8px;
+  background: #fbf6ef;
+  color: #4f5d59;
+  padding: 9px;
+  font-size: 12px;
+  font-weight: 780;
+  line-height: 1.35;
+}
+
+.integration-status.ok {
+  border-color: #cdded8;
+  background: #edf8f4;
+  color: #1c675b;
+}
+
+.integration-status.error {
+  border-color: #f0c8bb;
+  background: #fae1d6;
+  color: #a34431;
+}
+
 .admin-tools {
   margin-top: 14px;
   border-top: 1px solid #e7ded2;

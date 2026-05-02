@@ -196,6 +196,7 @@ function App() {
   const [activeOrderId, setActiveOrderId] = useState(seedOrders[0].id);
   const [request, setRequest] = useState(defaultRequest);
   const [twilioStatus, setTwilioStatus] = useState(null);
+  const [twilioCheck, setTwilioCheck] = useState({ state: "idle", message: "" });
   const [sendStatus, setSendStatus] = useState("");
   const [demoStatus, setDemoStatus] = useState("");
   const [appData, setAppData] = useState(null);
@@ -281,9 +282,21 @@ function App() {
   }
 
   async function checkTwilio() {
-    const response = await fetch("/api/health");
-    const data = await response.json();
-    setTwilioStatus(data.twilio);
+    setTwilioCheck({ state: "checking", message: "Checking Twilio..." });
+    try {
+      const response = await fetch("/api/health");
+      const data = await response.json();
+      setTwilioStatus(data.twilio);
+      const checkedAt = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+      setTwilioCheck({
+        state: data.twilio?.configured ? "ok" : "error",
+        message: data.twilio?.configured
+          ? `Connected at ${checkedAt}. Sending from ${data.twilio.from}.`
+          : `Missing: ${(data.twilio?.missing || []).join(", ") || "unknown Twilio config"}.`
+      });
+    } catch (error) {
+      setTwilioCheck({ state: "error", message: `Check failed: ${error.message}` });
+    }
   }
 
   async function sendSms(to, body) {
@@ -527,7 +540,9 @@ function App() {
           icon={<Smartphone />}
           title="Twilio SMS"
           text={twilioStatus?.configured ? `Configured from ${twilioStatus.from}` : "Check local API configuration."}
-          action={<button className="ghost" onClick={checkTwilio}>Check</button>}
+          status={twilioCheck.message}
+          statusTone={twilioCheck.state}
+          action={<button className="ghost" onClick={checkTwilio} disabled={twilioCheck.state === "checking"}>{twilioCheck.state === "checking" ? "Checking" : "Check"}</button>}
         />
         <IntegrationCard icon={<CreditCard />} title="Stripe billing" text="Subscription gate for property profiles; payments not required for repairs." />
         <IntegrationCard icon={<Banknote />} title="Off-platform repair payment" text="Owners mark invoices paid and export bundles for taxes." />
@@ -1228,12 +1243,13 @@ function InvoiceRow({ invoice, onPaid }) {
   );
 }
 
-function IntegrationCard({ icon, title, text, action }) {
+function IntegrationCard({ icon, title, text, action, status, statusTone = "idle" }) {
   return (
     <div className="integration-card">
       <div>{icon}</div>
       <strong>{title}</strong>
       <span>{text}</span>
+      {status && <p className={`integration-status ${statusTone}`}>{status}</p>}
       {action}
     </div>
   );
