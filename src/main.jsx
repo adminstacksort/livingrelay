@@ -644,7 +644,7 @@ function App() {
   const [demoStatus, setDemoStatus] = useState("");
   const [appData, setAppData] = useState(null);
   const [adminSection, setAdminSection] = useState("operations");
-  const [landingMode, setLandingMode] = useState("login");
+  const [landingMode, setLandingMode] = useState("create");
   const [signupForm, setSignupForm] = useState({
     propertyName: "",
     address: "",
@@ -1515,20 +1515,15 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
             <span className="hero-kicker">City home maintenance over SMS</span>
             <h1>LivingRelay</h1>
             <p>One shared workspace for rental homes, duplexes, townhomes, and small multifamily properties. Resident texts become triaged work orders, approvals, vendor coordination, and tax-ready records.</p>
-            <div className="hero-actions">
-              <button className="primary" onClick={() => setLandingMode("create")}><Building2 size={17} /> Create a property</button>
-              <button className="secondary" onClick={() => setLandingMode("login")}><LockKeyhole size={17} /> Log into your property</button>
-            </div>
           </div>
 
           <section className="access-panel" aria-label={landingMode === "create" ? "Create a property" : "Log into property"}>
             <div className="mode-switch">
-              <button className={landingMode === "login" ? "active" : ""} onClick={() => setLandingMode("login")}>Log in</button>
               <button className={landingMode === "create" ? "active" : ""} onClick={() => setLandingMode("create")}>Create property</button>
+              <button className={landingMode === "login" ? "active" : ""} onClick={() => setLandingMode("login")}>Log in</button>
             </div>
             {landingMode === "login" ? (
               <>
-                <SectionTitle icon={<LockKeyhole />} title="Enter your property" eyebrow="Phone + PIN" />
                 <LoginForm
                   phone={phone}
                   setPhone={setPhone}
@@ -1558,7 +1553,6 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
               </>
             ) : (
               <>
-                <SectionTitle icon={<Home />} title="Create your first property" eyebrow="Self-serve setup" />
                 <form className="signup-form" onSubmit={createOnboardingProperty}>
                   <label>Property name<GooglePlacesAddressInput required value={signupForm.propertyName} onChange={(value) => updateSignup("propertyName", value)} selectedValueForPrediction={(prediction) => prediction.mainText || prediction.description} onPlaceSelect={(place, prediction) => setSignupForm((current) => ({ ...current, propertyName: prediction?.mainText || place.name || current.propertyName, address: formatPlaceAddress(place) || prediction?.description || current.address }))} placeholder="Noe Valley Duplex" autoComplete="organization" /></label>
                   <label>Address<GooglePlacesAddressInput value={signupForm.address} onChange={(value) => updateSignup("address", value)} placeholder="11820 Pacific Ave" /></label>
@@ -3514,7 +3508,7 @@ function SectionTitle({ icon, eyebrow, title }) {
     <div className="section-title">
       <div className="section-icon">{icon}</div>
       <div>
-        <span className="eyebrow">{eyebrow}</span>
+        {eyebrow && <span className="eyebrow">{eyebrow}</span>}
         <h2>{title}</h2>
       </div>
     </div>
