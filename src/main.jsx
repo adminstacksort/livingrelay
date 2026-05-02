@@ -45,7 +45,7 @@ const people = [
 ];
 
 const accounts = [
-  { id: "acct-1", name: "Shah Property Group", status: "Active", plan: "$0/property + $25 vendor dispatch", stripeCustomerId: "cus_demo_shah", billingPayerRole: "Owner", billingPayerPersonId: "owner-1", billingSetupStatus: "Card on file" }
+  { id: "acct-1", name: "Shah Property Group", status: "Active", plan: "$0/property + $25 vendor dispatch", stripeCustomerId: "", billingPayerRole: "Owner", billingPayerPersonId: "owner-1", billingSetupStatus: "Needs card" }
 ];
 
 const properties = [
@@ -62,7 +62,7 @@ const properties = [
     adminId: "admin-1",
     billingPayerRole: "Owner",
     billingPayerPersonId: "owner-1",
-    billingSetupStatus: "Card on file",
+    billingSetupStatus: "Needs card",
     rules: "Plumbing under $300 goes to Carlos first. Any repair above $150 needs owner approval. HVAC always requires manager review. Emergencies: active water, gas smell, sparking, no lock."
   },
   {
@@ -78,7 +78,7 @@ const properties = [
     adminId: "admin-1",
     billingPayerRole: "Owner",
     billingPayerPersonId: "owner-1",
-    billingSetupStatus: "Card on file",
+    billingSetupStatus: "Needs card",
     rules: "All dispatches need manager review until vendors are configured."
   }
 ];
