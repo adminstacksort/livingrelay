@@ -90,6 +90,7 @@ Both deployed environments require:
 
 ```text
 APP_PUBLIC_URL
+APP_ENV
 DATABASE_URL
 TWILIO_ACCOUNT_SID
 TWILIO_AUTH_TOKEN
@@ -105,6 +106,10 @@ SITE_ADMIN_PASSWORD
 ```
 
 `SITE_ADMIN_HOST` gates the admin console and `/api/site-admin/*` endpoints by request host. In production, admin login should only be reachable through `admin.livingrelay.com`.
+
+Set `APP_ENV` to `dev`, `staging`, or `production`. Persistent Postgres snapshots are keyed by environment (`livingrelay-dev`, `livingrelay-staging`, `livingrelay-production`), so staging test properties remain visible in the staging admin portal until explicitly deleted and never mix with production data.
+
+Use `https://staging.livingrelay.com/admin` for the staging admin portal. Plain `https://staging.livingrelay.com` remains the staging customer app for flows like Create property.
 
 When `ENABLE_VENDOR_CALLS=true`, also configure:
 

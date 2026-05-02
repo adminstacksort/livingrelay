@@ -38,39 +38,6 @@ import {
 import heroImage from "../assets/livingrelay-hero.png";
 import "./styles.css";
 
-const googlePlacesApiKey = import.meta.env.VITE_GOOGLE_PLACES_API_KEY;
-let googlePlacesLoader;
-
-function loadGooglePlaces() {
-  if (!googlePlacesApiKey) return Promise.resolve(null);
-  if (window.google?.maps?.places) return Promise.resolve(window.google);
-  if (googlePlacesLoader) return googlePlacesLoader;
-
-  googlePlacesLoader = new Promise((resolve, reject) => {
-    const existingScript = document.querySelector("script[data-google-places]");
-    if (existingScript) {
-      existingScript.addEventListener("load", () => resolve(window.google), { once: true });
-      existingScript.addEventListener("error", reject, { once: true });
-      return;
-    }
-
-    const script = document.createElement("script");
-    const params = new URLSearchParams({
-      key: googlePlacesApiKey,
-      libraries: "places"
-    });
-    script.src = `https://maps.googleapis.com/maps/api/js?${params.toString()}`;
-    script.async = true;
-    script.defer = true;
-    script.dataset.googlePlaces = "true";
-    script.onload = () => resolve(window.google);
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
-
-  return googlePlacesLoader;
-}
-
 const people = [
   { id: "site-admin-1", name: "Avery Stone", role: "Site Admin", phone: "(310) 555-0199", pin: "9999", propertyIds: [], accountIds: ["acct-1"] },
   { id: "admin-1", name: "Jordan Lee", role: "Manager", phone: "(310) 555-0100", pin: "1111", propertyIds: ["p-1", "p-2"], managesPropertyIds: ["p-1"] },
@@ -377,6 +344,68 @@ function buildDashboardUrl(role, section, { propertyId, orderId } = {}) {
   return `${dashboardPathFor(role, section)}${query ? `?${query}` : ""}${window.location.hash}`;
 }
 
+function normalizedPhoneDigits(value = "") {
+  return String(value).replace(/\D/g, "").slice(-10);
+}
+
+function formatPhoneInput(value = "") {
+  const digits = normalizedPhoneDigits(value);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
+function formatPinInput(value = "") {
+  return String(value).replace(/\D/g, "").slice(0, 4);
+}
+
+function samePhone(left = "", right = "") {
+  const leftDigits = normalizedPhoneDigits(left);
+  const rightDigits = normalizedPhoneDigits(right);
+  return Boolean(leftDigits && rightDigits && leftDigits === rightDigits);
+}
+
+function addUniqueValues(values = [], nextValues = []) {
+  return Array.from(new Set([...(values || []), ...(nextValues || []).filter(Boolean)]));
+}
+
+function buildPhoneIdentityUser(person, people = []) {
+  if (!person?.phone || person.role === "Site Admin") return person;
+  const phonePeople = people.filter((candidate) => (
+    candidate.role !== "Site Admin"
+    && samePhone(candidate.phone, person.phone)
+    && String(candidate.pin || "") === String(person.pin || "")
+  ));
+  return phonePeople.reduce((identity, candidate) => ({
+    ...identity,
+    propertyIds: addUniqueValues(identity.propertyIds, candidate.propertyIds),
+    managesPropertyIds: addUniqueValues(identity.managesPropertyIds, candidate.managesPropertyIds),
+    accountIds: addUniqueValues(identity.accountIds, candidate.accountIds),
+    pins: addUniqueValues(identity.pins, candidate.pin ? [candidate.pin] : []),
+    phoneIdentityPersonIds: addUniqueValues(identity.phoneIdentityPersonIds, [candidate.id])
+  }), {
+    ...person,
+    propertyIds: person.propertyIds || [],
+    managesPropertyIds: person.managesPropertyIds || [],
+    accountIds: person.accountIds || [],
+    pins: person.pin ? [person.pin] : [],
+    phoneIdentityPersonIds: [person.id]
+  });
+}
+
+function accessiblePropertyIdsForPerson(person) {
+  return addUniqueValues(person?.propertyIds || [], person?.managesPropertyIds || []);
+}
+
+function defaultPropertyIdForLogin(person, propertiesList = []) {
+  if (!person) return propertiesList[0]?.id;
+  if (person.role === "Site Admin") return propertiesList[0]?.id;
+  const accessiblePropertyIds = accessiblePropertyIdsForPerson(person);
+  const requestedPropertyId = new URLSearchParams(window.location.search).get("property");
+  if (requestedPropertyId && accessiblePropertyIds.includes(requestedPropertyId)) return requestedPropertyId;
+  return accessiblePropertyIds[0] || propertiesList[0]?.id;
+}
+
 function classifyIssue(text) {
   const body = text.toLowerCase();
   const trade = ["water", "sink", "toilet", "leak", "drip", "faucet", "shower", "drain", "pipe", "garbage disposal"].some((word) => body.includes(word))
@@ -438,13 +467,20 @@ function isLiveInvoice(invoice, liveOrders) {
 }
 
 function formatPlaceAddress(place) {
-  return place?.formatted_address || place?.name || "";
+  return place?.formatted_address || place?.formattedAddress || place?.name || place?.displayName?.text || "";
 }
 
-function GooglePlacesAddressInput({ value, onChange, onPlaceSelect, placeholder, required = false, autoComplete = "street-address" }) {
+function propertyLocationLabel(property) {
+  return property?.address || property?.name || "Property address";
+}
+
+function GooglePlacesAddressInput({ value, onChange, onPlaceSelect, placeholder, required = false, autoComplete = "street-address", selectedValueForPrediction }) {
   const inputRef = useRef(null);
   const onChangeRef = useRef(onChange);
   const onPlaceSelectRef = useRef(onPlaceSelect);
+  const requestIdRef = useRef(0);
+  const [predictions, setPredictions] = useState([]);
+  const [showPredictions, setShowPredictions] = useState(false);
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -452,42 +488,82 @@ function GooglePlacesAddressInput({ value, onChange, onPlaceSelect, placeholder,
   }, [onChange, onPlaceSelect]);
 
   useEffect(() => {
-    let listener;
-    let cancelled = false;
+    const query = value.trim();
+    if (query.length < 3) {
+      setPredictions([]);
+      return undefined;
+    }
 
-    loadGooglePlaces()
-      .then((google) => {
-        if (cancelled || !google?.maps?.places || !inputRef.current) return;
-        const autocomplete = new google.maps.places.Autocomplete(inputRef.current, {
-          componentRestrictions: { country: "us" },
-          fields: ["address_components", "formatted_address", "geometry", "name", "place_id"],
-          types: ["address"]
+    let cancelled = false;
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    const timer = window.setTimeout(() => {
+      fetch(`/api/places/autocomplete?input=${encodeURIComponent(query)}`)
+        .then((response) => response.ok ? response.json() : { predictions: [] })
+        .then((data) => {
+          if (cancelled || requestId !== requestIdRef.current) return;
+          setPredictions(Array.isArray(data.predictions) ? data.predictions : []);
+        })
+        .catch(() => {
+          if (!cancelled && requestId === requestIdRef.current) setPredictions([]);
         });
-        listener = autocomplete.addListener("place_changed", () => {
-          const place = autocomplete.getPlace();
-          const address = formatPlaceAddress(place);
-          if (!address) return;
-          onChangeRef.current(address);
-          onPlaceSelectRef.current?.(place);
-        });
-      })
-      .catch(() => {});
+    }, 180);
 
     return () => {
       cancelled = true;
-      listener?.remove();
+      window.clearTimeout(timer);
     };
-  }, []);
+  }, [value]);
+
+  async function selectPrediction(prediction) {
+    const fallbackAddress = prediction.description || "";
+    onChangeRef.current(selectedValueForPrediction?.(prediction) || fallbackAddress);
+    setPredictions([]);
+    setShowPredictions(false);
+
+    if (!prediction.placeId) {
+      onPlaceSelectRef.current?.({ formatted_address: fallbackAddress, name: prediction.mainText || fallbackAddress }, prediction);
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/places/${encodeURIComponent(prediction.placeId)}`);
+      const place = response.ok ? await response.json() : null;
+      const address = formatPlaceAddress(place) || fallbackAddress;
+      if (address && !selectedValueForPrediction) onChangeRef.current(address);
+      onPlaceSelectRef.current?.(place || { formatted_address: fallbackAddress, name: prediction.mainText || fallbackAddress }, prediction);
+    } catch {
+      onPlaceSelectRef.current?.({ formatted_address: fallbackAddress, name: prediction.mainText || fallbackAddress }, prediction);
+    }
+  }
 
   return (
-    <input
-      ref={inputRef}
-      required={required}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      placeholder={placeholder}
-      autoComplete={autoComplete}
-    />
+    <span className="places-autocomplete">
+      <input
+        ref={inputRef}
+        required={required}
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setShowPredictions(true);
+        }}
+        onBlur={() => window.setTimeout(() => setShowPredictions(false), 120)}
+        onFocus={() => setShowPredictions(true)}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+      />
+      {showPredictions && predictions.length > 0 && (
+        <span className="places-menu">
+          {predictions.map((prediction) => (
+            <button type="button" key={prediction.placeId} onMouseDown={(event) => event.preventDefault()} onClick={() => selectPrediction(prediction)}>
+              <span>{prediction.mainText || prediction.description}</span>
+              <small>{prediction.secondaryText || "United States"}</small>
+            </button>
+          ))}
+          <em>Powered by Google</em>
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -495,7 +571,7 @@ function isTenantVisibleWorkOrder(order, user) {
   if (!order || !user) return false;
   if (!isLiveDashboardWorkOrder(order)) return false;
   if (order.tenantId) return order.tenantId === user.id;
-  return Boolean(user.unit && order.unit === user.unit);
+  return Boolean(user.propertyIds?.includes(order.propertyId));
 }
 
 function isVendorVisibleWorkOrder(order, vendor, user) {
@@ -532,7 +608,7 @@ function maintenanceNotesForProperty(property) {
     notes.push("For urgent issues like active water, gas smell, sparking, no heat, or a broken lock, include what is happening right now and the fastest access window.");
   }
 
-  notes.push(`For ${property?.name || "this property"}, include your unit, best entry window, pets or gate notes, and whether the issue is still happening.`);
+  notes.push(`For ${property?.name || "this property"}, include the best entry window, pets or gate notes, and whether the issue is still happening.`);
   return notes.slice(0, 3);
 }
 
@@ -544,13 +620,18 @@ const tenantIssueStarters = [
   "Lock, door, or window will not secure"
 ];
 
+const rememberedPhoneStorageKey = "livingrelay.rememberedPhone";
+
 function App() {
   const [session, setSession] = useState(null);
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
+  const [rememberedPhone, setRememberedPhone] = useState("");
+  const [editingRememberedPhone, setEditingRememberedPhone] = useState(false);
   const [sitePassword, setSitePassword] = useState("");
   const [siteAdminToken, setSiteAdminToken] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [loginVerification, setLoginVerification] = useState({ challengeId: "", code: "", state: "idle", message: "" });
   const [activePropertyId, setActivePropertyId] = useState("p-1");
   const [orders, setOrders] = useState(seedOrders);
   const [invoices, setInvoices] = useState(seedInvoices);
@@ -564,16 +645,15 @@ function App() {
   const [adminSection, setAdminSection] = useState("operations");
   const [landingMode, setLandingMode] = useState("login");
   const [signupForm, setSignupForm] = useState({
-    accountName: "",
     propertyName: "",
     address: "",
-    units: "",
     managerName: "",
     managerPhone: "",
     role: "Property manager",
     pin: ""
   });
   const [signupStatus, setSignupStatus] = useState({ state: "idle", message: "" });
+  const [signupVerification, setSignupVerification] = useState({ challengeId: "", code: "", token: "", state: "idle", message: "" });
   const siteAdminConsoleAvailable = isSiteAdminConsoleHost();
   const demoExperienceAvailable = isDemoExperienceHost();
   const demoLoginShortcutsAvailable = isDemoLoginShortcutsHost();
@@ -600,17 +680,17 @@ function App() {
   const visibleOrders = orders.filter((order) => order.propertyId === activeProperty.id);
   const activeOrder = visibleOrders.find((order) => order.id === activeOrderId) || visibleOrders[0];
   const visibleStaleOrders = staleWorkOrders.filter((order) => order.propertyId === activeProperty.id);
-  const user = session ? peopleData.find((person) => person.id === session.userId) : null;
+  const user = session ? buildPhoneIdentityUser(peopleData.find((person) => person.id === session.userId), peopleData) : null;
   const vendorProfile = user?.role === "Vendor" ? vendorsData.find((vendor) => vendor.personId === user.id || vendor.name === user.name || vendor.trade === user.trade) : null;
   const tenantOrders = user?.role === "Tenant" ? visibleOrders.filter((order) => isTenantVisibleWorkOrder(order, user)) : [];
   const vendorOrders = user?.role === "Vendor" ? visibleOrders.filter((order) => isVendorVisibleWorkOrder(order, vendorProfile, user)) : [];
   const livePropertyOrders = visibleOrders.filter(isLiveDashboardWorkOrder);
   const livePropertyInvoices = invoices.filter((invoice) => invoice.propertyId === activeProperty.id && isLiveInvoice(invoice, livePropertyOrders));
-  const normalizedLoginPhone = phone.replace(/\D/g, "");
+  const normalizedLoginPhone = normalizedPhoneDigits(phone);
   const siteAdminUser = peopleData.find((person) => person.role === "Site Admin");
   const loginCandidate = siteAdminConsoleAvailable
     ? siteAdminUser
-    : authPeople.find((person) => person.phone.replace(/\D/g, "").endsWith(normalizedLoginPhone.slice(-10)) && person.pin === pin);
+    : buildPhoneIdentityUser(authPeople.find((person) => samePhone(person.phone, normalizedLoginPhone) && person.pin === pin), authPeople);
   const route = parseDashboardRoute();
 
   function authHeaders(headers = {}) {
@@ -621,6 +701,14 @@ function App() {
     loadState();
     confirmBillingReturn();
   }, []);
+
+  useEffect(() => {
+    if (siteAdminConsoleAvailable) return;
+    const storedPhone = formatPhoneInput(window.localStorage.getItem(rememberedPhoneStorageKey) || "");
+    if (!storedPhone) return;
+    setRememberedPhone(storedPhone);
+    setPhone((current) => current || storedPhone);
+  }, [siteAdminConsoleAvailable]);
 
   useEffect(() => {
     function applyRoute() {
@@ -680,6 +768,21 @@ function App() {
   async function login(event) {
     event.preventDefault();
     setLoginError("");
+    const finishLogin = (data) => {
+      const rawMatch = data.person || peopleData.find((person) => person.id === data.userId);
+      const match = buildPhoneIdentityUser(rawMatch, peopleData);
+      const nextRememberedPhone = formatPhoneInput(match?.phone || phone);
+      if (nextRememberedPhone && match?.role !== "Site Admin") {
+        window.localStorage.setItem(rememberedPhoneStorageKey, nextRememberedPhone);
+        setRememberedPhone(nextRememberedPhone);
+        setPhone(nextRememberedPhone);
+        setEditingRememberedPhone(false);
+      }
+      setSession({ userId: data.userId });
+      setActivePropertyId(defaultPropertyIdForLogin(match, propertiesData));
+      setAdminSection(match?.role === "Site Admin" ? "accounts" : "operations");
+      setLoginVerification({ challengeId: "", code: "", state: "idle", message: "" });
+    };
     if (loginCandidate?.role === "Site Admin") {
       if (!siteAdminConsoleAvailable) {
         setLoginError("Admin console is only available at admin.livingrelay.com");
@@ -703,21 +806,110 @@ function App() {
       await loadState();
       return;
     }
-    const match = loginCandidate;
-    if (!match) return;
-    setSession({ userId: match.id });
-    setActivePropertyId(match.role === "Site Admin" ? propertiesData[0]?.id : match.propertyIds[0]);
-    setAdminSection(match.role === "Site Admin" ? "accounts" : "operations");
+    if (!phone || !pin) {
+      setLoginError("Phone and PIN are required.");
+      return;
+    }
+    if (normalizedPhoneDigits(phone).length !== 10) {
+      setLoginError("Enter a 10-digit phone number.");
+      return;
+    }
+    if (formatPinInput(pin).length !== 4) {
+      setLoginError("Enter a 4-digit PIN.");
+      return;
+    }
+    if (!loginVerification.challengeId) {
+      setLoginVerification({ challengeId: "", code: "", state: "sending", message: "Sending verification code..." });
+      const response = await fetch("/api/auth/login/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, pin })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setLoginVerification({ challengeId: "", code: "", state: "idle", message: "" });
+        setLoginError(data.error || "Could not send verification code.");
+        return;
+      }
+      if (data.userId) {
+        finishLogin(data);
+        return;
+      }
+      setLoginVerification({
+        challengeId: data.challengeId,
+        code: "",
+        state: "sent",
+        message: data.devCode ? `Verification code: ${data.devCode}` : "We sent a verification code to that phone."
+      });
+      return;
+    }
+    setLoginVerification((current) => ({ ...current, state: "checking", message: "Checking verification code..." }));
+    const response = await fetch("/api/auth/login/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone, pin, challengeId: loginVerification.challengeId, code: loginVerification.code })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      setLoginVerification((current) => ({ ...current, state: "sent", message: data.error || "Could not verify that code." }));
+      return;
+    }
+    finishLogin(data);
   }
 
   async function createOnboardingProperty(event) {
     event.preventDefault();
-    setSignupStatus({ state: "saving", message: "Creating your property..." });
+    if (normalizedPhoneDigits(signupForm.managerPhone).length !== 10) {
+      setSignupStatus({ state: "error", message: "Enter a 10-digit phone number." });
+      return;
+    }
+    if (signupForm.pin && formatPinInput(signupForm.pin).length !== 4) {
+      setSignupStatus({ state: "error", message: "Use a 4-digit PIN, or leave it blank to auto-generate one." });
+      return;
+    }
+    setSignupStatus({ state: "saving", message: signupVerification.token ? "Creating your property..." : "Sending phone verification code..." });
     try {
+      let phoneVerificationToken = signupVerification.token;
+      if (!phoneVerificationToken && !signupVerification.challengeId) {
+        const response = await fetch("/api/phone-verifications/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone: signupForm.managerPhone, purpose: "onboarding" })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          setSignupStatus({ state: "error", message: data.error || "Could not send verification code." });
+          return;
+        }
+        setSignupVerification({
+          challengeId: data.challengeId,
+          code: "",
+          token: "",
+          state: "sent",
+          message: data.devCode ? `Verification code: ${data.devCode}` : "We sent a verification code to your phone."
+        });
+        setSignupStatus({ state: "idle", message: "Enter the verification code to finish creating the property." });
+        return;
+      }
+      if (!phoneVerificationToken) {
+        const response = await fetch("/api/phone-verifications/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ challengeId: signupVerification.challengeId, code: signupVerification.code, purpose: "onboarding" })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          setSignupVerification((current) => ({ ...current, state: "sent", message: data.error || "Could not verify that code." }));
+          setSignupStatus({ state: "error", message: data.error || "Could not verify that code." });
+          return;
+        }
+        phoneVerificationToken = data.token;
+        setSignupVerification((current) => ({ ...current, token: data.token, state: "ok", message: "Phone verified." }));
+      }
       const response = await fetch("/api/onboarding/property", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(signupForm)
+        body: JSON.stringify({ ...signupForm, phoneVerificationToken })
       });
       const data = await response.json();
       if (!response.ok) {
@@ -730,7 +922,8 @@ function App() {
       setSession({ userId: data.person.id });
       setActivePropertyId(data.property.id);
       setAdminSection("operations");
-      setSignupStatus({ state: "ok", message: `${data.property.name} is ready. Your PIN is ${data.person.pin}.` });
+      setSignupVerification({ challengeId: "", code: "", token: "", state: "idle", message: "" });
+      setSignupStatus({ state: "ok", message: `${data.property.name} is ready${data.reconciled ? " on your existing account" : ""}. Your PIN is ${data.person.pin}.` });
     } catch (error) {
       setSignupStatus({ state: "error", message: error.message });
     }
@@ -739,7 +932,7 @@ function App() {
   async function createOrder(submitEvent) {
     submitEvent.preventDefault();
     const triage = classifyIssue(request.issue);
-    const unit = request.unit || user?.unit || activeProperty.units?.[0] || "Home";
+    const unit = propertyLocationLabel(activeProperty);
     const tenant = user?.role === "Tenant"
       ? user
       : peopleData.find((person) => person.role === "Tenant" && person.propertyIds?.includes(activeProperty.id) && person.unit === unit)
@@ -767,7 +960,7 @@ function App() {
       });
       const data = await response.json();
       if (data.order?.id) setActiveOrderId(data.order.id);
-      setRequest({ ...defaultRequest, unit: user?.unit || activeProperty.units?.[0] || "" });
+      setRequest({ ...defaultRequest, unit: propertyLocationLabel(activeProperty) });
       await loadState();
       return;
     }
@@ -798,7 +991,7 @@ function App() {
     };
     setOrders((current) => [order, ...current]);
     setActiveOrderId(id);
-    setRequest({ ...defaultRequest, unit: user?.unit || activeProperty.units?.[0] || "" });
+    setRequest({ ...defaultRequest, unit: propertyLocationLabel(activeProperty) });
   }
 
   function patchOrder(patch, label, detail) {
@@ -1035,6 +1228,8 @@ function App() {
         login={login}
         loginCandidate={loginCandidate}
         loginError={loginError}
+        loginVerification={loginVerification}
+        setLoginVerification={setLoginVerification}
         loginPeople={loginPeople}
         setLoginError={setLoginError}
         landingMode={landingMode}
@@ -1042,7 +1237,12 @@ function App() {
         signupForm={signupForm}
         setSignupForm={setSignupForm}
         signupStatus={signupStatus}
+        signupVerification={signupVerification}
+        setSignupVerification={setSignupVerification}
         createOnboardingProperty={createOnboardingProperty}
+        rememberedPhone={rememberedPhone}
+        editingRememberedPhone={editingRememberedPhone}
+        setEditingRememberedPhone={setEditingRememberedPhone}
       />
     );
   }
@@ -1261,8 +1461,16 @@ function App() {
   );
 }
 
-function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSitePassword, siteAdminConsoleAvailable, login, loginCandidate, loginError, loginPeople, setLoginError, landingMode, setLandingMode, signupForm, setSignupForm, signupStatus, createOnboardingProperty }) {
+function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSitePassword, siteAdminConsoleAvailable, login, loginCandidate, loginError, loginVerification, setLoginVerification, loginPeople, setLoginError, landingMode, setLandingMode, signupForm, setSignupForm, signupStatus, signupVerification, setSignupVerification, createOnboardingProperty, rememberedPhone, editingRememberedPhone, setEditingRememberedPhone }) {
   const updateSignup = (key, value) => setSignupForm((current) => ({ ...current, [key]: value }));
+  const fillLoginShortcut = (person) => {
+    setPhone(formatPhoneInput(person.phone));
+    setPin(formatPinInput(person.pin));
+    setEditingRememberedPhone(true);
+    setSitePassword("");
+    setLoginError("");
+    setLoginVerification({ challengeId: "", code: "", state: "idle", message: "" });
+  };
 
   if (siteAdminConsoleAvailable) {
     return (
@@ -1330,11 +1538,16 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
                   login={login}
                   loginCandidate={loginCandidate}
                   loginError={loginError}
+                  loginVerification={loginVerification}
+                  setLoginVerification={setLoginVerification}
+                  rememberedPhone={rememberedPhone}
+                  editingRememberedPhone={editingRememberedPhone}
+                  setEditingRememberedPhone={setEditingRememberedPhone}
                 />
                 {!!loginPeople.length && (
                   <div className="pin-grid compact">
                     {loginPeople.slice(0, 4).map((person) => (
-                      <button key={person.id} onClick={() => { setPhone(person.phone); setPin(person.pin); setSitePassword(""); setLoginError(""); }}>
+                      <button key={person.id} onClick={() => fillLoginShortcut(person)}>
                         <strong>{person.role}</strong>
                         <span>{person.pin}</span>
                       </button>
@@ -1346,15 +1559,17 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
               <>
                 <SectionTitle icon={<Home />} title="Create your first property" eyebrow="Self-serve setup" />
                 <form className="signup-form" onSubmit={createOnboardingProperty}>
-                  <label>Property name<GooglePlacesAddressInput required value={signupForm.propertyName} onChange={(value) => updateSignup("propertyName", value)} onPlaceSelect={(place) => setSignupForm((current) => ({ ...current, propertyName: place.name || current.propertyName, address: formatPlaceAddress(place) || current.address }))} placeholder="Noe Valley Duplex" autoComplete="organization" /></label>
-                  <label>Your name<input required value={signupForm.managerName} onChange={(event) => updateSignup("managerName", event.target.value)} placeholder="Jordan Lee" /></label>
-                  <label>Phone<input required value={signupForm.managerPhone} onChange={(event) => updateSignup("managerPhone", event.target.value)} placeholder="(310) 555-0100" /></label>
-                  <label>PIN<input value={signupForm.pin} onChange={(event) => updateSignup("pin", event.target.value)} inputMode="numeric" placeholder="Auto-generate" /></label>
+                  <label>Property name<GooglePlacesAddressInput required value={signupForm.propertyName} onChange={(value) => updateSignup("propertyName", value)} selectedValueForPrediction={(prediction) => prediction.mainText || prediction.description} onPlaceSelect={(place, prediction) => setSignupForm((current) => ({ ...current, propertyName: prediction?.mainText || place.name || current.propertyName, address: formatPlaceAddress(place) || prediction?.description || current.address }))} placeholder="Noe Valley Duplex" autoComplete="organization" /></label>
                   <label>Address<GooglePlacesAddressInput value={signupForm.address} onChange={(value) => updateSignup("address", value)} placeholder="11820 Pacific Ave" /></label>
-                  <label>Homes / spaces<input value={signupForm.units} onChange={(event) => updateSignup("units", event.target.value)} placeholder="Garden flat, upper home, parlor floor" /></label>
-                  <label className="span-2">Account name<input value={signupForm.accountName} onChange={(event) => updateSignup("accountName", event.target.value)} placeholder="Optional" /></label>
-                  <label className="span-2">Your role<select value={signupForm.role} onChange={(event) => updateSignup("role", event.target.value)}><option>Property manager</option><option>Owner</option><option>Owner and property manager</option></select></label>
-                  <button className="primary wide" type="submit" disabled={signupStatus.state === "saving"}><ArrowRight size={16} /> {signupStatus.state === "saving" ? "Creating" : "Create property"}</button>
+                  <label>Your name<input required value={signupForm.managerName} onChange={(event) => updateSignup("managerName", event.target.value)} placeholder="Jordan Lee" /></label>
+                  <label>Your role<select value={signupForm.role} onChange={(event) => updateSignup("role", event.target.value)}><option>Property manager</option><option>Owner</option><option>Owner and property manager</option></select></label>
+                  <label>Phone<input required value={signupForm.managerPhone} onChange={(event) => updateSignup("managerPhone", formatPhoneInput(event.target.value))} inputMode="tel" autoComplete="tel" placeholder="(310) 555-0100" /></label>
+                  <label>PIN<PinCodeInput value={signupForm.pin} onChange={(value) => updateSignup("pin", value)} /></label>
+                  {signupVerification.challengeId && (
+                    <label className="span-2">Verification code<input required value={signupVerification.code} onChange={(event) => setSignupVerification((current) => ({ ...current, code: event.target.value }))} inputMode="numeric" placeholder="6-digit code" /></label>
+                  )}
+                  <button className="primary wide" type="submit" disabled={signupStatus.state === "saving"}><ArrowRight size={16} /> {signupStatus.state === "saving" ? "Working" : signupVerification.challengeId ? "Verify and create" : "Send code"}</button>
+                  {signupVerification.message && <p className={`form-status ${signupVerification.state}`}>{signupVerification.message}</p>}
                   {signupStatus.message && <p className={`form-status ${signupStatus.state}`}>{signupStatus.message}</p>}
                 </form>
               </>
@@ -1364,7 +1579,7 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
       </section>
 
       <section className="value-band" id="how-it-works">
-        <article><MessageSquare size={22} /><strong>Residents text once</strong><p>LivingRelay asks follow-ups, captures access notes, and creates a work order for the right home or space.</p></article>
+        <article><MessageSquare size={22} /><strong>Residents text once</strong><p>LivingRelay asks follow-ups, captures access notes, and creates a work order for the property address.</p></article>
         <article><ShieldCheck size={22} /><strong>Approvals stay clear</strong><p>Managers and owners see estimates, thresholds, invoices, and the full timeline.</p></article>
         <article><Wrench size={22} /><strong>Vendors stay coordinated</strong><p>Send vendor messages, book dispatches, and keep every repair update attached.</p></article>
         <article><FileText size={22} /><strong>Records are tax-ready</strong><p>Invoices and CSV exports stay organized by property and year.</p></article>
@@ -1387,16 +1602,32 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
   );
 }
 
-function LoginForm({ phone, setPhone, pin, setPin, sitePassword, setSitePassword, login, loginCandidate, loginError }) {
+function LoginForm({ phone, setPhone, pin, setPin, sitePassword, setSitePassword, login, loginCandidate, loginError, loginVerification, setLoginVerification, rememberedPhone, editingRememberedPhone, setEditingRememberedPhone }) {
+  const usingRememberedPhone = Boolean(rememberedPhone && !editingRememberedPhone);
+  const changeRememberedPhone = () => {
+    setEditingRememberedPhone(true);
+    setPhone("");
+    setPin("");
+    setLoginVerification({ challengeId: "", code: "", state: "idle", message: "" });
+  };
+
   return (
     <form className="stack" onSubmit={login}>
-      <label>
-        Phone
-        <input value={phone} onChange={(event) => setPhone(event.target.value)} />
-      </label>
+      {usingRememberedPhone ? (
+        <div className="remembered-phone">
+          <span>Phone</span>
+          <strong>{rememberedPhone}</strong>
+          <button type="button" className="ghost" onClick={changeRememberedPhone}>Enter different phone number</button>
+        </div>
+      ) : (
+        <label>
+          Phone
+          <input value={phone} onChange={(event) => setPhone(formatPhoneInput(event.target.value))} inputMode="tel" autoComplete="tel" placeholder="(555) 555-5555" />
+        </label>
+      )}
       <label>
         PIN
-        <input value={pin} onChange={(event) => setPin(event.target.value)} inputMode="numeric" />
+        <PinCodeInput value={pin} onChange={setPin} />
       </label>
       {loginCandidate?.role === "Site Admin" && (
         <label>
@@ -1404,9 +1635,34 @@ function LoginForm({ phone, setPhone, pin, setPin, sitePassword, setSitePassword
           <input type="password" value={sitePassword} onChange={(event) => setSitePassword(event.target.value)} autoComplete="current-password" />
         </label>
       )}
-      <button className="primary wide" type="submit"><LockKeyhole size={16} /> Enter</button>
+      {loginVerification?.challengeId && (
+        <label>
+          Verification code
+          <input value={loginVerification.code} onChange={(event) => setLoginVerification((current) => ({ ...current, code: event.target.value }))} inputMode="numeric" />
+        </label>
+      )}
+      <button className="primary wide" type="submit"><LockKeyhole size={16} /> {loginVerification?.challengeId ? "Verify and enter" : "Send code"}</button>
+      {loginVerification?.message && <p className={`form-status ${loginVerification.state}`}>{loginVerification.message}</p>}
       {loginError && <p className="login-error">{loginError}</p>}
     </form>
+  );
+}
+
+function PinCodeInput({ value, onChange }) {
+  const digits = formatPinInput(value);
+  return (
+    <span className="pin-code-field">
+      <input
+        aria-label="PIN"
+        value={digits}
+        onChange={(event) => onChange(formatPinInput(event.target.value))}
+        inputMode="numeric"
+        maxLength={4}
+      />
+      <span className="pin-slots" aria-hidden="true">
+        {[0, 1, 2, 3].map((index) => <span key={index}>{digits[index] || ""}</span>)}
+      </span>
+    </span>
   );
 }
 
@@ -1428,7 +1684,7 @@ function LegacyLandingPage({ phone, setPhone, pin, setPin, sitePassword, setSite
             </label>
             <label>
               PIN
-              <input value={pin} onChange={(event) => setPin(event.target.value)} inputMode="numeric" />
+              <input className="pin-code-input" value={pin} onChange={(event) => setPin(formatPinInput(event.target.value))} inputMode="numeric" maxLength={4} />
             </label>
             {loginCandidate?.role === "Site Admin" && (
               <label>
@@ -1474,7 +1730,7 @@ function LegacyLandingPage({ phone, setPhone, pin, setPin, sitePassword, setSite
               </label>
               <label>
                 PIN
-                <input value={pin} onChange={(event) => setPin(event.target.value)} inputMode="numeric" />
+                <input className="pin-code-input" value={pin} onChange={(event) => setPin(formatPinInput(event.target.value))} inputMode="numeric" maxLength={4} />
               </label>
               <button className="primary wide" type="submit"><LockKeyhole size={16} /> Enter</button>
               {loginError && <p className="login-error">{loginError}</p>}
@@ -1490,10 +1746,8 @@ function LegacyLandingPage({ phone, setPhone, pin, setPin, sitePassword, setSite
           </>
         ) : (
           <form className="stack" onSubmit={createOnboardingProperty}>
-            <label>Account name<input required value={signupForm.accountName} onChange={(event) => setSignupForm({ ...signupForm, accountName: event.target.value })} /></label>
             <label>Property name<input required value={signupForm.propertyName} onChange={(event) => setSignupForm({ ...signupForm, propertyName: event.target.value })} /></label>
             <label>Address<input value={signupForm.address} onChange={(event) => setSignupForm({ ...signupForm, address: event.target.value })} /></label>
-            <label>Homes / spaces<input placeholder="Garden flat, upper home, parlor floor" value={signupForm.units} onChange={(event) => setSignupForm({ ...signupForm, units: event.target.value })} /></label>
             <label>Manager name<input required value={signupForm.managerName} onChange={(event) => setSignupForm({ ...signupForm, managerName: event.target.value })} /></label>
             <label>Manager phone<input required value={signupForm.managerPhone} onChange={(event) => setSignupForm({ ...signupForm, managerPhone: event.target.value })} /></label>
             <button className="primary wide" type="submit" disabled={signupStatus.state === "saving"}><Plus size={16} /> Create property</button>
@@ -1804,7 +2058,7 @@ function SiteAccounts({ accounts, properties, people, orders, invoices, reloadSt
       <section className="panel">
         <SectionTitle icon={<Plus />} title="Create customer account" eyebrow="Admin action" />
         <form className="admin-form" onSubmit={createAccount}>
-          <label>Account name<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
+          <label>Account<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
           <label>Status<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}><option>Trial</option><option>Active</option><option>Past due</option><option>Suspended</option></select></label>
           <label>Default payer<select value={form.billingPayerRole} onChange={(event) => setForm({ ...form, billingPayerRole: event.target.value })}><option>Owner</option><option>Property manager</option></select></label>
           <label className="check-row span-2"><input type="checkbox" checked={form.productionVendorCallsEnabled} onChange={(event) => setForm({ ...form, productionVendorCallsEnabled: event.target.checked })} /> Enable production vendor calls</label>
@@ -1863,7 +2117,7 @@ function AdminDirectory({ people, properties, accounts, reloadState }) {
           }}>{accounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select></label>
           <label>Property<select value={form.propertyId} onChange={(event) => setForm({ ...form, propertyId: event.target.value })}><option value="">No property</option>{accountProperties.map((property) => <option value={property.id} key={property.id}>{property.name}</option>)}</select></label>
           <label>PIN<input value={form.pin} placeholder="Auto-generate" onChange={(event) => setForm({ ...form, pin: event.target.value })} /></label>
-          <label>{form.role === "Vendor" ? "Trade" : "Home / space"}<input value={form.role === "Vendor" ? form.trade : form.unit} onChange={(event) => form.role === "Vendor" ? setForm({ ...form, trade: event.target.value }) : setForm({ ...form, unit: event.target.value })} /></label>
+          {form.role === "Vendor" && <label>Trade<input value={form.trade} onChange={(event) => setForm({ ...form, trade: event.target.value })} /></label>}
           <button className="primary wide" type="submit"><Plus size={16} /> Create user</button>
         </form>
       </section>
@@ -1876,7 +2130,6 @@ function AdminProperties({ properties, people, accounts, reloadState, setActiveP
   const [form, setForm] = useState({
     name: "",
     address: "",
-    units: "",
     accountId: accounts[0]?.id || "",
     adminId: people.find((person) => person.role === "Manager")?.id || "admin-1",
     ownerId: people.find((person) => person.role === "Owner")?.id || "owner-1",
@@ -1892,7 +2145,7 @@ function AdminProperties({ properties, people, accounts, reloadState, setActiveP
       body: JSON.stringify(form)
     });
     const data = await response.json();
-    setForm({ ...form, name: "", address: "", units: "" });
+    setForm({ ...form, name: "", address: "" });
     await reloadState();
     if (data.property?.id) {
       setActivePropertyId(data.property.id);
@@ -1923,7 +2176,7 @@ function AdminProperties({ properties, people, accounts, reloadState, setActiveP
                 <span>{property.subscription}</span>
                 <strong>{property.name}</strong>
                 <p>{accounts.find((account) => account.id === property.accountId)?.name || "Unassigned account"} · {property.address}</p>
-                <p>{property.units?.length || 0} homes / spaces · {property.plan} · Payer: {property.billingPayerRole || "Owner"}</p>
+                <p>{property.plan} · Payer: {property.billingPayerRole || "Owner"}</p>
               </div>
               <div className="record-actions">
                 <button className="ghost" onClick={() => { setActivePropertyId(property.id); setAdminSection("operations"); }}><ChevronRight size={15} /> Open</button>
@@ -1941,7 +2194,6 @@ function AdminProperties({ properties, people, accounts, reloadState, setActiveP
           <label>Name<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
           <label>Account<select value={form.accountId} onChange={(event) => setForm({ ...form, accountId: event.target.value })}>{accounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select></label>
           <label>Address<GooglePlacesAddressInput value={form.address} onChange={(value) => setForm({ ...form, address: value })} /></label>
-          <label>Homes / spaces<input placeholder="Garden flat, upper home, parlor floor" value={form.units} onChange={(event) => setForm({ ...form, units: event.target.value })} /></label>
           <label>Manager<select value={form.adminId} onChange={(event) => setForm({ ...form, adminId: event.target.value })}>{people.filter((person) => person.role === "Manager").map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}</select></label>
           <label>Owner<select value={form.ownerId} onChange={(event) => setForm({ ...form, ownerId: event.target.value })}>{people.filter((person) => person.role === "Owner").map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}</select></label>
           <label>Your role<select value={form.creatorRole} onChange={(event) => setForm({ ...form, creatorRole: event.target.value })}><option>Property manager</option><option>Owner</option><option>Owner and property manager</option></select></label>
@@ -1954,9 +2206,7 @@ function AdminProperties({ properties, people, accounts, reloadState, setActiveP
 }
 
 function AdminWorkOrders({ orders, properties, people, vendors, accounts, reloadState, setActivePropertyId, setActiveOrderId, setAdminSection }) {
-  const [form, setForm] = useState({ propertyId: properties[0]?.id || "", unit: properties[0]?.units?.[0] || "", tenantId: "", trade: "General", severity: "Normal", status: "Manager review", estimate: "", vendorId: "", issue: "", access: "" });
-  const selectedProperty = properties.find((property) => property.id === form.propertyId) || properties[0];
-
+  const [form, setForm] = useState({ propertyId: properties[0]?.id || "", unit: propertyLocationLabel(properties[0]), tenantId: "", trade: "General", severity: "Normal", status: "Manager review", estimate: "", vendorId: "", issue: "", access: "" });
   async function createWorkOrder(event) {
     event.preventDefault();
     await fetch("/api/admin/work-orders", {
@@ -1973,12 +2223,11 @@ function AdminWorkOrders({ orders, properties, people, vendors, accounts, reload
       <section className="panel">
         <SectionTitle icon={<ClipboardList />} title="Support and dispatch load" eyebrow="All customer issues" />
         <DataTable
-          columns={["ID", "Account", "Property", "Space", "Trade", "Status", "Estimate"]}
+          columns={["ID", "Account", "Property", "Trade", "Status", "Estimate"]}
           rows={orders.map((order) => [
             <button className="link-button" onClick={() => { setActivePropertyId(order.propertyId); setActiveOrderId(order.id); setAdminSection("operations"); }}>{order.id}</button>,
             accounts.find((account) => account.id === properties.find((property) => property.id === order.propertyId)?.accountId)?.name || "Unassigned",
             properties.find((property) => property.id === order.propertyId)?.name || order.propertyId,
-            order.unit,
             order.trade,
             order.status,
             formatMoney(Number(order.estimate || 0))
@@ -1988,8 +2237,10 @@ function AdminWorkOrders({ orders, properties, people, vendors, accounts, reload
       <section className="panel">
         <SectionTitle icon={<Plus />} title="Create customer issue" eyebrow="Support action" />
         <form className="admin-form" onSubmit={createWorkOrder}>
-          <label>Property<select value={form.propertyId} onChange={(event) => setForm({ ...form, propertyId: event.target.value, unit: properties.find((property) => property.id === event.target.value)?.units?.[0] || "" })}>{properties.map((property) => <option value={property.id} key={property.id}>{accounts.find((account) => account.id === property.accountId)?.name || "Account"} · {property.name}</option>)}</select></label>
-          <label>Home / space<input value={form.unit} list="admin-unit-options" onChange={(event) => setForm({ ...form, unit: event.target.value })} /><datalist id="admin-unit-options">{selectedProperty?.units?.map((unit) => <option value={unit} key={unit} />)}</datalist></label>
+          <label>Property<select value={form.propertyId} onChange={(event) => {
+            const nextProperty = properties.find((property) => property.id === event.target.value);
+            setForm({ ...form, propertyId: event.target.value, unit: propertyLocationLabel(nextProperty) });
+          }}>{properties.map((property) => <option value={property.id} key={property.id}>{accounts.find((account) => account.id === property.accountId)?.name || "Account"} · {property.name}</option>)}</select></label>
           <label>Tenant<select value={form.tenantId} onChange={(event) => setForm({ ...form, tenantId: event.target.value })}><option value="">Unassigned</option>{people.filter((person) => person.role === "Tenant").map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}</select></label>
           <label>Vendor<select value={form.vendorId} onChange={(event) => setForm({ ...form, vendorId: event.target.value })}><option value="">Unassigned</option>{vendors.map((vendor) => <option value={vendor.id} key={vendor.id}>{vendor.name} · {vendor.trade}</option>)}</select></label>
           <label>Trade<input value={form.trade} onChange={(event) => setForm({ ...form, trade: event.target.value })} /></label>
@@ -2150,7 +2401,6 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
         <div className="people-list">
           <MiniRow icon={<Users />} label="Manager" value={`${manager?.name || "Manager"} · ${manager?.phone || ""}`} />
           <MiniRow icon={<UserRound />} label="Owner" value={`${owner?.name || "Owner"} · ${owner?.phone || ""}`} />
-          <MiniRow icon={<Home />} label="Homes / spaces" value={property.units.join(", ")} />
           <MiniRow icon={<Wrench />} label="Rules" value={property.rules} />
         </div>
         <AdminTools property={property} people={people} vendors={vendors} auditLog={auditLog} reloadState={reloadState} />
@@ -2175,7 +2425,7 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
         <div className="order-tabs">
           {orders.map((order) => (
             <button key={order.id} className={order.id === activeOrder.id ? "active" : ""} onClick={() => setActiveOrderId(order.id)}>
-              <strong>{order.unit}</strong>
+              <strong>{property.name}</strong>
               <span>{order.status}</span>
             </button>
           ))}
@@ -2184,7 +2434,7 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
           <div className="work-head">
             <div>
               <span className="eyebrow">{activeOrder.id}</span>
-              <h2>{activeOrder.trade} · {activeOrder.unit}</h2>
+              <h2>{activeOrder.trade} · {property.name}</h2>
             </div>
             <span className={`pill ${activeOrder.severity === "Urgent" ? "urgent" : ""}`}>{activeOrder.severity}</span>
           </div>
@@ -2205,7 +2455,7 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
             </button>
             <button className="secondary" onClick={() => {
               bookVendor(activeOrder);
-              sendSms?.(vendor?.phone, `${activeOrder.id}: ${activeOrder.trade} job at ${property.name}, ${activeOrder.unit}. Issue: ${activeOrder.issue}. Reply ACCEPT or DECLINE.`);
+              sendSms?.(vendor?.phone, `${activeOrder.id}: ${activeOrder.trade} job at ${property.name}. Issue: ${activeOrder.issue}. Reply ACCEPT or DECLINE.`);
             }}>
               <Send size={16} /> Book vendor
             </button>
@@ -2370,7 +2620,7 @@ function VendorAttemptsPanel({ order }) {
 }
 
 function AdminTools({ property, people, vendors, auditLog, reloadState }) {
-  const [personForm, setPersonForm] = useState({ name: "", role: "Tenant", phone: "", unit: property.units[0] || "", trade: "Plumbing" });
+  const [personForm, setPersonForm] = useState({ name: "", role: "Tenant", phone: "", unit: propertyLocationLabel(property), trade: "Plumbing" });
   const [vendorForm, setVendorForm] = useState({ name: "", trade: "Plumbing", phone: "" });
   const notifyPeople = people.filter((person) => ["Manager", "Owner"].includes(person.role));
 
@@ -2381,7 +2631,7 @@ function AdminTools({ property, people, vendors, auditLog, reloadState }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...personForm, propertyId: property.id })
     });
-    setPersonForm({ name: "", role: "Tenant", phone: "", unit: property.units[0] || "", trade: "Plumbing" });
+    setPersonForm({ name: "", role: "Tenant", phone: "", unit: propertyLocationLabel(property), trade: "Plumbing" });
     await reloadState();
   }
 
@@ -2417,7 +2667,7 @@ function AdminTools({ property, people, vendors, auditLog, reloadState }) {
           <option>Owner</option>
           <option>Vendor</option>
         </select>
-        <input placeholder="Home / space or trade" value={personForm.role === "Vendor" ? personForm.trade : personForm.unit} onChange={(event) => personForm.role === "Vendor" ? setPersonForm({ ...personForm, trade: event.target.value }) : setPersonForm({ ...personForm, unit: event.target.value })} />
+        {personForm.role === "Vendor" && <input placeholder="Trade" value={personForm.trade} onChange={(event) => setPersonForm({ ...personForm, trade: event.target.value })} />}
         <button className="secondary" type="submit"><Plus size={15} /> Add person</button>
       </form>
 
@@ -2476,7 +2726,7 @@ function StaleNudgePanel({ staleOrders, setActiveOrderId, nudgeOrder, nudgeStale
         {staleOrders.length ? staleOrders.slice(0, 4).map((order) => (
           <article key={order.id} className="stale-card">
             <div>
-              <span>{order.id} · {order.unit} · {order.hoursIdle ?? "?"}h idle</span>
+              <span>{order.id} · {order.hoursIdle ?? "?"}h idle</span>
               <strong>{order.nextAction}</strong>
               <p>{order.status} · {order.trade}</p>
             </div>
@@ -2958,7 +3208,7 @@ function OwnerView({ property, account, orders, invoices, patchInvoice, reloadSt
         <SectionTitle icon={<ShieldCheck />} title="Owner approvals" eyebrow={property.name} />
         {orders.filter((order) => order.status === "Owner approval").map((order) => (
           <article className="approval-card" key={order.id}>
-            <span className="eyebrow">{order.id} · {order.unit}</span>
+            <span className="eyebrow">{order.id}</span>
             <h2>{formatMoney(order.estimate)} {order.trade} repair</h2>
             <p>{order.issue}</p>
             <div className="button-grid">
@@ -3090,11 +3340,6 @@ function IssueCreatePanel({ request, setRequest, createOrder, property, user }) 
     <section className="panel issue-create-panel">
       <SectionTitle icon={<Plus />} title="Create issue" eyebrow={`${user.role} dashboard`} />
       <form className="issue-create-form" onSubmit={createOrder}>
-        <label>
-          Home / space
-          <input value={request.unit} list="issue-unit-options" onChange={(event) => setRequest({ ...request, unit: event.target.value })} placeholder={user?.unit || property?.units?.[0] || "Example: Unit 3B"} />
-          <datalist id="issue-unit-options">{property?.units?.map((unit) => <option value={unit} key={unit} />)}</datalist>
-        </label>
         <label className="span-2">
           What needs attention?
           <textarea rows="3" value={request.issue} onChange={(event) => setRequest({ ...request, issue: event.target.value })} placeholder="Example: water is leaking under the kitchen sink" required />
@@ -3154,10 +3399,6 @@ function TenantView({ request, setRequest, createOrder, orders, property, user }
           ))}
         </div>
         <form className="stack" onSubmit={createOrder}>
-          <label>
-            Unit
-            <input value={request.unit} onChange={(event) => setRequest({ ...request, unit: event.target.value })} placeholder={user?.unit || property?.units?.[0] || "Example: 3B"} />
-          </label>
           <label>
             What is happening?
             <textarea rows="5" value={request.issue} onChange={(event) => setRequest({ ...request, issue: event.target.value })} placeholder="Example: water is leaking under the kitchen sink" required />
@@ -3221,7 +3462,7 @@ function VendorView({ orders }) {
       {!orders.length && <p className="empty-copy">No jobs have been sent to this vendor for this property yet.</p>}
       {orders.map((order) => (
         <article className="approval-card" key={order.id}>
-          <span className="eyebrow">{order.id} · {order.unit}</span>
+          <span className="eyebrow">{order.id}</span>
           <h2>{order.trade} request</h2>
           <p>{order.issue}</p>
           <div className="button-grid">

@@ -24,6 +24,7 @@ Recommended platform settings:
 - Readiness check path: `/api/readiness`
 - Start command: `npm start`
 - Persistent database: Postgres with `DATABASE_URL`
+- Persistent state namespace: set `APP_ENV` to `dev`, `staging`, or `production`; app snapshots are stored as `livingrelay-<env>`.
 - Node version: 22 when running outside Docker
 
 Use separate databases, Twilio numbers, API keys, webhook URLs, and domains for dev, staging, and production.

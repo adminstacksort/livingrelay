@@ -40,6 +40,8 @@ create table if not exists people (
   name text not null,
   role text not null check (role in ('Site Admin', 'Admin', 'Manager', 'Owner', 'Tenant', 'Vendor')),
   phone text not null,
+  phone_verified_at timestamptz,
+  phone_verification_required boolean not null default true,
   email text,
   pin_hash text,
   notify jsonb not null default '{}'::jsonb,

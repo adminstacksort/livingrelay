@@ -4,7 +4,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { accounts, auditLog, billingEvents, invoices, people, platformSettings, properties, recordAudit, saveState, vendors, waitForStatePersistence, workOrders } from "./data.js";
-import { composeActionMessage, handleInboundCommand } from "./smsLogic.js";
+import { composeActionMessage, handleInboundCommand, normalizePhone } from "./smsLogic.js";
 import { getTwilioStatus, sendSms } from "./twilioClient.js";
 import { registerTwilioCallWithElevenLabs, startVendorQuoteCalls } from "./elevenLabsCalls.js";
 import { runFullFlowDemo, selectDemoQuote, simulateVendorOutreach } from "./demoOutreach.js";
@@ -16,6 +16,7 @@ import { getReadiness } from "./config.js";
 import { getRuntimeEnvironment, getStateId } from "./postgresState.js";
 import { chargeStripeDispatchFee, createStripeOwnerSubscriptionSession, createStripePortalSession, createStripeSetupSession, dispatchFeeCents, ownerSubscriptionCents, retrieveStripeCheckoutSession, retrieveStripeSetupIntent, setCustomerDefaultPaymentMethod, stripeBillingStatus } from "./stripeBilling.js";
 import { attachMediaRelay, getMediaRelayRoom } from "./mediaRelay.js";
+import { consumeVerifiedPhoneToken, createPhoneChallenge, phoneMatches, verifyPhoneChallenge } from "./phoneVerification.js";
 import {
   buildTenantAvailability,
   buildInvoiceDeliveryInstructions,
@@ -136,37 +137,220 @@ app.get("/api/state", (req, res) => {
   });
 });
 
+app.get("/api/places/autocomplete", async (req, res) => {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.VITE_GOOGLE_PLACES_API_KEY;
+  const input = String(req.query.input || "").trim();
+  if (!apiKey || input.length < 3) {
+    res.json({ predictions: [] });
+    return;
+  }
+
+  try {
+    const response = await fetch("https://places.googleapis.com/v1/places:autocomplete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat"
+      },
+      body: JSON.stringify({
+        input,
+        includedRegionCodes: ["us"]
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      res.status(response.status).json({ predictions: [], error: data.error?.message || "Places autocomplete failed" });
+      return;
+    }
+    const predictions = (data.suggestions || [])
+      .map((suggestion) => suggestion.placePrediction)
+      .filter(Boolean)
+      .map((prediction) => ({
+        placeId: prediction.placeId,
+        description: prediction.text?.text || "",
+        mainText: prediction.structuredFormat?.mainText?.text || prediction.text?.text || "",
+        secondaryText: prediction.structuredFormat?.secondaryText?.text || ""
+      }));
+    res.json({ predictions });
+  } catch (error) {
+    res.status(502).json({ predictions: [], error: error.message });
+  }
+});
+
+app.get("/api/places/:placeId", async (req, res) => {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.VITE_GOOGLE_PLACES_API_KEY;
+  const placeId = String(req.params.placeId || "").trim();
+  if (!apiKey || !placeId) {
+    res.status(404).json({ error: "place not found" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`, {
+      headers: {
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "id,displayName,formattedAddress,addressComponents,location"
+      }
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      res.status(response.status).json({ error: data.error?.message || "Place details failed" });
+      return;
+    }
+    res.json({
+      place_id: data.id,
+      name: data.displayName?.text || "",
+      formatted_address: data.formattedAddress || "",
+      address_components: data.addressComponents || [],
+      geometry: data.location ? { location: data.location } : undefined
+    });
+  } catch (error) {
+    res.status(502).json({ error: error.message });
+  }
+});
+
+app.post("/api/phone-verifications/start", async (req, res) => {
+  try {
+    const result = await createPhoneChallenge({
+      phone: req.body.phone,
+      purpose: req.body.purpose || "phone_verification",
+      subjectId: req.body.subjectId || ""
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message });
+  }
+});
+
+app.post("/api/phone-verifications/verify", (req, res) => {
+  try {
+    const result = verifyPhoneChallenge({
+      challengeId: req.body.challengeId,
+      code: req.body.code,
+      purpose: req.body.purpose || "phone_verification",
+      subjectId: req.body.subjectId || ""
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message });
+  }
+});
+
+app.post("/api/auth/login/start", async (req, res) => {
+  try {
+    const { phone, pin } = req.body;
+    const person = people.find((item) => item.role !== "Site Admin" && phoneMatches(item.phone, phone) && item.pin === pin);
+    if (!person) {
+      res.status(401).json({ error: "Invalid phone or PIN" });
+      return;
+    }
+    if (isTestLoginPerson(person)) {
+      person.phoneVerifiedAt = new Date().toISOString();
+      person.phoneVerificationRequired = false;
+      saveState();
+      recordAudit(person.name, "Test account login", "Seeded test account login bypassed SMS verification.");
+      res.json({ userId: person.id, person, bypassedSms: true });
+      return;
+    }
+    const result = await createPhoneChallenge({
+      phone: person.phone,
+      purpose: "login",
+      subjectId: person.id
+    });
+    recordAudit(person.name, "Started phone login verification", `Verification sent to ${maskPhone(person.phone)}.`);
+    res.json({ challengeId: result.challengeId, expiresAt: result.expiresAt, devCode: result.devCode, sms: result.sms?.sent ? { sent: true } : result.sms });
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message });
+  }
+});
+
+app.post("/api/auth/login/verify", (req, res) => {
+  try {
+    const person = people.find((item) => item.role !== "Site Admin" && phoneMatches(item.phone, req.body.phone) && item.pin === req.body.pin);
+    if (!person) {
+      res.status(401).json({ error: "Invalid phone or PIN" });
+      return;
+    }
+    verifyPhoneChallenge({
+      challengeId: req.body.challengeId,
+      code: req.body.code,
+      purpose: "login",
+      subjectId: person.id
+    });
+    person.phoneVerifiedAt = new Date().toISOString();
+    person.phoneVerificationRequired = true;
+    saveState();
+    recordAudit(person.name, "Verified phone login", `Login verified for ${maskPhone(person.phone)}.`);
+    res.json({ userId: person.id, person });
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message });
+  }
+});
+
 app.post("/api/onboarding/property", (req, res) => {
-  const { accountName, propertyName, address = "", units = "", managerName, managerPhone, role = "Property manager", pin } = req.body;
+  const { propertyName, address = "", managerName, managerPhone, role = "Property manager", pin, phoneVerificationToken } = req.body;
   if (!propertyName || !managerName || !managerPhone) {
     res.status(400).json({ error: "propertyName, managerName, and managerPhone are required" });
     return;
   }
-
-  const account = {
-    id: `acct-${Date.now()}`,
-    name: accountName || `${propertyName} account`,
-    status: "Trial",
-    plan: "$0/property + $25 only when a vendor is booked",
-    billingPayerRole: role === "Owner" ? "Owner" : "Property manager",
-    productionVendorCallsEnabled: true,
-    billingSetupStatus: "Needs card",
-    createdAt: new Date().toISOString()
-  };
-  accounts.push(account);
+  let verifiedPhone;
+  try {
+    verifiedPhone = consumeVerifiedPhoneToken({
+      token: phoneVerificationToken,
+      phone: managerPhone,
+      purpose: "onboarding"
+    });
+  } catch (error) {
+    res.status(error.statusCode || 401).json({ error: error.message, phoneVerificationRequired: true });
+    return;
+  }
 
   const personRole = role === "Owner" ? "Owner" : "Manager";
-  const person = {
-    id: `${personRole.toLowerCase()}-${Date.now()}`,
-    name: managerName,
-    role: personRole,
-    phone: managerPhone,
-    pin: pin || String(Math.floor(1000 + Math.random() * 9000)),
-    propertyIds: [],
-    accountIds: [account.id],
-    notify: { tenantReports: true, everyUpdate: personRole === "Manager", keyUpdates: true }
-  };
-  people.push(person);
+  const canonicalManagerPhone = normalizePhone(verifiedPhone.phone || managerPhone);
+  const phonePeople = peopleForPhone(canonicalManagerPhone).filter((person) => person.role !== "Site Admin");
+  let account = accountForPhonePeople(phonePeople);
+  const reconciled = Boolean(account);
+  if (!account) {
+    account = {
+      id: `acct-${Date.now()}`,
+      name: `${propertyName} account`,
+      status: "Trial",
+      plan: "$0/property + $25 only when a vendor is booked",
+      billingPayerRole: role === "Owner" ? "Owner" : "Property manager",
+      productionVendorCallsEnabled: true,
+      billingSetupStatus: "Needs card",
+      createdAt: new Date().toISOString()
+    };
+    accounts.push(account);
+  }
+
+  let person = selectOnboardingPerson(phonePeople, personRole, pin);
+  if (person) {
+    person.name = person.name || managerName;
+    person.phone = canonicalManagerPhone;
+    person.phoneVerifiedAt = new Date().toISOString();
+    person.phoneVerificationRequired = true;
+    person.propertyIds = person.propertyIds || [];
+    person.accountIds = addUnique(person.accountIds || [], account.id);
+    if (!person.notify && ["Manager", "Owner"].includes(person.role)) {
+      person.notify = { tenantReports: true, everyUpdate: person.role === "Manager", keyUpdates: true };
+    }
+  } else {
+    person = {
+      id: `${personRole.toLowerCase()}-${Date.now()}`,
+      name: managerName,
+      role: personRole,
+      phone: canonicalManagerPhone,
+      phoneVerifiedAt: new Date().toISOString(),
+      phoneVerificationRequired: true,
+      pin: pin || String(Math.floor(1000 + Math.random() * 9000)),
+      propertyIds: [],
+      accountIds: [account.id],
+      notify: { tenantReports: true, everyUpdate: personRole === "Manager", keyUpdates: true }
+    };
+    people.push(person);
+  }
 
   const property = {
     id: `p-${Date.now()}`,
@@ -175,7 +359,7 @@ app.post("/api/onboarding/property", (req, res) => {
     address,
     subscription: "Trial",
     plan: "$0/property + $25 only when a vendor is booked",
-    units: String(units || "1").split(",").map((unit) => unit.trim()).filter(Boolean),
+    units: [address || propertyName],
     adminId: person.id,
     managerId: person.id,
     ownerId: personRole === "Owner" ? person.id : null,
@@ -188,11 +372,11 @@ app.post("/api/onboarding/property", (req, res) => {
     rules: "All dispatches need manager review until tenants, owners, vendors, and approval rules are configured."
   };
   properties.push(property);
-  person.propertyIds.push(property.id);
+  person.propertyIds = addUnique(person.propertyIds || [], property.id);
 
   saveState();
-  recordAudit("self-serve", "Created property", `${managerName} created ${property.name}.`);
-  res.json({ account, person, property });
+  recordAudit("self-serve", reconciled ? "Added property to existing account" : "Created property", `${managerName} created ${property.name}${reconciled ? " on an existing phone account" : ""}.`);
+  res.json({ account, person, property, reconciled, phoneVerified: true });
 });
 
 app.use("/api/site-admin", requireSiteAdminHost);
@@ -401,7 +585,6 @@ app.post("/api/admin/properties", (req, res) => {
   const {
     name,
     address,
-    units = "",
     adminId = "admin-1",
     ownerId = "owner-1",
     accountId = accounts[0]?.id || "acct-1",
@@ -419,7 +602,7 @@ app.post("/api/admin/properties", (req, res) => {
     address: address || "",
     subscription: "Ready, no monthly charge",
     plan: "$0/property + $25 only when a vendor is booked",
-    units: String(units).split(",").map((unit) => unit.trim()).filter(Boolean),
+    units: [address || name],
     adminId,
     managerId: adminId,
     ownerId,
@@ -949,6 +1132,37 @@ function accountForProperty(propertyId) {
   return accounts.find((item) => item.id === property?.accountId);
 }
 
+function peopleForPhone(phone) {
+  const normalized = normalizePhone(phone);
+  return people.filter((person) => normalizePhone(person.phone) === normalized);
+}
+
+function accountForPhonePeople(phonePeople) {
+  const explicitAccountId = phonePeople.flatMap((person) => person.accountIds || []).find(Boolean);
+  const explicitAccount = accounts.find((account) => account.id === explicitAccountId);
+  if (explicitAccount) return explicitAccount;
+  const propertyAccountId = phonePeople
+    .flatMap((person) => person.propertyIds || [])
+    .map((propertyId) => properties.find((property) => property.id === propertyId)?.accountId)
+    .find(Boolean);
+  return accounts.find((account) => account.id === propertyAccountId);
+}
+
+function selectOnboardingPerson(phonePeople, personRole, pin) {
+  const reusableRoles = new Set(["Manager", "Owner"]);
+  const candidates = phonePeople.filter((person) => reusableRoles.has(person.role));
+  if (pin) {
+    return candidates.find((person) => person.role === personRole && person.pin === pin)
+      || candidates.find((person) => person.pin === pin)
+      || null;
+  }
+  return candidates.find((person) => person.role === personRole) || candidates[0] || null;
+}
+
+function addUnique(values = [], value) {
+  return values.includes(value) ? values : [...values, value];
+}
+
 function getInvoiceRecipient(property) {
   const invoiceDelivery = buildInvoiceDeliveryInstructions(property);
   const person = invoiceDelivery.recipients.find((recipient) => recipient.role === "Property manager") || invoiceDelivery.recipients[0] || {};
@@ -1084,6 +1298,16 @@ function maskPhone(phone = "") {
   const digits = value.replace(/\D/g, "");
   if (digits.length < 4) return value ? "configured" : "";
   return `•••${digits.slice(-4)}`;
+}
+
+function isTestLoginPerson(person) {
+  const phoneDigits = String(person?.phone || "").replace(/\D/g, "").slice(-10);
+  return Boolean(
+    phoneDigits === "5555555555"
+    && person?.id?.startsWith("test-")
+    && (person.propertyIds || []).includes("p-test")
+    && ((person.accountIds || []).includes("acct-test") || person.role === "Tenant")
+  );
 }
 
 async function handleStripeWebhookEvent(event) {

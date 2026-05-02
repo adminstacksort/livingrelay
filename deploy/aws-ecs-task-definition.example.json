@@ -18,6 +18,7 @@
       ],
       "environment": [
         { "name": "NODE_ENV", "value": "production" },
+        { "name": "APP_ENV", "value": "staging" },
         { "name": "SERVER_PORT", "value": "8787" },
         { "name": "DATABASE_SSL", "value": "true" },
         { "name": "ENABLE_VENDOR_CALLS", "value": "false" }
