@@ -44,7 +44,7 @@ The React app loads state from `/api/state`, keeps local UI selections for activ
 
 Major component groups:
 
-- Login and shared URL access.
+- Login and shared URL access using each user's unique phone number.
 - Site admin console.
 - Manager operations dashboard.
 - Billing tab.
@@ -322,7 +322,7 @@ Admin/hosts:
 Current controls:
 
 - SMS phone verification before normal login completion.
-- PIN login by phone/role.
+- PIN login where the phone number identifies a single person record and the PIN authenticates that person.
 - Stripe webhook signature verification.
 - ElevenLabs webhook signature verification when configured.
 - Safe return URL handling for Stripe checkout returns.
@@ -333,6 +333,7 @@ Current controls:
 Recommended hardening:
 
 - Hash all PINs and migrate away from raw seeded PINs.
+- Enforce normalized phone uniqueness for production people records within the intended tenant boundary.
 - Add rate limits to login, verification, SMS webhook, and admin routes.
 - Add durable sessions/JWTs with role-scoped server authorization.
 - Use per-account data scoping at every API boundary.

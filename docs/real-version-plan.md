@@ -8,7 +8,7 @@ It should not try to replace AppFolio, Buildium, Rent Manager, or accounting sys
 
 ## Core Principle
 
-Everyone can use the same URL, but identity and role are determined by PIN.
+Everyone can use the same URL, but identity is determined by each person's unique phone number and authenticated by PIN. Phone numbers should not be shared among different parties.
 
 Example:
 
@@ -16,7 +16,7 @@ Example:
 https://livingrelay.app
 ```
 
-A user enters a phone number and PIN. The app resolves:
+A user enters their own phone number and PIN. The app resolves:
 
 - who they are
 - which property or unit they belong to
@@ -101,7 +101,7 @@ This fits the real-world value: every property creates separate operational comp
 Every person has:
 
 - name
-- phone number
+- unique phone number
 - role
 - PIN
 - linked property/unit/vendor/owner profile

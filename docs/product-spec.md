@@ -4,7 +4,7 @@
 
 LivingRelay is an SMS-first maintenance coordination product for small property managers, rental owners, tenants, and vendors. It helps non-technical users move a maintenance issue from tenant report to triage, approval, vendor coordination, invoice capture, and owner tax records without requiring every participant to adopt a full property-management platform.
 
-The product's center of gravity is a shared phone number and shared login URL. Users identify themselves with their phone number and PIN, then LivingRelay resolves their role, property access, permissions, and next actions.
+The product's center of gravity is a shared login URL and SMS-first workflow. Each person has their own phone number, and that phone number is the unique identifier for that person in LivingRelay. Users authenticate with their phone number and PIN, then LivingRelay resolves their role, property access, permissions, and next actions.
 
 ## 2. Problem
 
@@ -42,7 +42,7 @@ Service provider. Receives job scope, accepts or declines work, gives ETA/quote 
 ## 4. Product Principles
 
 - SMS first, web supported: the primary workflow should work over text messages, with web and iOS dashboards for richer operations.
-- One URL, role-aware experience: avoid separate portals for each role.
+- One URL, role-aware experience: avoid separate portals for each role while keeping each party's phone number unique.
 - Human approval gates: managers and owners stay in control of spend and dispatch decisions.
 - Off-platform repair payments in v1: LivingRelay tracks vendor invoices and paid status but does not pay vendors.
 - Low-friction identity: phone + PIN keeps access simple, with SMS verification and stronger checks for privileged flows.
@@ -51,9 +51,9 @@ Service provider. Receives job scope, accepts or declines work, gives ETA/quote 
 
 ## 5. MVP Scope Implemented In This Repo
 
-### Shared Phone + PIN Login
+### Phone + PIN Login
 
-Users enter a phone number and PIN. The backend resolves the matching person, sends an SMS verification challenge for normal users, and returns role-scoped state after verification. Seeded test users can bypass SMS verification for smoke tests.
+Users enter their own phone number and PIN. The backend resolves exactly one matching person, sends an SMS verification challenge for normal users, and returns role-scoped state after verification. Seeded test users can bypass SMS verification for smoke tests, but production users should not share phone numbers across tenants, owners, managers, vendors, or admins.
 
 Supported roles:
 
@@ -134,7 +134,7 @@ The iOS scope mirrors the web role workflow: phone/PIN login, property switching
 ### Tenant Reports Issue By SMS
 
 1. Tenant texts the LivingRelay number.
-2. Backend matches the phone number to a tenant and property.
+2. Backend matches the tenant's unique phone number to one person record, then resolves the tenant's property and unit.
 3. Issue is classified by trade, severity, and estimated cost.
 4. LivingRelay sends safe troubleshooting and missing-detail questions.
 5. Tenant replies with more detail, availability, photos, or confirmation that the issue still needs service.
