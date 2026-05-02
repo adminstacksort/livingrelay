@@ -15,6 +15,7 @@ import {
   DollarSign,
   Download,
   FileText,
+  MapPin,
   Home,
   LayoutDashboard,
   LockKeyhole,
@@ -26,6 +27,7 @@ import {
   Send,
   Settings2,
   ShieldCheck,
+  Sparkles,
   Smartphone,
   Radio,
   Upload,
@@ -338,6 +340,37 @@ function classifyIssue(text) {
     estimate: trade === "Plumbing" ? 325 : trade === "HVAC" ? 425 : trade === "Electrical" ? 185 : 145
   };
 }
+
+function maintenanceNotesForProperty(property) {
+  const address = `${property?.address || ""} ${property?.name || ""}`.toLowerCase();
+  const notes = [];
+
+  if (address.includes("san francisco") || address.includes("ca") || address.includes("mar vista") || address.includes("los angeles")) {
+    notes.push("Coastal air can make windows, bath fans, and under-sink cabinets show moisture early. A quick photo helps the manager tell leak from condensation.");
+    notes.push("Before heavy rain, mention any window seepage, soft drywall, or musty smell so small weatherproofing issues do not linger.");
+  }
+
+  if (address.includes("brooklyn") || address.includes("ny") || address.includes("brownstone")) {
+    notes.push("Older radiators and plumbing stacks can make small drips look routine. Report fresh water marks, heat loss, or recurring drain backups early.");
+    notes.push("After freeze-thaw swings, note doors that stop latching, ceiling stains, or exterior steps that feel loose.");
+  }
+
+  if (!notes.length) {
+    notes.push("Small changes are worth reporting: slow drains, new stains, loose locks, appliance noises, or anything that feels different from last week.");
+    notes.push("For urgent issues like active water, gas smell, sparking, no heat, or a broken lock, include what is happening right now and the fastest access window.");
+  }
+
+  notes.push(`For ${property?.name || "this property"}, include your unit, best entry window, pets or gate notes, and whether the issue is still happening.`);
+  return notes.slice(0, 3);
+}
+
+const tenantIssueStarters = [
+  "Water is leaking or dripping",
+  "Drain, toilet, or sink is backed up",
+  "Heat, AC, or thermostat is not working",
+  "Outlet, lights, or power issue",
+  "Lock, door, or window will not secure"
+];
 
 function App() {
   const [session, setSession] = useState(null);
@@ -957,7 +990,7 @@ function App() {
       )}
 
       {user.role === "Tenant" && (
-        <TenantView request={request} setRequest={setRequest} createOrder={createOrder} orders={visibleOrders} />
+        <TenantView request={request} setRequest={setRequest} createOrder={createOrder} orders={visibleOrders} property={activeProperty} user={user} />
       )}
 
       {user.role === "Vendor" && (
@@ -2806,19 +2839,58 @@ function OwnerExpenseUpload({ form, setForm, onSubmit }) {
   );
 }
 
-function TenantView({ request, setRequest, createOrder, orders }) {
+function TenantView({ request, setRequest, createOrder, orders, property, user }) {
+  const hasOrders = orders.length > 0;
+  const hasOpenIssues = orders.some((order) => order.status !== "Closed");
+  const maintenanceNotes = maintenanceNotesForProperty(property);
+  const sortedOrders = [...orders].sort((a, b) => (a.status === "Closed") - (b.status === "Closed"));
+
   return (
-    <section className="split-view">
+    <section className="tenant-dashboard">
+      <div className={hasOpenIssues ? "tenant-welcome" : "tenant-welcome happy"}>
+        <div>
+          <span className="eyebrow">{hasOpenIssues ? "Resident home base" : "All quiet today"}</span>
+          <h2>{hasOpenIssues ? "We will keep the repair thread tidy from here." : `Nice, ${user?.name?.split(" ")[0] || "neighbor"}: no open issues here.`}</h2>
+          <p>{hasOpenIssues ? "Use this page for a new request, access notes, and the latest LivingRelay updates." : "Everything looks calm. If this is your first time here, the form below is the fastest way to get a manager the right details."}</p>
+        </div>
+        <div className="tenant-address-card">
+          <MapPin size={18} />
+          <span>{property?.name || "Your property"}</span>
+          <strong>{property?.address || "Address on file"}</strong>
+        </div>
+      </div>
+
+      <section className="split-view tenant-split">
       <div className="panel">
         <SectionTitle icon={<Home />} title="Report an issue" eyebrow="Tenant mobile web" />
+        {!hasOpenIssues && (
+          <div className="first-issue-box">
+            <Sparkles size={18} />
+            <div>
+              <h3>{hasOrders ? "Need something new fixed?" : "Filing the first issue is easy"}</h3>
+              <p>Pick a common starter or write it in your own words. Photos can come later by SMS.</p>
+            </div>
+          </div>
+        )}
+        <div className="starter-grid" aria-label="Common issue starters">
+          {tenantIssueStarters.map((starter) => (
+            <button
+              type="button"
+              key={starter}
+              onClick={() => setRequest({ ...request, issue: starter })}
+            >
+              {starter}
+            </button>
+          ))}
+        </div>
         <form className="stack" onSubmit={createOrder}>
           <label>
             Unit
-            <input value={request.unit} onChange={(event) => setRequest({ ...request, unit: event.target.value })} />
+            <input value={request.unit} onChange={(event) => setRequest({ ...request, unit: event.target.value })} placeholder={user?.unit || property?.units?.[0] || "Example: 3B"} />
           </label>
           <label>
             What is happening?
-            <textarea rows="5" value={request.issue} onChange={(event) => setRequest({ ...request, issue: event.target.value })} placeholder="Example: water is leaking under the kitchen sink" />
+            <textarea rows="5" value={request.issue} onChange={(event) => setRequest({ ...request, issue: event.target.value })} placeholder="Example: water is leaking under the kitchen sink" required />
           </label>
           <label>
             Access notes
@@ -2833,13 +2905,41 @@ function TenantView({ request, setRequest, createOrder, orders }) {
       </div>
       <div className="panel">
         <SectionTitle icon={<MessageSquare />} title="My updates" eyebrow="SMS mirror" />
-        {orders.map((order) => (
+        {!hasOrders && (
+          <div className="tenant-empty-state">
+            <ShieldCheck size={30} />
+            <h3>No repair threads yet</h3>
+            <p>When you send your first issue, manager updates and LivingRelay texts will appear here so you can follow along without digging through messages.</p>
+          </div>
+        )}
+        {hasOrders && !hasOpenIssues && (
+          <div className="tenant-empty-state compact">
+            <ShieldCheck size={26} />
+            <h3>Nothing active right now</h3>
+            <p>Past threads stay below for reference. New manager updates will move back to the top.</p>
+          </div>
+        )}
+        {sortedOrders.map((order) => (
           <article className="update-card" key={order.id}>
             <span className="eyebrow">{order.id} · {order.status}</span>
             <p>{order.issue}</p>
+            {order.access && <small>Access: {order.access}</small>}
           </article>
         ))}
       </div>
+      </section>
+
+      <section className="tenant-notes-panel">
+        <SectionTitle icon={<ClipboardList />} title="Maintenance notes" eyebrow="For this address" />
+        <div className="tenant-note-grid">
+          {maintenanceNotes.map((note) => (
+            <article key={note}>
+              <Check size={16} />
+              <p>{note}</p>
+            </article>
+          ))}
+        </div>
+      </section>
     </section>
   );
 }

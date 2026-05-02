@@ -1178,6 +1178,74 @@ body:has(.login-card.admin-login-card) {
   margin-bottom: 12px;
 }
 
+.tenant-dashboard {
+  display: grid;
+  gap: 12px;
+}
+
+.tenant-welcome,
+.tenant-notes-panel {
+  border: 1px solid #ddd4c7;
+  border-radius: 8px;
+  background: rgba(255, 253, 249, 0.92);
+  box-shadow: 0 18px 50px rgba(62, 49, 38, 0.07);
+}
+
+.tenant-welcome {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 320px);
+  gap: 14px;
+  align-items: center;
+  padding: 16px;
+}
+
+.tenant-welcome.happy {
+  border-color: #bddfd2;
+  background:
+    linear-gradient(135deg, rgba(237, 248, 244, 0.98), rgba(255, 253, 249, 0.96)),
+    #edf8f4;
+}
+
+.tenant-welcome h2 {
+  margin-top: 5px;
+  font-size: clamp(24px, 4vw, 38px);
+  line-height: 1;
+}
+
+.tenant-welcome p {
+  max-width: 720px;
+  margin-top: 8px;
+  color: #4f5d59;
+  line-height: 1.45;
+}
+
+.tenant-address-card {
+  display: grid;
+  gap: 7px;
+  border: 1px solid #cdded8;
+  border-radius: 8px;
+  background: #edf8f4;
+  padding: 12px;
+}
+
+.tenant-address-card svg {
+  color: #1c675b;
+}
+
+.tenant-address-card span {
+  color: #64716d;
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.tenant-address-card strong {
+  line-height: 1.3;
+}
+
+.tenant-split {
+  margin-bottom: 0;
+}
+
 .demo-banner {
   display: flex;
   align-items: center;
@@ -1203,6 +1271,104 @@ body:has(.login-card.admin-login-card) {
 .panel {
   padding: 16px;
   min-width: 0;
+}
+
+.first-issue-box,
+.tenant-empty-state {
+  border: 1px solid #cdded8;
+  border-radius: 8px;
+  background: #edf8f4;
+  color: #164c44;
+}
+
+.first-issue-box {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 9px;
+  padding: 11px;
+  margin-bottom: 12px;
+}
+
+.first-issue-box h3,
+.tenant-empty-state h3 {
+  font-size: 16px;
+}
+
+.first-issue-box p,
+.tenant-empty-state p {
+  margin-top: 5px;
+  color: #31524c;
+  line-height: 1.4;
+}
+
+.starter-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+
+.starter-grid button {
+  border: 1px solid #d8d0c3;
+  border-radius: 8px;
+  background: #fffdfa;
+  color: #26312f;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.starter-grid button:hover {
+  border-color: #1c675b;
+  color: #164c44;
+}
+
+.tenant-empty-state {
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  padding: 18px;
+  text-align: center;
+}
+
+.tenant-empty-state.compact {
+  min-height: 128px;
+  margin-bottom: 10px;
+}
+
+.tenant-empty-state svg {
+  color: #1c675b;
+  margin-bottom: 8px;
+}
+
+.tenant-notes-panel {
+  padding: 16px;
+}
+
+.tenant-note-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tenant-note-grid article {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  border: 1px solid #e8e0d4;
+  border-radius: 8px;
+  background: #fbf6ef;
+  padding: 11px;
+}
+
+.tenant-note-grid svg {
+  color: #1c675b;
+  margin-top: 2px;
+}
+
+.tenant-note-grid p {
+  color: #4f5d59;
+  line-height: 1.4;
 }
 
 .section-title {
@@ -2245,7 +2411,9 @@ body:has(.login-card.admin-login-card) {
   .split-view,
   .integration-strip,
   .owner-console-hero,
-  .admin-grid {
+  .admin-grid,
+  .tenant-welcome,
+  .tenant-note-grid {
     grid-template-columns: 1fr;
   }
 
