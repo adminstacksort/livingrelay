@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AlertTriangle,
@@ -38,16 +38,53 @@ import {
 import heroImage from "../assets/livingrelay-hero.png";
 import "./styles.css";
 
+const googlePlacesApiKey = import.meta.env.VITE_GOOGLE_PLACES_API_KEY;
+let googlePlacesLoader;
+
+function loadGooglePlaces() {
+  if (!googlePlacesApiKey) return Promise.resolve(null);
+  if (window.google?.maps?.places) return Promise.resolve(window.google);
+  if (googlePlacesLoader) return googlePlacesLoader;
+
+  googlePlacesLoader = new Promise((resolve, reject) => {
+    const existingScript = document.querySelector("script[data-google-places]");
+    if (existingScript) {
+      existingScript.addEventListener("load", () => resolve(window.google), { once: true });
+      existingScript.addEventListener("error", reject, { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    const params = new URLSearchParams({
+      key: googlePlacesApiKey,
+      libraries: "places"
+    });
+    script.src = `https://maps.googleapis.com/maps/api/js?${params.toString()}`;
+    script.async = true;
+    script.defer = true;
+    script.dataset.googlePlaces = "true";
+    script.onload = () => resolve(window.google);
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+
+  return googlePlacesLoader;
+}
+
 const people = [
   { id: "site-admin-1", name: "Avery Stone", role: "Site Admin", phone: "(310) 555-0199", pin: "9999", propertyIds: [], accountIds: ["acct-1"] },
   { id: "admin-1", name: "Jordan Lee", role: "Manager", phone: "(310) 555-0100", pin: "1111", propertyIds: ["p-1", "p-2"], managesPropertyIds: ["p-1"] },
   { id: "owner-1", name: "Priya Shah", role: "Owner", phone: "(310) 555-0102", pin: "3333", propertyIds: ["p-1"] },
   { id: "tenant-1", name: "Maya Chen", role: "Tenant", phone: "(310) 555-0103", pin: "4444", propertyIds: ["p-1"], unit: "Garden flat" },
-  { id: "vendor-1", name: "Carlos Plumbing", role: "Vendor", phone: "(310) 555-0104", pin: "5555", propertyIds: ["p-1"], trade: "Plumbing" }
+  { id: "vendor-1", name: "Carlos Plumbing", role: "Vendor", phone: "(310) 555-0104", pin: "5555", propertyIds: ["p-1"], trade: "Plumbing" },
+  { id: "test-manager", name: "Test Manager", role: "Manager", phone: "+15555555555", pin: "1111", propertyIds: ["p-test"], managesPropertyIds: ["p-test"], accountIds: ["acct-test"] },
+  { id: "test-owner", name: "Test Owner", role: "Owner", phone: "+15555555555", pin: "2222", propertyIds: ["p-test"], accountIds: ["acct-test"] },
+  { id: "test-tenant", name: "Test Tenant", role: "Tenant", phone: "+15555555555", pin: "3333", propertyIds: ["p-test"], unit: "Test unit" }
 ];
 
 const accounts = [
-  { id: "acct-1", name: "Shah Property Group", status: "Active", plan: "$0/property + $25 vendor dispatch", stripeCustomerId: "", billingPayerRole: "Owner", billingPayerPersonId: "owner-1", billingSetupStatus: "Needs card" }
+  { id: "acct-1", name: "Shah Property Group", status: "Active", plan: "$0/property + $25 vendor dispatch", stripeCustomerId: "", billingPayerRole: "Owner", billingPayerPersonId: "owner-1", billingSetupStatus: "Needs card" },
+  { id: "acct-test", name: "LivingRelay Test Account", status: "Test", plan: "$0/property + $25 vendor dispatch", stripeCustomerId: "", billingPayerRole: "Owner", billingPayerPersonId: "test-owner", billingSetupStatus: "Needs card" }
 ];
 
 const properties = [
@@ -66,6 +103,22 @@ const properties = [
     billingPayerPersonId: "owner-1",
     billingSetupStatus: "Needs card",
     rules: "Plumbing under $300 goes to Carlos first. Any repair above $150 needs owner approval. HVAC always requires manager review. Emergencies: active water, gas smell, sparking, no lock."
+  },
+  {
+    id: "p-test",
+    accountId: "acct-test",
+    name: "LivingRelay Test Home",
+    address: "555 Test Ave, Los Angeles, CA",
+    subscription: "Test",
+    plan: "$0/property + $25 only when a vendor is booked",
+    units: ["Test unit"],
+    ownerId: "test-owner",
+    managerId: "test-manager",
+    adminId: "test-manager",
+    billingPayerRole: "Owner",
+    billingPayerPersonId: "test-owner",
+    billingSetupStatus: "Needs card",
+    rules: "Test account for production smoke checks. No vendor dispatch happens unless a real work order is created."
   },
   {
     id: "p-2",
@@ -230,14 +283,14 @@ function formatMoney(value) {
 
 function isSiteAdminConsoleHost() {
   const host = window.location.hostname.toLowerCase();
-  const localAdminPreview = new URLSearchParams(window.location.search).get("console") === "site-admin" || window.location.pathname.startsWith("/admin");
-  return host === "admin.livingrelay.com" || (localAdminPreview && ["localhost", "127.0.0.1", "::1"].includes(host));
+  const adminPreview = new URLSearchParams(window.location.search).get("console") === "site-admin" || window.location.pathname.startsWith("/admin");
+  return host === "admin.livingrelay.com" || (adminPreview && ["staging.livingrelay.com", "localhost", "127.0.0.1", "::1"].includes(host));
 }
 
 function isDemoExperienceHost() {
   const host = window.location.hostname.toLowerCase();
   const localDemoPreview = new URLSearchParams(window.location.search).get("demo") === "1" || window.location.pathname.startsWith("/demo");
-  return host === "demo.livingrelay.com" || host === "admin.livingrelay.com" || (localDemoPreview && ["localhost", "127.0.0.1", "::1"].includes(host));
+  return host === "demo.livingrelay.com" || host === "admin.livingrelay.com" || (localDemoPreview && ["staging.livingrelay.com", "localhost", "127.0.0.1", "::1"].includes(host));
 }
 
 function isDemoLoginShortcutsHost() {
@@ -341,6 +394,125 @@ function classifyIssue(text) {
   };
 }
 
+function isActiveWorkOrder(order) {
+  const status = (order?.status || "").toLowerCase();
+  return !["closed", "completed", "resolved", "tenant resolved", "demo completed", "cancelled", "canceled"].some((closedStatus) => status === closedStatus);
+}
+
+function hasDemoOrTestMarker(record) {
+  const text = [
+    record?.id,
+    record?.status,
+    record?.source,
+    record?.note,
+    record?.documentName,
+    record?.demoFlow ? "demoFlow" : "",
+    record?.demoOutreach ? "demoOutreach" : ""
+  ].join(" ").toLowerCase();
+  return /\b(demo|sample|smoke)\b/.test(text) || text.includes("test invoice from local endpoint");
+}
+
+function isLiveDashboardWorkOrder(order) {
+  if (!order || hasDemoOrTestMarker(order)) return false;
+  const timelineText = (order.timeline || []).map((item) => `${item.label || ""} ${item.detail || ""}`).join(" ").toLowerCase();
+  return !/\b(demo|sample|smoke)\b/.test(timelineText);
+}
+
+function namesMatch(a = "", b = "") {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+function hasLiveVendorOutcome(order, vendor) {
+  return (order?.vendorOutreach?.outcomes || []).some((outcome) => {
+    const source = (outcome.source || "").toLowerCase();
+    const liveSource = outcome.conversationId || outcome.callSid || source === "elevenlabs";
+    return liveSource && (!vendor || namesMatch(outcome.vendorName, vendor.name));
+  });
+}
+
+function isLiveInvoice(invoice, liveOrders) {
+  if (!invoice || hasDemoOrTestMarker(invoice)) return false;
+  if (invoice.source === "owner_upload") return true;
+  const order = liveOrders.find((item) => item.id === invoice.orderId);
+  return Boolean(order);
+}
+
+function formatPlaceAddress(place) {
+  return place?.formatted_address || place?.name || "";
+}
+
+function GooglePlacesAddressInput({ value, onChange, onPlaceSelect, placeholder, required = false, autoComplete = "street-address" }) {
+  const inputRef = useRef(null);
+  const onChangeRef = useRef(onChange);
+  const onPlaceSelectRef = useRef(onPlaceSelect);
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+    onPlaceSelectRef.current = onPlaceSelect;
+  }, [onChange, onPlaceSelect]);
+
+  useEffect(() => {
+    let listener;
+    let cancelled = false;
+
+    loadGooglePlaces()
+      .then((google) => {
+        if (cancelled || !google?.maps?.places || !inputRef.current) return;
+        const autocomplete = new google.maps.places.Autocomplete(inputRef.current, {
+          componentRestrictions: { country: "us" },
+          fields: ["address_components", "formatted_address", "geometry", "name", "place_id"],
+          types: ["address"]
+        });
+        listener = autocomplete.addListener("place_changed", () => {
+          const place = autocomplete.getPlace();
+          const address = formatPlaceAddress(place);
+          if (!address) return;
+          onChangeRef.current(address);
+          onPlaceSelectRef.current?.(place);
+        });
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      listener?.remove();
+    };
+  }, []);
+
+  return (
+    <input
+      ref={inputRef}
+      required={required}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder={placeholder}
+      autoComplete={autoComplete}
+    />
+  );
+}
+
+function isTenantVisibleWorkOrder(order, user) {
+  if (!order || !user) return false;
+  if (!isLiveDashboardWorkOrder(order)) return false;
+  if (order.tenantId) return order.tenantId === user.id;
+  return Boolean(user.unit && order.unit === user.unit);
+}
+
+function isVendorVisibleWorkOrder(order, vendor, user) {
+  if (!order || (!vendor && !user)) return false;
+  if (!isLiveDashboardWorkOrder(order)) return false;
+  const bookedForVendor = order.finalBooking && (!vendor || namesMatch(order.finalBooking.vendorName, vendor.name) || order.vendorId === vendor.id);
+  const liveOutcomeForVendor = hasLiveVendorOutcome(order, vendor);
+  if (!bookedForVendor && !liveOutcomeForVendor) return false;
+  const status = (order.status || "").toLowerCase();
+  return ["vendor", "scheduled", "booked", "completed", "invoice"].some((word) => status.includes(word)) || liveOutcomeForVendor;
+}
+
+function isReviewWorkOrder(order) {
+  const status = (order?.status || "").toLowerCase();
+  return status.includes("approval") || status === "manager review" || status === "vendor quotes received";
+}
+
 function maintenanceNotesForProperty(property) {
   const address = `${property?.address || ""} ${property?.name || ""}`.toLowerCase();
   const notes = [];
@@ -429,6 +601,11 @@ function App() {
   const activeOrder = visibleOrders.find((order) => order.id === activeOrderId) || visibleOrders[0];
   const visibleStaleOrders = staleWorkOrders.filter((order) => order.propertyId === activeProperty.id);
   const user = session ? peopleData.find((person) => person.id === session.userId) : null;
+  const vendorProfile = user?.role === "Vendor" ? vendorsData.find((vendor) => vendor.personId === user.id || vendor.name === user.name || vendor.trade === user.trade) : null;
+  const tenantOrders = user?.role === "Tenant" ? visibleOrders.filter((order) => isTenantVisibleWorkOrder(order, user)) : [];
+  const vendorOrders = user?.role === "Vendor" ? visibleOrders.filter((order) => isVendorVisibleWorkOrder(order, vendorProfile, user)) : [];
+  const livePropertyOrders = visibleOrders.filter(isLiveDashboardWorkOrder);
+  const livePropertyInvoices = invoices.filter((invoice) => invoice.propertyId === activeProperty.id && isLiveInvoice(invoice, livePropertyOrders));
   const normalizedLoginPhone = phone.replace(/\D/g, "");
   const siteAdminUser = peopleData.find((person) => person.role === "Site Admin");
   const loginCandidate = siteAdminConsoleAvailable
@@ -559,18 +736,47 @@ function App() {
     }
   }
 
-  function createOrder(event) {
-    event.preventDefault();
+  async function createOrder(submitEvent) {
+    submitEvent.preventDefault();
     const triage = classifyIssue(request.issue);
-    const tenant = peopleData.find((person) => person.id === "tenant-1");
+    const unit = request.unit || user?.unit || activeProperty.units?.[0] || "Home";
+    const tenant = user?.role === "Tenant"
+      ? user
+      : peopleData.find((person) => person.role === "Tenant" && person.propertyIds?.includes(activeProperty.id) && person.unit === unit)
+        || peopleData.find((person) => person.role === "Tenant" && person.propertyIds?.includes(activeProperty.id));
     const vendor = vendorsData.find((item) => item.trade === triage.trade) || vendorsData[0];
     const needsOwner = triage.estimate > 150;
+    if (appData) {
+      const response = await fetch("/api/admin/work-orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          propertyId: activeProperty.id,
+          unit,
+          tenantId: tenant?.id || "",
+          trade: triage.trade,
+          severity: triage.severity,
+          status: "Manager review",
+          estimate: triage.estimate,
+          vendorId: vendor?.id || "",
+          issue: request.issue,
+          access: request.access,
+          actorName: user?.name || "Logged-in user",
+          actorRole: user?.role || "User"
+        })
+      });
+      const data = await response.json();
+      if (data.order?.id) setActiveOrderId(data.order.id);
+      setRequest({ ...defaultRequest, unit: user?.unit || activeProperty.units?.[0] || "" });
+      await loadState();
+      return;
+    }
     const id = `WO-${Math.floor(3000 + Math.random() * 6000)}`;
     const order = {
       id,
       propertyId: activeProperty.id,
-      unit: request.unit,
-      tenantId: tenant.id,
+      unit,
+      tenantId: tenant?.id || null,
       trade: triage.trade,
       severity: triage.severity,
       status: "Manager review",
@@ -582,17 +788,17 @@ function App() {
       ownerApproved: !needsOwner,
       invoiceId: null,
       timeline: [
-        event("Tenant request created", `${request.unit} request submitted from mobile web.`),
+        event(`${user?.role || "User"} request created`, `${unit} request submitted from logged-in dashboard.`),
         event("AI triaged request", `${triage.severity} ${triage.trade}; suggested ${vendor.name}.`)
       ],
       messages: [
-        sms("tenant", request.issue),
+        sms(user?.role === "Tenant" ? "tenant" : "relay", request.issue),
         sms("relay", `Thanks. LivingRelay classified this as ${triage.trade}. Manager review is next.`)
       ]
     };
     setOrders((current) => [order, ...current]);
     setActiveOrderId(id);
-    setRequest(defaultRequest);
+    setRequest({ ...defaultRequest, unit: user?.unit || activeProperty.units?.[0] || "" });
   }
 
   function patchOrder(patch, label, detail) {
@@ -800,13 +1006,21 @@ function App() {
   }
 
   const metrics = useMemo(() => {
-    const open = visibleOrders.filter((order) => order.status !== "Closed").length;
-    const approvals = visibleOrders.filter((order) => order.status.includes("approval") || order.status === "Manager review").length;
-    const invoiceTotal = invoices
-      .filter((invoice) => invoice.propertyId === activeProperty.id)
+    const scopedOrders = user?.role === "Tenant" ? tenantOrders : user?.role === "Vendor" ? vendorOrders : visibleOrders;
+    const metricOrders = scopedOrders.filter(isLiveDashboardWorkOrder);
+    const open = metricOrders.filter(isActiveWorkOrder).length;
+    const approvals = metricOrders.filter((order) => isActiveWorkOrder(order) && isReviewWorkOrder(order)).length;
+    const tenantNeedsReply = metricOrders.filter((order) => isActiveWorkOrder(order) && order.status === "Tenant troubleshooting").length;
+    const completed = metricOrders.filter((order) => !isActiveWorkOrder(order)).length;
+    const quotes = metricOrders.filter((order) => hasLiveVendorOutcome(order, vendorProfile)).length;
+    const scheduled = metricOrders.filter((order) => ["scheduled", "booked"].some((word) => (order.status || "").toLowerCase().includes(word))).length;
+    const ownerApprovals = metricOrders.filter((order) => isActiveWorkOrder(order) && (order.status || "").toLowerCase().includes("owner approval") && !order.ownerApproved).length;
+    const unpaidInvoices = livePropertyInvoices.filter((invoice) => invoice.status !== "Paid" && invoice.paymentStatus !== "Paid").length;
+    const invoiceTotal = livePropertyInvoices
+      .filter((invoice) => invoice.taxYear === "2026")
       .reduce((sum, invoice) => sum + invoice.amount, 0);
-    return { open, approvals, invoiceTotal, stale: visibleStaleOrders.length };
-  }, [activeProperty.id, invoices, visibleOrders, visibleStaleOrders.length]);
+    return { open, approvals, completed, invoiceTotal, needsReply: tenantNeedsReply, ownerApprovals, quotes, scheduled, stale: visibleStaleOrders.length, unpaidInvoices };
+  }, [livePropertyInvoices, tenantOrders, user?.role, vendorOrders, vendorProfile, visibleOrders, visibleStaleOrders.length]);
 
   if (!session) {
     return (
@@ -833,8 +1047,6 @@ function App() {
     );
   }
 
-  const currentRoutePath = dashboardPathFor(user.role, adminSection);
-
   return (
     <main className={user.role === "Site Admin" ? "mobile-shell admin-shell" : "mobile-shell"}>
       <header className="app-header">
@@ -842,7 +1054,6 @@ function App() {
           <span className="eyebrow">{user.role === "Site Admin" ? "LivingRelay platform" : "Shared URL session"}</span>
           <h1>{user.role === "Site Admin" ? "Admin Console" : activeProperty.name}</h1>
           <p>{user.role === "Site Admin" ? `${user.name} · Platform admin` : `${user.name} · ${user.role}`}</p>
-          <span className="route-chip">{currentRoutePath}</span>
         </div>
         <button className="icon-button" onClick={() => { setSession(null); setSiteAdminToken(""); }} aria-label="Sign out"><LockKeyhole size={18} /></button>
       </header>
@@ -862,10 +1073,35 @@ function App() {
       </section>}
 
       {user.role !== "Site Admin" && <section className="mobile-metrics">
-        <Metric icon={<ClipboardList />} label="Open" value={metrics.open} />
-        <Metric icon={<Bell />} label="Approvals" value={metrics.approvals} />
-        <Metric icon={<AlertTriangle />} label="Stale" value={metrics.stale} />
-        <Metric icon={<ReceiptText />} label="2026 invoices" value={formatMoney(metrics.invoiceTotal)} />
+        {user.role === "Tenant" ? (
+          <>
+            <Metric icon={<ClipboardList />} label="My active requests" value={metrics.open} />
+            <Metric icon={<Bell />} label="Awaiting review" value={metrics.approvals} />
+            <Metric icon={<MessageSquare />} label="Needs my reply" value={metrics.needsReply} />
+            <Metric icon={<ShieldCheck />} label="Resolved" value={metrics.completed} />
+          </>
+        ) : user.role === "Vendor" ? (
+          <>
+            <Metric icon={<ClipboardList />} label="My active jobs" value={metrics.open} />
+            <Metric icon={<ReceiptText />} label="Quotes sent" value={metrics.quotes} />
+            <Metric icon={<Bell />} label="Scheduled" value={metrics.scheduled} />
+            <Metric icon={<ShieldCheck />} label="Completed" value={metrics.completed} />
+          </>
+        ) : user.role === "Owner" ? (
+          <>
+            <Metric icon={<ClipboardList />} label="Active repairs" value={metrics.open} />
+            <Metric icon={<Bell />} label="Needs my approval" value={metrics.ownerApprovals} />
+            <Metric icon={<ReceiptText />} label="Unpaid invoices" value={metrics.unpaidInvoices} />
+            <Metric icon={<DollarSign />} label="2026 expenses" value={formatMoney(metrics.invoiceTotal)} />
+          </>
+        ) : (
+          <>
+            <Metric icon={<ClipboardList />} label="Open work orders" value={metrics.open} />
+            <Metric icon={<Bell />} label="Awaiting review" value={metrics.approvals} />
+            <Metric icon={<AlertTriangle />} label="Stale" value={metrics.stale} />
+            <Metric icon={<ReceiptText />} label="2026 invoices" value={formatMoney(metrics.invoiceTotal)} />
+          </>
+        )}
       </section>}
 
       {demoExperienceAvailable && user.role !== "Site Admin" && <DemoModeBanner activeOrder={activeOrder} runFullFlowDemo={runFullFlowDemo} />}
@@ -911,6 +1147,16 @@ function App() {
         />
       )}
 
+      {["Manager", "Owner"].includes(user.role) && adminSection !== "billing" && (
+        <IssueCreatePanel
+          request={request}
+          setRequest={setRequest}
+          createOrder={createOrder}
+          property={activeProperty}
+          user={user}
+        />
+      )}
+
       {user.role === "Manager" && adminSection !== "billing" && (
         <AdminManagerView
           property={activeProperty}
@@ -950,7 +1196,7 @@ function App() {
           property={activeProperty}
           account={accountsData.find((account) => account.id === activeProperty.accountId)}
           people={peopleData}
-          invoices={invoices.filter((invoice) => invoice.propertyId === activeProperty.id)}
+          invoices={livePropertyInvoices}
           orders={visibleOrders}
           billingEvents={billingEventsData.filter((event) => event.propertyId === activeProperty.id)}
           stripe={stripeData}
@@ -963,7 +1209,7 @@ function App() {
           property={activeProperty}
           account={accountsData.find((account) => account.id === activeProperty.accountId)}
           orders={visibleOrders}
-          invoices={invoices.filter((invoice) => invoice.propertyId === activeProperty.id)}
+          invoices={livePropertyInvoices}
           reloadState={loadState}
           patchInvoice={async (invoiceId, status) => {
             await fetch(`/api/invoices/${invoiceId}`, {
@@ -981,7 +1227,7 @@ function App() {
           property={activeProperty}
           account={accountsData.find((account) => account.id === activeProperty.accountId)}
           people={peopleData}
-          invoices={invoices.filter((invoice) => invoice.propertyId === activeProperty.id)}
+          invoices={livePropertyInvoices}
           orders={visibleOrders}
           billingEvents={billingEventsData.filter((event) => event.propertyId === activeProperty.id)}
           stripe={stripeData}
@@ -990,11 +1236,11 @@ function App() {
       )}
 
       {user.role === "Tenant" && (
-        <TenantView request={request} setRequest={setRequest} createOrder={createOrder} orders={visibleOrders} property={activeProperty} user={user} />
+        <TenantView request={request} setRequest={setRequest} createOrder={createOrder} orders={tenantOrders} property={activeProperty} user={user} />
       )}
 
       {user.role === "Vendor" && (
-        <VendorView orders={visibleOrders.filter((order) => order.vendorId === "v-1")} />
+        <VendorView orders={vendorOrders} />
       )}
 
       {user.role === "Site Admin" && (
@@ -1100,11 +1346,11 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
               <>
                 <SectionTitle icon={<Home />} title="Create your first property" eyebrow="Self-serve setup" />
                 <form className="signup-form" onSubmit={createOnboardingProperty}>
-                  <label>Property name<input required value={signupForm.propertyName} onChange={(event) => updateSignup("propertyName", event.target.value)} placeholder="Noe Valley Duplex" /></label>
+                  <label>Property name<GooglePlacesAddressInput required value={signupForm.propertyName} onChange={(value) => updateSignup("propertyName", value)} onPlaceSelect={(place) => setSignupForm((current) => ({ ...current, propertyName: place.name || current.propertyName, address: formatPlaceAddress(place) || current.address }))} placeholder="Noe Valley Duplex" autoComplete="organization" /></label>
                   <label>Your name<input required value={signupForm.managerName} onChange={(event) => updateSignup("managerName", event.target.value)} placeholder="Jordan Lee" /></label>
                   <label>Phone<input required value={signupForm.managerPhone} onChange={(event) => updateSignup("managerPhone", event.target.value)} placeholder="(310) 555-0100" /></label>
                   <label>PIN<input value={signupForm.pin} onChange={(event) => updateSignup("pin", event.target.value)} inputMode="numeric" placeholder="Auto-generate" /></label>
-                  <label>Address<input value={signupForm.address} onChange={(event) => updateSignup("address", event.target.value)} placeholder="11820 Pacific Ave" /></label>
+                  <label>Address<GooglePlacesAddressInput value={signupForm.address} onChange={(value) => updateSignup("address", value)} placeholder="11820 Pacific Ave" /></label>
                   <label>Homes / spaces<input value={signupForm.units} onChange={(event) => updateSignup("units", event.target.value)} placeholder="Garden flat, upper home, parlor floor" /></label>
                   <label className="span-2">Account name<input value={signupForm.accountName} onChange={(event) => updateSignup("accountName", event.target.value)} placeholder="Optional" /></label>
                   <label className="span-2">Your role<select value={signupForm.role} onChange={(event) => updateSignup("role", event.target.value)}><option>Property manager</option><option>Owner</option><option>Owner and property manager</option></select></label>
@@ -1694,7 +1940,7 @@ function AdminProperties({ properties, people, accounts, reloadState, setActiveP
         <form className="admin-form" onSubmit={createProperty}>
           <label>Name<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
           <label>Account<select value={form.accountId} onChange={(event) => setForm({ ...form, accountId: event.target.value })}>{accounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select></label>
-          <label>Address<input value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} /></label>
+          <label>Address<GooglePlacesAddressInput value={form.address} onChange={(value) => setForm({ ...form, address: value })} /></label>
           <label>Homes / spaces<input placeholder="Garden flat, upper home, parlor floor" value={form.units} onChange={(event) => setForm({ ...form, units: event.target.value })} /></label>
           <label>Manager<select value={form.adminId} onChange={(event) => setForm({ ...form, adminId: event.target.value })}>{people.filter((person) => person.role === "Manager").map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}</select></label>
           <label>Owner<select value={form.ownerId} onChange={(event) => setForm({ ...form, ownerId: event.target.value })}>{people.filter((person) => person.role === "Owner").map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}</select></label>
@@ -2839,9 +3085,33 @@ function OwnerExpenseUpload({ form, setForm, onSubmit }) {
   );
 }
 
+function IssueCreatePanel({ request, setRequest, createOrder, property, user }) {
+  return (
+    <section className="panel issue-create-panel">
+      <SectionTitle icon={<Plus />} title="Create issue" eyebrow={`${user.role} dashboard`} />
+      <form className="issue-create-form" onSubmit={createOrder}>
+        <label>
+          Home / space
+          <input value={request.unit} list="issue-unit-options" onChange={(event) => setRequest({ ...request, unit: event.target.value })} placeholder={user?.unit || property?.units?.[0] || "Example: Unit 3B"} />
+          <datalist id="issue-unit-options">{property?.units?.map((unit) => <option value={unit} key={unit} />)}</datalist>
+        </label>
+        <label className="span-2">
+          What needs attention?
+          <textarea rows="3" value={request.issue} onChange={(event) => setRequest({ ...request, issue: event.target.value })} placeholder="Example: water is leaking under the kitchen sink" required />
+        </label>
+        <label>
+          Access notes
+          <input value={request.access} onChange={(event) => setRequest({ ...request, access: event.target.value })} placeholder="Best entry window or contact note" />
+        </label>
+        <button className="primary" type="submit"><Send size={16} /> Create issue</button>
+      </form>
+    </section>
+  );
+}
+
 function TenantView({ request, setRequest, createOrder, orders, property, user }) {
   const hasOrders = orders.length > 0;
-  const hasOpenIssues = orders.some((order) => order.status !== "Closed");
+  const hasOpenIssues = orders.some(isActiveWorkOrder);
   const maintenanceNotes = maintenanceNotesForProperty(property);
   const sortedOrders = [...orders].sort((a, b) => (a.status === "Closed") - (b.status === "Closed"));
 
@@ -2948,6 +3218,7 @@ function VendorView({ orders }) {
   return (
     <section className="panel">
       <SectionTitle icon={<Wrench />} title="Vendor jobs" eyebrow="SMS accepting flow" />
+      {!orders.length && <p className="empty-copy">No jobs have been sent to this vendor for this property yet.</p>}
       {orders.map((order) => (
         <article className="approval-card" key={order.id}>
           <span className="eyebrow">{order.id} · {order.unit}</span>

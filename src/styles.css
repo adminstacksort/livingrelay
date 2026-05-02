@@ -132,6 +132,33 @@ select:focus {
   box-shadow: 0 0 0 3px rgba(28, 103, 91, 0.12);
 }
 
+.pac-container {
+  border: 1px solid #d8d0c3;
+  border-radius: 8px;
+  box-shadow: 0 16px 38px rgba(12, 20, 18, 0.18);
+  color: #182321;
+  font-family: inherit;
+  margin-top: 6px;
+  overflow: hidden;
+  z-index: 10000;
+}
+
+.pac-item {
+  cursor: pointer;
+  font-size: 13px;
+  padding: 9px 12px;
+}
+
+.pac-item:hover,
+.pac-item-selected {
+  background: #f4eee5;
+}
+
+.pac-item-query {
+  color: #182321;
+  font-size: 13px;
+}
+
 .primary,
 .secondary,
 .ghost {
@@ -506,22 +533,6 @@ select:focus {
   margin-top: 6px;
   color: #596662;
   font-weight: 700;
-}
-
-.route-chip {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  max-width: 100%;
-  margin-top: 10px;
-  border: 1px solid #cdded8;
-  border-radius: 8px;
-  background: #edf8f4;
-  color: #164c44;
-  padding: 6px 9px;
-  font-size: 13px;
-  font-weight: 850;
-  overflow-wrap: anywhere;
 }
 
 .eyebrow {
@@ -1369,6 +1380,25 @@ body:has(.login-card.admin-login-card) {
 .tenant-note-grid p {
   color: #4f5d59;
   line-height: 1.4;
+}
+
+.issue-create-panel {
+  margin-bottom: 12px;
+}
+
+.issue-create-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.issue-create-form .span-2 {
+  grid-column: auto;
+}
+
+.issue-create-form button {
+  min-width: 150px;
 }
 
 .section-title {
@@ -2413,7 +2443,8 @@ body:has(.login-card.admin-login-card) {
   .owner-console-hero,
   .admin-grid,
   .tenant-welcome,
-  .tenant-note-grid {
+  .tenant-note-grid,
+  .issue-create-form {
     grid-template-columns: 1fr;
   }
 

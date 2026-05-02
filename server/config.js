@@ -1,4 +1,4 @@
-import { getPostgresStatus } from "./postgresState.js";
+import { getPostgresStatus, getRuntimeEnvironment, getStateId } from "./postgresState.js";
 import { getTwilioStatus } from "./twilioClient.js";
 import { platformSettings } from "./data.js";
 
@@ -26,7 +26,9 @@ export async function getReadiness() {
 
   return {
     ok: missing.length === 0 && database.ok && twilio.configured && elevenLabsMissing.length === 0,
-    environment: process.env.NODE_ENV || "development",
+    environment: getRuntimeEnvironment(),
+    nodeEnv: process.env.NODE_ENV || "development",
+    stateId: getStateId(),
     appUrl: process.env.APP_PUBLIC_URL || "http://127.0.0.1:5173",
     missing,
     database,

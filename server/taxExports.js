@@ -33,10 +33,35 @@ const TRADE_TO_CATEGORY = {
   Taxes: "taxes"
 };
 
+function hasDemoOrTestMarker(record = {}) {
+  const text = [
+    record.id,
+    record.status,
+    record.source,
+    record.note,
+    record.documentName,
+    record.demoFlow ? "demoFlow" : "",
+    record.demoOutreach ? "demoOutreach" : ""
+  ].join(" ").toLowerCase();
+  return /\b(demo|sample|smoke)\b/.test(text) || text.includes("test invoice from local endpoint");
+}
+
+function isLiveWorkOrder(order = {}) {
+  if (!order || hasDemoOrTestMarker(order)) return false;
+  const timelineText = (order.timeline || []).map((item) => `${item.label || ""} ${item.detail || ""}`).join(" ").toLowerCase();
+  return !/\b(demo|sample|smoke)\b/.test(timelineText);
+}
+
+function isLiveInvoice(invoice = {}) {
+  if (!invoice || hasDemoOrTestMarker(invoice)) return false;
+  if (invoice.source === "owner_upload") return true;
+  return workOrders.some((order) => order.id === invoice.orderId && order.propertyId === invoice.propertyId && isLiveWorkOrder(order));
+}
+
 export function buildTaxSummary(propertyId, year = "2026") {
   const property = properties.find((item) => item.id === propertyId);
   const propertyInvoices = invoices
-    .filter((invoice) => invoice.propertyId === propertyId && String(invoice.taxYear || year) === String(year))
+    .filter((invoice) => invoice.propertyId === propertyId && String(invoice.taxYear || year) === String(year) && isLiveInvoice(invoice))
     .map(enrichInvoice);
 
   const categories = {};

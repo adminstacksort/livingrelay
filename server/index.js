@@ -3,7 +3,7 @@ import express from "express";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { accounts, auditLog, billingEvents, invoices, people, platformSettings, properties, recordAudit, saveState, vendors, workOrders } from "./data.js";
+import { accounts, auditLog, billingEvents, invoices, people, platformSettings, properties, recordAudit, saveState, vendors, waitForStatePersistence, workOrders } from "./data.js";
 import { composeActionMessage, handleInboundCommand } from "./smsLogic.js";
 import { getTwilioStatus, sendSms } from "./twilioClient.js";
 import { registerTwilioCallWithElevenLabs, startVendorQuoteCalls } from "./elevenLabsCalls.js";
@@ -13,6 +13,7 @@ import { getStaleWorkOrders, nudgeStaleWorkOrders, nudgeWorkOrder } from "./stal
 import { dialManagerIntoCall, getLiveCalls, listenToCall, takeOverCall } from "./liveCallControl.js";
 import { buildTaxCsv, buildTaxSummary, canExportOwnerTaxPacket, recordTaxBundleAudit } from "./taxExports.js";
 import { getReadiness } from "./config.js";
+import { getRuntimeEnvironment, getStateId } from "./postgresState.js";
 import { chargeStripeDispatchFee, createStripeOwnerSubscriptionSession, createStripePortalSession, createStripeSetupSession, dispatchFeeCents, ownerSubscriptionCents, retrieveStripeCheckoutSession, retrieveStripeSetupIntent, setCustomerDefaultPaymentMethod, stripeBillingStatus } from "./stripeBilling.js";
 import { attachMediaRelay, getMediaRelayRoom } from "./mediaRelay.js";
 import {
@@ -33,6 +34,11 @@ const port = Number(process.env.SERVER_PORT || 8787);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(__dirname, "..", "dist");
 const siteAdminHost = process.env.SITE_ADMIN_HOST || "admin.livingrelay.com";
+const siteAdminHosts = new Set([
+  siteAdminHost,
+  ...(process.env.SITE_ADMIN_HOSTS || "").split(",").map((host) => host.trim()).filter(Boolean),
+  ...(getRuntimeEnvironment() === "staging" ? ["staging.livingrelay.com"] : [])
+].map((host) => host.toLowerCase()));
 const demoHost = process.env.DEMO_HOST || "demo.livingrelay.com";
 const siteAdminSessions = new Set();
 
@@ -44,7 +50,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
     }
     const event = JSON.parse(req.body.toString("utf8"));
     await handleStripeWebhookEvent(event);
-    saveState();
+    await saveState();
     res.json({ received: true });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -58,6 +64,30 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static(distDir));
+
+app.use((req, res, next) => {
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
+    next();
+    return;
+  }
+  const originalJson = res.json.bind(res);
+  res.json = async (body) => {
+    try {
+      await waitForStatePersistence();
+    } catch (error) {
+      console.error(`[Persistence barrier failed] ${error.message}`);
+      res.status(503);
+      return originalJson({
+        error: "State persistence failed. This change was not confirmed durable.",
+        detail: error.message,
+        environment: getRuntimeEnvironment(),
+        stateId: getStateId()
+      });
+    }
+    return originalJson(body);
+  };
+  next();
+});
 
 app.get("/api/health", async (req, res) => {
   const readiness = await getReadiness();
@@ -196,12 +226,12 @@ function isLocalDevHost(req) {
 
 function isSiteAdminHost(req) {
   const host = requestHost(req);
-  return host === siteAdminHost || isLocalDevHost(req);
+  return siteAdminHosts.has(host) || isLocalDevHost(req);
 }
 
 function isDemoExperienceHost(req) {
   const host = requestHost(req);
-  return host === demoHost || host === siteAdminHost || isLocalDevHost(req);
+  return host === demoHost || siteAdminHosts.has(host) || isLocalDevHost(req);
 }
 
 function hasSiteAdminSession(req) {
@@ -214,7 +244,7 @@ function isDemoExperienceRequest(req, res) {
   if (host === demoHost || isLocalDevHost(req)) {
     return true;
   }
-  if (host === siteAdminHost && hasSiteAdminSession(req)) {
+  if (siteAdminHosts.has(host) && hasSiteAdminSession(req)) {
     return true;
   }
   res.status(404).json({ error: "Demo mode is only available at demo.livingrelay.com or from the site admin console." });
@@ -266,7 +296,9 @@ app.get("/api/site-admin/diagnostics", async (req, res) => {
   res.json({
     generatedAt: new Date().toISOString(),
     service: {
+      environment: getRuntimeEnvironment(),
       nodeEnv: process.env.NODE_ENV || "development",
+      stateId: getStateId(),
       publicUrl: baseUrl,
       readinessOk: readiness.ok,
       missingRequired: readiness.missing,
@@ -458,7 +490,7 @@ app.post("/api/admin/people", (req, res) => {
 });
 
 app.post("/api/admin/work-orders", (req, res) => {
-  const { propertyId, unit, tenantId, trade = "General", severity = "Normal", status = "Manager review", estimate = 0, vendorId, issue, access = "" } = req.body;
+  const { propertyId, unit, tenantId, trade = "General", severity = "Normal", status = "Manager review", estimate = 0, vendorId, issue, access = "", actorName = "Manager", actorRole = "Manager" } = req.body;
   if (!propertyId || !unit || !issue) {
     res.status(400).json({ error: "propertyId, unit, and issue are required" });
     return;
@@ -499,7 +531,7 @@ app.post("/api/admin/work-orders", (req, res) => {
     invoiceId: null,
     timeline: [
       {
-        label: "Manager created work order",
+        label: `${actorRole} created work order`,
         detail: issue,
         stamp: new Date().toISOString()
       }
@@ -508,7 +540,7 @@ app.post("/api/admin/work-orders", (req, res) => {
   };
   workOrders.unshift(order);
   saveState();
-  recordAudit("admin", "Created work order", `${order.id} created manually.`);
+  recordAudit(actorName, "Created work order", `${order.id} created by ${actorRole}.`);
   res.json({ order });
 });
 

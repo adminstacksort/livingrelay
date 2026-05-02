@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadStateFromPostgres, saveStateToPostgres } from "./postgresState.js";
+import { isDurablePersistenceRequired, loadStateFromPostgres, saveStateToPostgres } from "./postgresState.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, "..", "data");
 const dataFile = path.join(dataDir, "local-state.json");
+let pendingStateSave = Promise.resolve();
+let lastStateSaveError = null;
 
 const seedState = {
   platformSettings: {
@@ -28,6 +30,20 @@ const seedState = {
       ownerSubscriptionPlan: "Owner Subscription",
       productionVendorCallsEnabled: true,
       createdAt: "2026-04-01T12:00:00.000Z"
+    },
+    {
+      id: "acct-test",
+      name: "LivingRelay Test Account",
+      status: "Test",
+      plan: "$0/property + $25 vendor dispatch",
+      stripeCustomerId: "",
+      billingPayerRole: "Owner",
+      billingPayerPersonId: "test-owner",
+      billingSetupStatus: "Needs card",
+      ownerSubscriptionStatus: "Free",
+      ownerSubscriptionPlan: "Owner Subscription",
+      productionVendorCallsEnabled: true,
+      createdAt: "2026-05-02T12:00:00.000Z"
     }
   ],
   people: [
@@ -35,7 +51,10 @@ const seedState = {
     { id: "admin-1", name: "Jordan Lee", role: "Manager", phone: "+13105550100", email: "jordan@shahproperty.example", pin: "1111", propertyIds: ["p-1", "p-2"], managesPropertyIds: ["p-1"], notify: { tenantReports: true, everyUpdate: true, keyUpdates: true } },
     { id: "owner-1", name: "Priya Shah", role: "Owner", phone: "+13105550102", email: "priya@shahproperty.example", pin: "3333", propertyIds: ["p-1"], notify: { tenantReports: true, everyUpdate: false, keyUpdates: true } },
     { id: "tenant-1", name: "Maya Chen", role: "Tenant", phone: "+13105550103", pin: "4444", propertyIds: ["p-1"], unit: "Garden flat" },
-    { id: "vendor-1", name: "Carlos Plumbing", role: "Vendor", phone: "+13105550104", pin: "5555", propertyIds: ["p-1"], trade: "Plumbing" }
+    { id: "vendor-1", name: "Carlos Plumbing", role: "Vendor", phone: "+13105550104", pin: "5555", propertyIds: ["p-1"], trade: "Plumbing" },
+    { id: "test-manager", name: "Test Manager", role: "Manager", phone: "+15555555555", email: "manager@test.livingrelay.com", pin: "1111", propertyIds: ["p-test"], managesPropertyIds: ["p-test"], accountIds: ["acct-test"], notify: { tenantReports: true, everyUpdate: true, keyUpdates: true } },
+    { id: "test-owner", name: "Test Owner", role: "Owner", phone: "+15555555555", email: "owner@test.livingrelay.com", pin: "2222", propertyIds: ["p-test"], accountIds: ["acct-test"], notify: { tenantReports: true, everyUpdate: false, keyUpdates: true } },
+    { id: "test-tenant", name: "Test Tenant", role: "Tenant", phone: "+15555555555", pin: "3333", propertyIds: ["p-test"], unit: "Test unit" }
   ],
   properties: [
     {
@@ -54,6 +73,33 @@ const seedState = {
       billingSetupStatus: "Needs card",
       approvalThreshold: 150,
       rules: "Plumbing under $300 goes to Carlos first. Any repair above $150 needs owner approval. HVAC always requires manager review. Emergencies: active water, gas smell, sparking, no lock.",
+      dispatchSettings: {
+        vendorOutreachMode: "manager_approval",
+        autoOutreachAfterTenantConfirmed: false,
+        emergencyOutreachMode: "manager_approval",
+        maxVendorsToCall: 5,
+        requireTenantAvailabilityBeforeBooking: true,
+        inboundInvoiceEmail: "invoices@livingrelay.com",
+        invoiceRecipientPolicy: "manager_owner_system",
+        productionVendorCallsEnabled: true
+      }
+    },
+    {
+      id: "p-test",
+      accountId: "acct-test",
+      name: "LivingRelay Test Home",
+      address: "555 Test Ave, Los Angeles, CA",
+      subscription: "Test",
+      plan: "$0/property + $25 only when a vendor is booked",
+      units: ["Test unit"],
+      ownerId: "test-owner",
+      managerId: "test-manager",
+      adminId: "test-manager",
+      billingPayerRole: "Owner",
+      billingPayerPersonId: "test-owner",
+      billingSetupStatus: "Needs card",
+      approvalThreshold: 250,
+      rules: "Test account for production smoke checks. No vendor dispatch happens unless a real work order is created.",
       dispatchSettings: {
         vendorOutreachMode: "manager_approval",
         autoOutreachAfterTenantConfirmed: false,
@@ -186,11 +232,33 @@ export const billingEvents = state.billingEvents;
 export const auditLog = state.auditLog;
 
 export function saveState() {
-  fs.mkdirSync(dataDir, { recursive: true });
-  fs.writeFileSync(dataFile, JSON.stringify(state, null, 2));
-  saveStateToPostgres(state).catch((error) => {
-    console.log(`[Postgres save skipped] ${error.message}`);
-  });
+  if (!isDurablePersistenceRequired()) {
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(dataFile, JSON.stringify(state, null, 2));
+  }
+  const saveTask = pendingStateSave
+    .catch(() => {})
+    .then(() => saveStateToPostgres(state))
+    .then(() => {
+      lastStateSaveError = null;
+    })
+    .catch((error) => {
+      lastStateSaveError = error;
+      if (isDurablePersistenceRequired()) {
+        console.error(`[Postgres save failed] ${error.message}`);
+      } else {
+        console.log(`[Postgres save skipped] ${error.message}`);
+      }
+      throw error;
+    });
+  saveTask.catch(() => {});
+  pendingStateSave = saveTask;
+  return saveTask;
+}
+
+export async function waitForStatePersistence() {
+  await pendingStateSave;
+  if (lastStateSaveError) throw lastStateSaveError;
 }
 
 export function recordAudit(actor, action, detail) {
@@ -219,13 +287,16 @@ async function loadState() {
 }
 
 function mergeLoadedState(loaded) {
+  const requiredAccounts = seedState.accounts.filter((account) => account.id === "acct-test");
+  const requiredPeople = seedState.people.filter((person) => person.id.startsWith("test-"));
+  const requiredProperties = seedState.properties.filter((property) => property.id === "p-test");
   const platformSettings = {
     vendorCallTestMode: loaded.platformSettings?.vendorCallTestMode ?? true,
     productionVendorCallsEnabled: loaded.platformSettings?.productionVendorCallsEnabled ?? true,
     vendorCallTestNumber: loaded.platformSettings?.vendorCallTestNumber ?? process.env.VENDOR_CALL_TEST_NUMBER ?? "",
     updatedAt: loaded.platformSettings?.updatedAt || new Date().toISOString()
   };
-  const accounts = (loaded.accounts?.length ? loaded.accounts : seedState.accounts).map((account) => ({
+  const accounts = upsertRequiredById(loaded.accounts?.length ? loaded.accounts : seedState.accounts, requiredAccounts).map((account) => ({
     ...account,
     stripeCustomerId: isDemoStripeCustomer(account.stripeCustomerId) ? "" : account.stripeCustomerId,
     plan: account.plan?.includes("$149") ? "$0/property + $25 vendor dispatch" : account.plan || "$0/property + $25 vendor dispatch",
@@ -235,9 +306,9 @@ function mergeLoadedState(loaded) {
     ownerSubscriptionPlan: account.ownerSubscriptionPlan || "Owner Subscription",
     productionVendorCallsEnabled: account.productionVendorCallsEnabled !== false
   }));
-  const people = ensureSiteAdmin(loaded.people || seedState.people, accounts)
+  const people = upsertRequiredById(ensureSiteAdmin(loaded.people || seedState.people, accounts), requiredPeople)
     .map((person) => person.role === "Admin" ? { ...person, role: "Manager" } : person);
-  const properties = (loaded.properties || seedState.properties).map((property) => {
+  const properties = upsertRequiredById(loaded.properties || seedState.properties, requiredProperties).map((property) => {
     const accountId = property.accountId || accounts[0]?.id || "acct-1";
     const account = accounts.find((item) => item.id === accountId);
     const billingSetupStatus = account?.billingSetupStatus === "Card on file"
@@ -285,6 +356,15 @@ function mergeLoadedState(loaded) {
     billingEvents: loaded.billingEvents || seedState.billingEvents,
     auditLog: loaded.auditLog || []
   };
+}
+
+function upsertRequiredById(records = [], required = []) {
+  const existing = records.map((record) => {
+    const requiredRecord = required.find((item) => item.id === record.id);
+    return requiredRecord ? { ...record, ...requiredRecord } : record;
+  });
+  const ids = new Set(existing.map((record) => record.id));
+  return [...existing, ...required.filter((record) => !ids.has(record.id))];
 }
 
 function isDemoStripeCustomer(customerId = "") {
