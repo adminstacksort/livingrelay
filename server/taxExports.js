@@ -1,4 +1,4 @@
-import { invoices, properties, recordAudit, vendors, workOrders } from "./data.js";
+import { accounts, invoices, properties, recordAudit, vendors, workOrders } from "./data.js";
 
 const SCHEDULE_E_LINES = {
   advertising: { line: "8", label: "Advertising" },
@@ -55,15 +55,22 @@ export function buildTaxSummary(propertyId, year = "2026") {
 
   const categoryRows = Object.values(categories).sort((a, b) => a.scheduleELine.localeCompare(b.scheduleELine));
   const totalExpenses = propertyInvoices.reduce((sum, invoice) => sum + invoice.amount, 0);
+  const capitalImprovementCandidates = propertyInvoices.filter((invoice) => invoice.capitalImprovementCandidate);
+  const capitalImprovementTotal = capitalImprovementCandidates.reduce((sum, invoice) => sum + invoice.amount, 0);
   const scheduleE = buildScheduleEWorksheet({ property, year, categoryRows, totalExpenses });
+  const ownerSubscription = ownerSubscriptionForProperty(property);
 
   return {
     property,
     year: String(year),
     totalExpenses,
     categories: categoryRows,
+    capitalImprovementTotal,
+    capitalImprovementCandidates,
     scheduleE,
-    invoices: propertyInvoices
+    invoices: propertyInvoices,
+    ownerSubscription,
+    aiSummary: buildOwnerExpenseSummary({ year, totalExpenses, categoryRows, capitalImprovementCandidates, ownerSubscription })
   };
 }
 
@@ -80,7 +87,8 @@ export function buildTaxCsv(propertyId, year = "2026") {
     "category",
     "schedule_e_line",
     "status",
-    "note"
+    "note",
+    "possible_capital_improvement"
   ];
   const rows = summary.invoices.map((invoice) => [
     summary.year,
@@ -93,15 +101,25 @@ export function buildTaxCsv(propertyId, year = "2026") {
     SCHEDULE_E_LINES[invoice.taxCategory]?.label || "Other expenses statement",
     SCHEDULE_E_LINES[invoice.taxCategory]?.line || "19",
     invoice.status,
-    invoice.note
+    invoice.note,
+    invoice.capitalImprovementCandidate ? "Yes" : "No"
   ]);
   return [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
 }
 
 export function recordTaxBundleAudit(propertyId, year) {
   const summary = buildTaxSummary(propertyId, year);
+  if (!summary.ownerSubscription.active) {
+    const error = new Error("Owner Subscription required for tax packet exports.");
+    error.statusCode = 402;
+    throw error;
+  }
   recordAudit("owner", "Generated owner tax packet", `${summary.property?.name || propertyId}: ${summary.invoices.length} invoices for ${year}.`);
   return summary;
+}
+
+export function canExportOwnerTaxPacket(propertyId) {
+  return ownerSubscriptionForProperty(properties.find((item) => item.id === propertyId)).active;
 }
 
 function buildScheduleEWorksheet({ property, year, categoryRows, totalExpenses }) {
@@ -130,7 +148,9 @@ function enrichInvoice(invoice) {
     amount: Number(invoice.amount || 0),
     taxCategory,
     trade: order?.trade || vendor?.trade || "General",
-    workOrderIssue: order?.issue || ""
+    workOrderIssue: order?.issue || "",
+    capitalImprovementCandidate: invoice.capitalImprovementCandidate ?? inferCapitalImprovementCandidate({ invoice, order, vendor }),
+    ownerUpload: invoice.source === "owner_upload"
   };
 }
 
@@ -143,6 +163,55 @@ function inferTaxCategory({ invoice, order, vendor }) {
   if (text.includes("supply") || text.includes("material")) return "supplies";
   if (text.includes("electric bill") || text.includes("water bill") || text.includes("gas bill") || text.includes("utility")) return "utilities";
   return TRADE_TO_CATEGORY[order?.trade] || TRADE_TO_CATEGORY[vendor?.trade] || "repairs";
+}
+
+function inferCapitalImprovementCandidate({ invoice, order, vendor }) {
+  const text = `${invoice.vendor || ""} ${invoice.note || ""} ${order?.trade || ""} ${order?.issue || ""} ${vendor?.trade || ""}`.toLowerCase();
+  return [
+    "renovation",
+    "remodel",
+    "replace",
+    "replacement",
+    "upgrade",
+    "new roof",
+    "roof",
+    "hvac system",
+    "water heater",
+    "flooring",
+    "windows",
+    "addition",
+    "capital improvement"
+  ].some((term) => text.includes(term));
+}
+
+function ownerSubscriptionForProperty(property) {
+  const account = accounts.find((item) => item.id === property?.accountId);
+  const status = account?.ownerSubscriptionStatus || "Free";
+  return {
+    status,
+    active: ["Active", "Trialing"].includes(status),
+    stripeSubscriptionId: account?.ownerSubscriptionStripeId || "",
+    currentPeriodEnd: account?.ownerSubscriptionCurrentPeriodEnd || ""
+  };
+}
+
+function buildOwnerExpenseSummary({ year, totalExpenses, categoryRows, capitalImprovementCandidates, ownerSubscription }) {
+  const topCategory = [...categoryRows].sort((a, b) => b.amount - a.amount)[0];
+  const capitalCopy = capitalImprovementCandidates.length
+    ? `${capitalImprovementCandidates.length} item${capitalImprovementCandidates.length === 1 ? "" : "s"} look like possible capital improvements to preserve for sale-basis records.`
+    : "No likely capital-improvement candidates were detected yet.";
+  return {
+    headline: `${year} maintenance records total ${formatMoney(totalExpenses)}${topCategory ? `, led by ${topCategory.label.toLowerCase()}` : ""}.`,
+    categoryInsight: topCategory ? `${topCategory.label} is currently the largest category at ${formatMoney(topCategory.amount)}.` : "Upload bills to see category totals.",
+    capitalImprovementInsight: capitalCopy,
+    exportInsight: ownerSubscription.active
+      ? "Owner Subscription is active, so spreadsheet and tax packet exports are unlocked."
+      : "Free summaries are available now. Owner Subscription unlocks updated spreadsheet files and prefilled tax packet exports."
+  };
+}
+
+function formatMoney(amount) {
+  return `$${Number(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
 function csvCell(value) {

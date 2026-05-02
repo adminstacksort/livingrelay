@@ -5,6 +5,8 @@ This checklist connects the GitHub Actions deployment pipeline to live AWS infra
 - Dev: `https://dev.livingrelay.com`
 - Staging: `https://staging.livingrelay.com`
 - Production: `https://livingrelay.com`
+- Production app/API alias: `https://app.livingrelay.com`
+- Site owner console: `https://admin.livingrelay.com`
 
 Already configured:
 
@@ -64,6 +66,11 @@ Use SecureString parameters, one path per environment:
 /livingrelay/dev/TWILIO_AUTH_TOKEN
 /livingrelay/dev/TWILIO_MESSAGING_NUMBER
 /livingrelay/dev/ANTHROPIC_API_KEY
+/livingrelay/dev/APP_BASE_URL
+/livingrelay/dev/STRIPE_SECRET_KEY
+/livingrelay/dev/STRIPE_WEBHOOK_SECRET
+/livingrelay/dev/DISPATCH_FEE_CENTS
+/livingrelay/dev/OWNER_SUBSCRIPTION_AMOUNT_CENTS
 
 /livingrelay/staging/...
 /livingrelay/production/...
@@ -150,6 +157,8 @@ dev.livingrelay.com      -> livingrelay-dev target group
 staging.livingrelay.com  -> livingrelay-staging target group
 livingrelay.com          -> livingrelay-production target group
 www.livingrelay.com      -> livingrelay-production target group or redirect to livingrelay.com
+admin.livingrelay.com    -> livingrelay-production target group
+app.livingrelay.com      -> livingrelay-production target group
 ```
 
 ## 7. Create Route 53 Records
@@ -161,6 +170,8 @@ dev.livingrelay.com      A/AAAA alias -> ALB
 staging.livingrelay.com  A/AAAA alias -> ALB
 livingrelay.com          A/AAAA alias -> ALB
 www.livingrelay.com      A/AAAA alias -> ALB
+admin.livingrelay.com    A/AAAA alias -> ALB
+app.livingrelay.com      A/AAAA alias -> ALB
 ```
 
 ## 8. Set GitHub ECS Variables
@@ -192,6 +203,7 @@ Inbound SMS webhook URLs:
 https://dev.livingrelay.com/api/twilio/inbound
 https://staging.livingrelay.com/api/twilio/inbound
 https://livingrelay.com/api/twilio/inbound
+https://app.livingrelay.com/api/twilio/inbound
 ```
 
 Method: `POST`
@@ -204,6 +216,7 @@ After each deploy:
 curl -s https://dev.livingrelay.com/api/health
 curl -s https://staging.livingrelay.com/api/health
 curl -s https://livingrelay.com/api/health
+curl -s https://app.livingrelay.com/api/health
 ```
 
 Readiness should eventually return `ok: true` once all required secrets and integrations are configured:
@@ -212,5 +225,5 @@ Readiness should eventually return `ok: true` once all required secrets and inte
 curl -s https://dev.livingrelay.com/api/readiness
 curl -s https://staging.livingrelay.com/api/readiness
 curl -s https://livingrelay.com/api/readiness
+curl -s https://app.livingrelay.com/api/readiness
 ```
-

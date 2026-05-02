@@ -29,7 +29,12 @@
         { "name": "TWILIO_ACCOUNT_SID", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/TWILIO_ACCOUNT_SID" },
         { "name": "TWILIO_AUTH_TOKEN", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/TWILIO_AUTH_TOKEN" },
         { "name": "TWILIO_MESSAGING_NUMBER", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/TWILIO_MESSAGING_NUMBER" },
-        { "name": "ANTHROPIC_API_KEY", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/ANTHROPIC_API_KEY" }
+        { "name": "ANTHROPIC_API_KEY", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/ANTHROPIC_API_KEY" },
+        { "name": "APP_BASE_URL", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/APP_BASE_URL" },
+        { "name": "STRIPE_SECRET_KEY", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/STRIPE_SECRET_KEY" },
+        { "name": "STRIPE_WEBHOOK_SECRET", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/STRIPE_WEBHOOK_SECRET" },
+        { "name": "DISPATCH_FEE_CENTS", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/DISPATCH_FEE_CENTS" },
+        { "name": "OWNER_SUBSCRIPTION_AMOUNT_CENTS", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/OWNER_SUBSCRIPTION_AMOUNT_CENTS" }
       ],
       "healthCheck": {
         "command": ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8787/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""],

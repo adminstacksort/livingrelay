@@ -3,33 +3,47 @@ import express from "express";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { accounts, auditLog, billingEvents, invoices, people, properties, recordAudit, saveState, vendors, workOrders } from "./data.js";
+import { accounts, auditLog, billingEvents, invoices, people, platformSettings, properties, recordAudit, saveState, vendors, workOrders } from "./data.js";
 import { composeActionMessage, handleInboundCommand } from "./smsLogic.js";
 import { getTwilioStatus, sendSms } from "./twilioClient.js";
-import { startVendorQuoteCalls } from "./elevenLabsCalls.js";
+import { registerTwilioCallWithElevenLabs, startVendorQuoteCalls } from "./elevenLabsCalls.js";
 import { runFullFlowDemo, selectDemoQuote, simulateVendorOutreach } from "./demoOutreach.js";
 import { createDemoScenario, listDemoScenarios } from "./demoScenarios.js";
 import { getStaleWorkOrders, nudgeStaleWorkOrders, nudgeWorkOrder } from "./staleNudges.js";
-import { getLiveCalls, listenToCall, takeOverCall } from "./liveCallControl.js";
-import { buildTaxCsv, buildTaxSummary, recordTaxBundleAudit } from "./taxExports.js";
+import { dialManagerIntoCall, getLiveCalls, listenToCall, takeOverCall } from "./liveCallControl.js";
+import { buildTaxCsv, buildTaxSummary, canExportOwnerTaxPacket, recordTaxBundleAudit } from "./taxExports.js";
 import { getReadiness } from "./config.js";
-import { chargeStripeDispatchFee, createStripePortalSession, createStripeSetupSession, dispatchFeeCents, stripeBillingStatus } from "./stripeBilling.js";
+import { chargeStripeDispatchFee, createStripeOwnerSubscriptionSession, createStripePortalSession, createStripeSetupSession, dispatchFeeCents, ownerSubscriptionCents, retrieveStripeCheckoutSession, retrieveStripeSetupIntent, setCustomerDefaultPaymentMethod, stripeBillingStatus } from "./stripeBilling.js";
+import { attachMediaRelay, getMediaRelayRoom } from "./mediaRelay.js";
+import {
+  buildTenantAvailability,
+  buildInvoiceDeliveryInstructions,
+  createDemoVendorOutreach,
+  defaultDispatchSettings,
+  ensureWorkOrderDispatchFields,
+  mergeOutcomes,
+  recordVendorCallResults,
+  recordVendorCompletion,
+  selectVendorOutcome,
+  upsertCallAttempt
+} from "./vendorWorkflow.js";
 
 const app = express();
 const port = Number(process.env.SERVER_PORT || 8787);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(__dirname, "..", "dist");
 const siteAdminHost = process.env.SITE_ADMIN_HOST || "admin.livingrelay.com";
+const demoHost = process.env.DEMO_HOST || "demo.livingrelay.com";
 const siteAdminSessions = new Set();
 
-app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), (req, res) => {
+app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   try {
     if (!verifyStripeSignature(req)) {
       res.status(400).json({ error: "invalid Stripe signature" });
       return;
     }
     const event = JSON.parse(req.body.toString("utf8"));
-    handleStripeWebhookEvent(event);
+    await handleStripeWebhookEvent(event);
     saveState();
     res.json({ received: true });
   } catch (error) {
@@ -37,7 +51,11 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), (req,
   }
 });
 
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buffer) => {
+    req.rawBody = buffer;
+  }
+}));
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static(distDir));
 
@@ -53,8 +71,9 @@ app.get("/api/readiness", async (req, res) => {
 
 app.get("/api/state", (req, res) => {
   const includeSiteAdmin = isSiteAdminHost(req);
+  const includeDemo = isDemoExperienceHost(req);
   res.json({
-    accounts: includeSiteAdmin ? accounts : accounts.map(({ id, name, status, plan, stripeCustomerId, billingPayerRole, billingPayerPersonId, billingSetupStatus }) => ({
+    accounts: includeSiteAdmin ? accounts : accounts.map(({ id, name, status, plan, stripeCustomerId, billingPayerRole, billingPayerPersonId, billingSetupStatus, ownerSubscriptionStatus, ownerSubscriptionPlan, ownerSubscriptionStripeId, ownerSubscriptionCurrentPeriodEnd, productionVendorCallsEnabled }) => ({
       id,
       name,
       status,
@@ -62,10 +81,19 @@ app.get("/api/state", (req, res) => {
       stripeCustomerId,
       billingPayerRole,
       billingPayerPersonId,
-      billingSetupStatus: accountBillingSetupStatus({ stripeCustomerId, billingSetupStatus })
+      billingSetupStatus: accountBillingSetupStatus({ stripeCustomerId, billingSetupStatus }),
+      ownerSubscriptionStatus: ownerSubscriptionStatus || "Free",
+      ownerSubscriptionPlan: ownerSubscriptionPlan || "Owner Subscription",
+      ownerSubscriptionStripeId,
+      ownerSubscriptionCurrentPeriodEnd,
+      productionVendorCallsEnabled: productionVendorCallsEnabled !== false
     })),
     people: includeSiteAdmin ? people : people.filter((person) => person.role !== "Site Admin"),
     properties,
+    platformSettings: includeSiteAdmin ? platformSettings : {
+      vendorCallTestMode: platformSettings.vendorCallTestMode,
+      productionVendorCallsEnabled: platformSettings.productionVendorCallsEnabled
+    },
     vendors,
     workOrders,
     invoices,
@@ -73,7 +101,7 @@ app.get("/api/state", (req, res) => {
     auditLog,
     twilio: getTwilioStatus(),
     stripe: stripeBillingStatus(),
-    demoScenarios: listDemoScenarios(),
+    demoScenarios: includeDemo ? listDemoScenarios() : [],
     staleWorkOrders: getStaleWorkOrders({ thresholdHours: 12 })
   });
 });
@@ -91,6 +119,7 @@ app.post("/api/onboarding/property", (req, res) => {
     status: "Trial",
     plan: "$0/property + $25 only when a vendor is booked",
     billingPayerRole: role === "Owner" ? "Owner" : "Property manager",
+    productionVendorCallsEnabled: true,
     billingSetupStatus: "Needs card",
     createdAt: new Date().toISOString()
   };
@@ -125,6 +154,7 @@ app.post("/api/onboarding/property", (req, res) => {
     billingSetupStatus: "Needs card",
     approvalThreshold: 250,
     launchNotificationStatus: "Pending setup",
+    dispatchSettings: defaultDispatchSettings(),
     rules: "All dispatches need manager review until tenants, owners, vendors, and approval rules are configured."
   };
   properties.push(property);
@@ -138,20 +168,15 @@ app.post("/api/onboarding/property", (req, res) => {
 app.use("/api/site-admin", requireSiteAdminHost);
 
 app.post("/api/site-admin/login", (req, res) => {
-  const { phone, pin, password } = req.body;
-  const normalized = String(phone || "").replace(/\D/g, "");
-  const siteAdmin = people.find((person) =>
-    person.role === "Site Admin" &&
-    person.phone.replace(/\D/g, "").endsWith(normalized.slice(-10)) &&
-    person.pin === pin
-  );
+  const { password } = req.body;
+  const siteAdmin = people.find((person) => person.role === "Site Admin");
   if (!siteAdmin || password !== (process.env.SITE_ADMIN_PASSWORD || "owner-console")) {
-    res.status(401).json({ error: "Invalid site admin credentials" });
+    res.status(401).json({ error: "Invalid admin console password" });
     return;
   }
   const token = randomUUID();
   siteAdminSessions.add(token);
-  recordAudit(siteAdmin.name, "Site admin login", "Internal admin console session started.");
+  recordAudit(siteAdmin.name, "Admin console login", "Platform admin console session started.");
   res.json({ userId: siteAdmin.id, token });
 });
 
@@ -185,6 +210,78 @@ function requireSiteAdminSession(req, res, next) {
 
 app.use("/api/site-admin", requireSiteAdminSession);
 
+app.get("/api/site-admin/diagnostics", async (req, res) => {
+  const readiness = await getReadiness();
+  const baseUrl = process.env.APP_PUBLIC_URL || "http://127.0.0.1:8787";
+  const twilio = getTwilioStatus();
+  const stripe = stripeBillingStatus();
+  const vendorAttempts = workOrders.flatMap((order) =>
+    (order.vendorOutreach?.attempts || []).map((attempt) => ({
+      workOrderId: order.id,
+      vendorName: attempt.vendorName,
+      phone: maskPhone(attempt.phone),
+      status: attempt.status,
+      provider: attempt.provider,
+      attemptNumber: attempt.attemptNumber,
+      retry: attempt.retry,
+      startedAt: attempt.startedAt,
+      completedAt: attempt.completedAt,
+      hasTranscript: Boolean(attempt.transcript?.length),
+      hasOutcome: Boolean(attempt.outcome)
+    }))
+  );
+  const recentAttempts = vendorAttempts
+    .sort((left, right) => new Date(right.startedAt || 0) - new Date(left.startedAt || 0))
+    .slice(0, 8);
+  const vendorCallEnv = ["ENABLE_VENDOR_CALLS", "VENDOR_CALL_PROVIDER", "APP_PUBLIC_URL", "TWILIO_MEDIA_STREAM_URL", "ELEVENLABS_API_KEY", "ELEVENLABS_AGENT_ID", "ELEVENLABS_AGENT_PHONE_NUMBER_ID", "ELEVENLABS_WEBHOOK_SECRET", "MEDIA_RELAY_SECRET"];
+  res.json({
+    generatedAt: new Date().toISOString(),
+    service: {
+      nodeEnv: process.env.NODE_ENV || "development",
+      publicUrl: baseUrl,
+      readinessOk: readiness.ok,
+      missingRequired: readiness.missing,
+      database: readiness.database,
+      uptimeSeconds: Math.round(process.uptime())
+    },
+    twilio,
+    stripe,
+    ai: readiness.ai,
+    vendorCalls: {
+      ...readiness.vendorCalls,
+      provider: process.env.VENDOR_CALL_PROVIDER || "elevenlabs_native",
+      platformTestMode: platformSettings.vendorCallTestMode !== false,
+      platformProductionEnabled: platformSettings.productionVendorCallsEnabled !== false,
+      env: envPresence(vendorCallEnv),
+      webhookUrls: {
+        twilioSmsInbound: `${baseUrl}/api/twilio/inbound`,
+        twilioOutbound: `${baseUrl}/api/twilio/elevenlabs/outbound`,
+        twilioStatus: `${baseUrl}/api/twilio/voice-status`,
+        twilioMediaStream: process.env.TWILIO_MEDIA_STREAM_URL || `${baseUrl.replace(/^https:/, "wss:").replace(/^http:/, "ws:")}/api/media/twilio`,
+        stripeWebhook: `${baseUrl}/api/stripe/webhook`,
+        elevenLabsResult: `${baseUrl}/api/elevenlabs/vendor-call-result`
+      },
+      attempts: {
+        total: vendorAttempts.length,
+        retryNeeded: vendorAttempts.filter((attempt) => attempt.retry?.needed).length,
+        withTranscript: vendorAttempts.filter((attempt) => attempt.hasTranscript).length,
+        recent: recentAttempts
+      }
+    }
+  });
+});
+
+app.patch("/api/site-admin/platform-settings", (req, res) => {
+  const allowed = ["vendorCallTestMode", "productionVendorCallsEnabled", "vendorCallTestNumber"];
+  for (const key of allowed) {
+    if (req.body[key] !== undefined) platformSettings[key] = req.body[key];
+  }
+  platformSettings.updatedAt = new Date().toISOString();
+  saveState();
+  recordAudit("site-admin", "Updated platform vendor call settings", `Production calls ${platformSettings.productionVendorCallsEnabled ? "enabled" : "disabled"}; test mode ${platformSettings.vendorCallTestMode ? "enabled" : "disabled"}.`);
+  res.json({ platformSettings });
+});
+
 app.post("/api/site-admin/accounts", (req, res) => {
   const {
     name,
@@ -193,7 +290,8 @@ app.post("/api/site-admin/accounts", (req, res) => {
     stripeCustomerId = "",
     billingPayerRole = "Owner",
     billingPayerPersonId = "",
-    billingSetupStatus = stripeCustomerId ? "Card on file" : "Needs card"
+    billingSetupStatus = stripeCustomerId ? "Card on file" : "Needs card",
+    productionVendorCallsEnabled = true
   } = req.body;
   if (!name) {
     res.status(400).json({ error: "name is required" });
@@ -208,6 +306,7 @@ app.post("/api/site-admin/accounts", (req, res) => {
     billingPayerRole,
     billingPayerPersonId,
     billingSetupStatus,
+    productionVendorCallsEnabled,
     createdAt: new Date().toISOString()
   };
   accounts.push(account);
@@ -222,7 +321,7 @@ app.patch("/api/site-admin/accounts/:id", (req, res) => {
     res.status(404).json({ error: "account not found" });
     return;
   }
-  const allowed = ["name", "status", "plan", "stripeCustomerId", "billingPayerRole", "billingPayerPersonId", "billingSetupStatus"];
+  const allowed = ["name", "status", "plan", "stripeCustomerId", "billingPayerRole", "billingPayerPersonId", "billingSetupStatus", "productionVendorCallsEnabled"];
   for (const key of allowed) {
     if (req.body[key] !== undefined) account[key] = req.body[key];
   }
@@ -232,6 +331,7 @@ app.patch("/api/site-admin/accounts/:id", (req, res) => {
 });
 
 app.post("/api/demo/scenario", (req, res) => {
+  if (!isDemoExperienceRequest(req, res)) return;
   const result = createDemoScenario(req.body.scenario);
   res.json(result);
 });
@@ -268,6 +368,7 @@ app.post("/api/admin/properties", (req, res) => {
     billingSetupStatus: accountBillingSetupStatus(accounts.find((item) => item.id === accountId)),
     launchNotificationStatus: "Pending setup",
     approvalThreshold: 250,
+    dispatchSettings: defaultDispatchSettings(),
     rules: "Manager is the default property operator. Contacts are saved now; tenant and owner SMS is sent only after setup is launched."
   };
   properties.push(property);
@@ -286,7 +387,7 @@ app.patch("/api/admin/properties/:id", (req, res) => {
     res.status(404).json({ error: "property not found" });
     return;
   }
-  const allowed = ["name", "address", "subscription", "plan", "rules", "approvalThreshold", "adminId", "managerId", "ownerId", "billingPayerRole", "billingPayerPersonId", "billingSetupStatus", "creatorRole", "launchNotificationStatus"];
+  const allowed = ["name", "address", "subscription", "plan", "rules", "approvalThreshold", "adminId", "managerId", "ownerId", "billingPayerRole", "billingPayerPersonId", "billingSetupStatus", "creatorRole", "launchNotificationStatus", "dispatchSettings"];
   for (const key of allowed) {
     if (req.body[key] !== undefined) property[key] = req.body[key];
   }
@@ -345,6 +446,20 @@ app.post("/api/admin/work-orders", (req, res) => {
     vendorId: vendorId || null,
     issue,
     access,
+    serviceWindow: severity === "Urgent" ? "ASAP / emergency" : "Next available",
+    tenantAvailability: buildTenantAvailability({ access, severity, issue }),
+    dispatchStage: "manager_approval",
+    vendorOutreach: {
+      status: "Not started",
+      mode: "Manual",
+      outcomes: []
+    },
+    completionPackage: {
+      status: "Not requested",
+      photos: [],
+      notes: "",
+      invoiceDelivery: "Not received"
+    },
     managerApproved: false,
     ownerApproved: status !== "Owner approval",
     dispatchFee: {
@@ -405,6 +520,68 @@ app.post("/api/billing/portal-session", async (req, res) => {
   }
 });
 
+app.post("/api/billing/owner-subscription-session", async (req, res) => {
+  try {
+    const account = accounts.find((item) => item.id === req.body.accountId) || accountForProperty(req.body.propertyId);
+    const property = properties.find((item) => item.id === req.body.propertyId);
+    if (!account) {
+      res.status(404).json({ error: "account not found" });
+      return;
+    }
+    const session = await createStripeOwnerSubscriptionSession({
+      account,
+      property,
+      successUrl: req.body.successUrl,
+      cancelUrl: req.body.cancelUrl
+    });
+    account.ownerSubscriptionStatus = "Checkout started";
+    saveState();
+    res.json({ url: session.url, sessionId: session.id, amount: ownerSubscriptionCents / 100 });
+  } catch (error) {
+    res.status(400).json({ error: error.message, stripe: stripeBillingStatus() });
+  }
+});
+
+app.post("/api/billing/confirm-setup-session", async (req, res) => {
+  try {
+    const session = await retrieveStripeCheckoutSession(req.body.sessionId);
+    if (!session || session.mode !== "setup") {
+      res.status(400).json({ error: "setup session not found" });
+      return;
+    }
+    const setupIntent = await retrieveStripeSetupIntent(session.setup_intent);
+    const account = await completeBillingSetup({
+      accountId: session.metadata?.accountId || setupIntent?.metadata?.accountId,
+      customerId: session.customer || setupIntent?.customer,
+      paymentMethodId: setupIntent?.payment_method
+    });
+    saveState();
+    res.json({ account, status: account?.billingSetupStatus || "Card on file" });
+  } catch (error) {
+    res.status(400).json({ error: error.message, stripe: stripeBillingStatus() });
+  }
+});
+
+app.post("/api/billing/confirm-owner-subscription", async (req, res) => {
+  try {
+    const session = await retrieveStripeCheckoutSession(req.body.sessionId);
+    if (!session || session.mode !== "subscription") {
+      res.status(400).json({ error: "subscription session not found" });
+      return;
+    }
+    const account = completeOwnerSubscription({
+      accountId: session.metadata?.accountId,
+      customerId: session.customer,
+      subscriptionId: session.subscription,
+      status: session.payment_status === "paid" ? "Active" : "Checkout completed"
+    });
+    saveState();
+    res.json({ account, status: account?.ownerSubscriptionStatus || "Active" });
+  } catch (error) {
+    res.status(400).json({ error: error.message, stripe: stripeBillingStatus() });
+  }
+});
+
 app.post("/api/work-orders/:id/book-vendor", async (req, res) => {
   const order = workOrders.find((item) => item.id === req.params.id);
   if (!order) {
@@ -415,15 +592,63 @@ app.post("/api/work-orders/:id/book-vendor", async (req, res) => {
   const account = accountForProperty(order.propertyId);
   const vendor = vendors.find((item) => item.id === (req.body.vendorId || order.vendorId));
   if (req.body.vendorId) order.vendorId = req.body.vendorId;
+  ensureWorkOrderDispatchFields(order);
   order.status = "Vendor scheduled";
+  order.dispatchStage = "vendor_booked";
+  order.finalBooking = {
+    vendorName: vendor?.name || req.body.vendorName || "Vendor",
+    phone: vendor?.phone || req.body.vendorPhone || "",
+    serviceWindow: req.body.serviceWindow || order.vendorOutreach?.outcomes?.find((item) => item.selected)?.availability || order.tenantAvailability?.preferredWindows?.[0] || "Needs confirmation",
+    tenantConfirmed: req.body.tenantConfirmed !== false,
+    bookedAt: new Date().toISOString(),
+    notes: req.body.notes || ""
+  };
   order.timeline.push({
     label: "Vendor booked",
-    detail: `${vendor?.name || "Vendor"} was booked. LivingRelay coordination fee applies now.`,
+    detail: `${order.finalBooking.vendorName} was booked for ${order.finalBooking.serviceWindow}. LivingRelay coordination fee applies now.`,
     stamp: new Date().toISOString()
   });
   const billingEvent = await recordDispatchBillingEvent({ account, property, order, actor: req.body.actor || "manager" });
   saveState();
   res.json({ order, billingEvent });
+});
+
+app.post("/api/work-orders/:id/vendor-outreach", async (req, res) => {
+  try {
+    const result = req.body.mode === "demo"
+      ? createDemoVendorOutreach(req.params.id, { actor: req.body.actor || "manager" })
+      : await startVendorQuoteCalls(req.params.id, {
+        actor: req.body.actor || "manager",
+        demoFallback: req.body.demoFallback !== false,
+        testVendorPhone: req.body.testVendorPhone || "",
+        testOnly: req.body.mode === "test" || req.body.testOnly === true
+      });
+    if (result.error) {
+      res.status(404).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/work-orders/:id/vendor-outreach/select", (req, res) => {
+  const result = selectVendorOutcome(req.params.id, req.body.outcomeId, { actor: req.body.actor || "manager" });
+  if (result.error) {
+    res.status(404).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.post("/api/work-orders/:id/completion-package", (req, res) => {
+  const result = recordVendorCompletion(req.params.id, req.body);
+  if (result.error) {
+    res.status(404).json(result);
+    return;
+  }
+  res.json(result);
 });
 
 app.post("/api/admin/vendors", (req, res) => {
@@ -472,22 +697,53 @@ app.post("/api/work-orders/:id/invoices", (req, res) => {
     recipientName: contacts.name,
     recipientPhone: contacts.phone,
     recipientEmail: contacts.email,
+    recipients: contacts.recipients,
+    invoiceDeliveryInstructions: contacts.instructions,
     deliveryStatus: contacts.email ? "Ready to email property manager" : "Ready to text property manager",
     taxYear: req.body.taxYear || "2026",
     receivedAt: new Date().toLocaleDateString(),
-    note: req.body.note || "Vendor invoice is paid outside LivingRelay. Track payment status here only."
+    note: req.body.note || `Vendor invoice is paid outside LivingRelay. Track payment status here only. Requested invoice recipients: ${contacts.instructions}`
   };
   invoices.unshift(invoice);
   order.invoiceId = invoice.id;
   order.status = "Invoice received";
   order.timeline.push({
     label: "Vendor invoice logged",
-    detail: `${invoice.vendor} invoice routed to ${contacts.name} for off-platform payment tracking.`,
+    detail: `${invoice.vendor} invoice routed per property instructions: ${contacts.instructions}`,
     stamp: new Date().toISOString()
   });
   saveState();
   recordAudit("manager", "Logged vendor invoice", `${invoice.id} for ${order.id}; payment remains outside LivingRelay.`);
   res.json({ invoice, order });
+});
+
+app.post("/api/properties/:id/owner-expenses", (req, res) => {
+  const property = properties.find((item) => item.id === req.params.id);
+  if (!property) {
+    res.status(404).json({ error: "property not found" });
+    return;
+  }
+  const invoice = {
+    id: `inv-${invoices.length + 1}`,
+    propertyId: property.id,
+    orderId: req.body.orderId || "",
+    vendor: req.body.vendor || "Owner uploaded bill",
+    amount: Number(req.body.amount || 0),
+    status: req.body.status || "Owner uploaded",
+    paymentStatus: req.body.paymentStatus || "Paid off platform",
+    paymentRail: "Owner direct",
+    source: "owner_upload",
+    documentName: req.body.documentName || "",
+    taxYear: req.body.taxYear || new Date().getFullYear().toString(),
+    taxCategory: req.body.taxCategory || "",
+    capitalImprovementCandidate: Boolean(req.body.capitalImprovementCandidate),
+    receivedAt: req.body.receivedAt || new Date().toLocaleDateString(),
+    note: req.body.note || "Owner uploaded maintenance bill for tax summary and sale-basis recordkeeping."
+  };
+  invoices.unshift(invoice);
+  saveState();
+  recordAudit("owner", "Uploaded owner expense", `${invoice.vendor} ${formatMoney(invoice.amount)} for ${property.name}.`);
+  res.json({ invoice, summary: buildTaxSummary(property.id, invoice.taxYear) });
 });
 
 app.get("/api/properties/:id/stale-work-orders", (req, res) => {
@@ -566,6 +822,25 @@ app.post("/api/work-orders/:id/live-calls/:callId/listen", (req, res) => {
   res.json(result);
 });
 
+app.get("/api/work-orders/:id/live-calls/:callId/media", (req, res) => {
+  const order = workOrders.find((item) => item.id === req.params.id);
+  const call = order?.vendorCalls?.find((item) => item.id === req.params.callId);
+  res.json(getMediaRelayRoom(req.params.id, call?.callKey || req.params.callId));
+});
+
+app.post("/api/work-orders/:id/live-calls/:callId/join", async (req, res) => {
+  try {
+    const result = await dialManagerIntoCall(req.params.id, req.params.callId, req.body.actorId);
+    if (result.error) {
+      res.status(result.error.includes("requires") ? 400 : 404).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post("/api/work-orders/:id/live-calls/:callId/takeover", (req, res) => {
   const result = takeOverCall(req.params.id, req.params.callId, req.body.actorId);
   if (result.error) {
@@ -602,13 +877,14 @@ function accountForProperty(propertyId) {
 }
 
 function getInvoiceRecipient(property) {
-  const manager = people.find((person) => person.id === property?.managerId) || people.find((person) => person.id === property?.adminId);
-  const owner = people.find((person) => person.id === property?.ownerId);
-  const person = manager || owner || {};
+  const invoiceDelivery = buildInvoiceDeliveryInstructions(property);
+  const person = invoiceDelivery.recipients.find((recipient) => recipient.role === "Property manager") || invoiceDelivery.recipients[0] || {};
   return {
     name: person.name || "Property manager",
     phone: person.phone || "",
-    email: person.email || ""
+    email: person.email || "",
+    recipients: invoiceDelivery.recipients,
+    instructions: invoiceDelivery.instructions
   };
 }
 
@@ -628,6 +904,10 @@ function accountBillingSetupStatus(account) {
   return account.billingSetupStatus || (account.stripeCustomerId ? "Card on file" : "Needs card");
 }
 
+function formatMoney(amount) {
+  return `$${Number(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+}
+
 function verifyStripeSignature(req) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!secret) return process.env.NODE_ENV !== "production";
@@ -639,13 +919,101 @@ function verifyStripeSignature(req) {
   return safeEqualHex(signed, expected);
 }
 
+function verifyElevenLabsSignature(req) {
+  const secret = process.env.ELEVENLABS_WEBHOOK_SECRET;
+  if (!secret) return process.env.NODE_ENV !== "production";
+  const signature = String(req.headers["elevenlabs-signature"] || req.headers["ElevenLabs-Signature"] || "");
+  const timestamp = signature.match(/(?:^|,)t=([^,]+)/)?.[1];
+  const provided = signature.match(/(?:^|,)v0=([^,]+)/)?.[1];
+  if (!timestamp || !provided || !req.rawBody) return false;
+  const expected = createHmac("sha256", secret).update(`${timestamp}.${req.rawBody.toString("utf8")}`).digest("hex");
+  return safeEqualHex(provided, expected);
+}
+
+function parseElevenLabsWebhook(body = {}) {
+  const data = body.data || body;
+  const dynamicVariables =
+    data.conversation_initiation_client_data?.dynamic_variables ||
+    body.conversation_initiation_client_data?.dynamic_variables ||
+    body.dynamic_variables ||
+    {};
+  const analysis = data.analysis || body.analysis || {};
+  const metadata = data.metadata || body.metadata || {};
+  const collected = analysis.data_collection_results || analysis.structured_data || {};
+  const callFailure = body.type === "call_initiation_failure";
+  const vendor = valueFrom(collected, "vendor_name") || body.vendor_name || body.vendorName || dynamicVariables.vendor_name;
+  const phone =
+    body.phone ||
+    body.to_number ||
+    metadata.phone_call?.to_number ||
+    metadata.twilio_call_sid ||
+    metadata.body?.To ||
+    metadata.body?.to;
+  return {
+    workOrderId: body.work_order_id || body.workOrderId || dynamicVariables.work_order_id,
+    call: {
+      vendor,
+      phone,
+      success: !callFailure && body.success !== false,
+      quote: body.quote || valueFrom(collected, "quote") || valueFrom(collected, "callout_fee"),
+      availability: body.availability || valueFrom(collected, "availability") || valueFrom(collected, "earliest_availability"),
+      discount: body.discount || valueFrom(collected, "discount"),
+      warranty: body.warranty || valueFrom(collected, "warranty"),
+      needsPhotos: body.needs_photos || valueFrom(collected, "needs_photos") || /photo/i.test(String(analysis.transcript_summary || analysis.call_summary || "")),
+      invoiceEmail: body.invoice_delivery_instructions || body.invoice_email || valueFrom(collected, "invoice_delivery_instructions") || valueFrom(collected, "invoice_email") || dynamicVariables.invoice_delivery_instructions || dynamicVariables.inbound_invoice_email,
+      invoiceRecipients: body.invoice_recipients || [],
+      conversationId: body.conversation_id || data.conversation_id,
+      callSid: body.call_sid || metadata.phone_call?.call_sid || metadata.body?.CallSid,
+      summary: body.summary || analysis.transcript_summary || analysis.call_summary || analysis.summary || body.failure_reason || data.failure_reason,
+      status: callFailure ? "failed" : body.status || data.status || "Available",
+      transcript: normalizeElevenLabsTranscript(data.transcript || body.transcript || [])
+    }
+  };
+}
+
+function normalizeElevenLabsTranscript(transcript = []) {
+  if (!Array.isArray(transcript)) return [];
+  return transcript.map((turn) => ({
+    speaker: turn.role || turn.speaker || "unknown",
+    text: turn.message || turn.text || "",
+    time: turn.time_in_call_secs ?? turn.time ?? null
+  })).filter((turn) => turn.text);
+}
+
+function valueFrom(collection, key) {
+  const value = collection?.[key];
+  if (value && typeof value === "object") return value.value ?? value.result ?? value.text ?? value.answer;
+  return value;
+}
+
 function safeEqualHex(left, right) {
   const leftBuffer = Buffer.from(left, "hex");
   const rightBuffer = Buffer.from(right, "hex");
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
 
-function handleStripeWebhookEvent(event) {
+function envPresence(keys) {
+  return keys.map((key) => ({
+    key,
+    configured: Boolean(process.env[key]),
+    value: safeEnvValue(key)
+  }));
+}
+
+function safeEnvValue(key) {
+  if (!process.env[key]) return "";
+  if (/KEY|SECRET|TOKEN|PASSWORD|AUTH|_ID$/i.test(key)) return "configured";
+  return process.env[key];
+}
+
+function maskPhone(phone = "") {
+  const value = String(phone);
+  const digits = value.replace(/\D/g, "");
+  if (digits.length < 4) return value ? "configured" : "";
+  return `•••${digits.slice(-4)}`;
+}
+
+async function handleStripeWebhookEvent(event) {
   if (event.type === "invoice.payment_succeeded" || event.type === "invoice.payment_failed") {
     const invoice = event.data?.object || {};
     const billingEvent = billingEvents.find((item) => item.stripeInvoiceId === invoice.id);
@@ -668,20 +1036,72 @@ function handleStripeWebhookEvent(event) {
   }
   if (event.type === "checkout.session.completed" || event.type === "setup_intent.succeeded") {
     const object = event.data?.object || {};
-    const accountId = object.metadata?.accountId;
-    const customerId = object.customer;
-    const account = accounts.find((item) => item.id === accountId || item.stripeCustomerId === customerId);
-    if (account) {
-      account.billingSetupStatus = "Card on file";
-      if (customerId) account.stripeCustomerId = customerId;
-      properties
-        .filter((property) => property.accountId === account.id)
-        .forEach((property) => {
-          property.billingSetupStatus = "Card on file";
-        });
+    if (object.metadata?.billingProduct === "owner_subscription") {
+      completeOwnerSubscription({
+        accountId: object.metadata?.accountId,
+        customerId: object.customer,
+        subscriptionId: object.subscription,
+        status: object.payment_status === "paid" ? "Active" : "Checkout completed"
+      });
+      return;
     }
-    recordAudit("stripe", "Billing setup completed", account?.name || customerId || "Customer payment method saved.");
+    const accountId = object.metadata?.accountId;
+    const setupIntent = event.type === "checkout.session.completed" && object.setup_intent
+      ? await retrieveStripeSetupIntent(object.setup_intent)
+      : object;
+    await completeBillingSetup({
+      accountId: accountId || setupIntent?.metadata?.accountId,
+      customerId: object.customer || setupIntent?.customer,
+      paymentMethodId: setupIntent?.payment_method
+    });
   }
+  if (event.type === "customer.subscription.updated" || event.type === "customer.subscription.created" || event.type === "customer.subscription.deleted") {
+    const subscription = event.data?.object || {};
+    completeOwnerSubscription({
+      accountId: subscription.metadata?.accountId,
+      customerId: subscription.customer,
+      subscriptionId: subscription.id,
+      status: subscriptionStatusLabel(subscription.status),
+      currentPeriodEnd: subscription.current_period_end ? new Date(subscription.current_period_end * 1000).toISOString() : ""
+    });
+  }
+}
+
+async function completeBillingSetup({ accountId, customerId, paymentMethodId }) {
+  const account = accounts.find((item) => item.id === accountId || item.stripeCustomerId === customerId);
+  if (!account) return null;
+  account.billingSetupStatus = "Card on file";
+  if (customerId) account.stripeCustomerId = customerId;
+  await setCustomerDefaultPaymentMethod({ customerId: account.stripeCustomerId, paymentMethodId });
+  properties
+    .filter((property) => property.accountId === account.id)
+    .forEach((property) => {
+      property.billingSetupStatus = "Card on file";
+    });
+  recordAudit("stripe", "Billing setup completed", account.name || customerId || "Customer payment method saved.");
+  return account;
+}
+
+function completeOwnerSubscription({ accountId, customerId, subscriptionId, status = "Active", currentPeriodEnd = "" }) {
+  const account = accounts.find((item) => item.id === accountId || item.stripeCustomerId === customerId);
+  if (!account) return null;
+  if (customerId) account.stripeCustomerId = customerId;
+  account.ownerSubscriptionStatus = status;
+  account.ownerSubscriptionPlan = "Owner Subscription";
+  if (subscriptionId) account.ownerSubscriptionStripeId = subscriptionId;
+  if (currentPeriodEnd) account.ownerSubscriptionCurrentPeriodEnd = currentPeriodEnd;
+  recordAudit("stripe", "Owner Subscription updated", `${account.name}: ${status}.`);
+  return account;
+}
+
+function subscriptionStatusLabel(status = "") {
+  const normalized = String(status).toLowerCase();
+  if (normalized === "active") return "Active";
+  if (normalized === "trialing") return "Trialing";
+  if (normalized === "past_due") return "Past due";
+  if (normalized === "canceled") return "Canceled";
+  if (normalized === "unpaid") return "Unpaid";
+  return normalized ? normalized.replace(/_/g, " ") : "Free";
 }
 
 async function recordDispatchBillingEvent({ account, property, order, actor }) {
@@ -702,22 +1122,29 @@ async function recordDispatchBillingEvent({ account, property, order, actor }) {
   };
   try {
     const stripeInvoice = await chargeStripeDispatchFee({ account, property, order });
-    billingEvent.status = "Submitted to Stripe";
+    const paid = stripeInvoice.status === "paid" || stripeInvoice.paid === true;
+    billingEvent.status = paid ? "Paid" : "Submitted to Stripe";
     billingEvent.stripeInvoiceId = stripeInvoice.id;
     billingEvent.stripeInvoiceUrl = stripeInvoice.hosted_invoice_url;
+    billingEvent.note = paid
+      ? "Stripe collected the dispatch coordination fee."
+      : "Stripe invoice created for the dispatch coordination fee.";
     order.dispatchFee = {
-      status: "Submitted to Stripe",
+      status: billingEvent.status,
       amount: dispatchFeeCents / 100,
       billingEventId: billingEvent.id,
       stripeInvoiceId: stripeInvoice.id
     };
   } catch (error) {
-    billingEvent.status = "Needs billing setup";
+    billingEvent.status = error.stripeInvoice ? "Payment failed" : "Needs billing setup";
     billingEvent.note = error.message;
+    billingEvent.stripeInvoiceId = error.stripeInvoice?.id;
+    billingEvent.stripeInvoiceUrl = error.stripeInvoice?.hosted_invoice_url;
     order.dispatchFee = {
-      status: "Needs billing setup",
+      status: billingEvent.status,
       amount: dispatchFeeCents / 100,
       billingEventId: billingEvent.id,
+      stripeInvoiceId: error.stripeInvoice?.id,
       reason: error.message
     };
   }
@@ -727,9 +1154,13 @@ async function recordDispatchBillingEvent({ account, property, order, actor }) {
 }
 
 app.post("/api/properties/:id/tax-bundle", (req, res) => {
-  const year = req.body.year || "2026";
-  const summary = recordTaxBundleAudit(req.params.id, year);
-  res.json({ ...summary, count: summary.invoices.length });
+  try {
+    const year = req.body.year || "2026";
+    const summary = recordTaxBundleAudit(req.params.id, year);
+    res.json({ ...summary, count: summary.invoices.length });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message, ownerSubscriptionRequired: error.statusCode === 402 });
+  }
 });
 
 app.get("/api/properties/:id/tax-summary", (req, res) => {
@@ -738,6 +1169,10 @@ app.get("/api/properties/:id/tax-summary", (req, res) => {
 
 app.get("/api/properties/:id/tax-spreadsheet.csv", (req, res) => {
   const year = req.query.year || "2026";
+  if (!canExportOwnerTaxPacket(req.params.id)) {
+    res.status(402).json({ error: "Owner Subscription required for spreadsheet exports.", ownerSubscriptionRequired: true });
+    return;
+  }
   const csv = buildTaxCsv(req.params.id, year);
   res.header("content-type", "text/csv");
   res.attachment(`livingrelay-${req.params.id}-${year}-expenses.csv`);
@@ -798,6 +1233,152 @@ app.post("/api/twilio/inbound", async (req, res) => {
   }
 });
 
+app.post("/api/elevenlabs/vendor-call-result", (req, res) => {
+  if (!verifyElevenLabsSignature(req)) {
+    res.status(401).json({ error: "invalid ElevenLabs signature" });
+    return;
+  }
+  const parsed = parseElevenLabsWebhook(req.body);
+  const orderId = parsed.workOrderId;
+  if (!orderId) {
+    res.status(400).json({ error: "work_order_id is required" });
+    return;
+  }
+  const result = recordVendorCallResults(orderId, [parsed.call], { actor: "ElevenLabs webhook" });
+  if (result.error) {
+    res.status(404).json(result);
+    return;
+  }
+  const order = ensureWorkOrderDispatchFields(workOrders.find((item) => item.id === orderId));
+  order.vendorOutreach.outcomes = mergeOutcomes(order.vendorOutreach.outcomes, result.outcomes);
+  upsertCallAttempt(order, parsed.call, {
+    status: parsed.call.status || "completed",
+    transcript: parsed.call.transcript || [],
+    outcome: parsed.call.summary || "",
+    conversationId: parsed.call.conversationId,
+    callSid: parsed.call.callSid,
+    completedAt: new Date().toISOString()
+  });
+  saveState();
+  res.json({ ok: true, orderId, outcomes: order.vendorOutreach.outcomes });
+});
+
+app.post("/api/twilio/elevenlabs/outbound", async (req, res) => {
+  try {
+    const order = workOrders.find((item) => item.id === req.query.orderId);
+    const twiml = await registerTwilioCallWithElevenLabs({
+      fromNumber: req.body.From,
+      toNumber: req.body.To,
+      order,
+      vendorName: req.query.vendorName,
+      callKey: req.query.callKey
+    });
+    if (order) {
+      order.timeline.push({
+        label: "Twilio connected vendor to ElevenLabs",
+        detail: `${req.query.vendorName || req.body.To} answered; ElevenLabs agent registered through Twilio.`,
+        stamp: new Date().toISOString()
+      });
+      saveState();
+    }
+    res.type("text/xml").send(twiml);
+  } catch (error) {
+    res.type("text/xml").status(500).send(`
+      <Response>
+        <Say>LivingRelay could not connect the AI coordinator. A manager will follow up.</Say>
+        <Hangup />
+      </Response>
+    `.trim());
+  }
+});
+
+app.post("/api/twilio/manager-listen", (req, res) => {
+  const order = workOrders.find((item) => item.id === req.query.orderId);
+  const call = order?.vendorCalls?.find((item) => item.id === req.query.callId);
+  if (order && call) {
+    call.managerJoinAnsweredAt = new Date().toISOString();
+    call.mode = "Manager on standby";
+    call.transcript = [
+      ...(call.transcript || []),
+      { speaker: "LivingRelay", text: "A property manager is available as lead maintenance coordinator if needed.", stamp: new Date().toISOString() }
+    ];
+    order.timeline.push({
+      label: "Manager listen-in answered",
+      detail: `${call.listener?.name || "Manager"} joined standby for ${call.vendorName}.`,
+      stamp: new Date().toISOString()
+    });
+    saveState();
+  }
+  res.type("text/xml").send(`
+    <Response>
+      <Say>You are joining the LivingRelay vendor call. This first Twilio-owned version places you on standby and records your join in the work order. Full browser audio relay requires the media stream service.</Say>
+      <Pause length="30" />
+    </Response>
+  `.trim());
+});
+
+app.post("/api/twilio/voice-status", (req, res) => {
+  const order = workOrders.find((item) => item.id === req.query.orderId);
+  if (order) {
+    const call = order.vendorCalls?.find((item) => item.callSid === req.body.CallSid || item.id === req.query.callId || `${order.id}:${item.phone}` === req.query.callKey);
+    if (call) {
+      call.twilioStatus = req.body.CallStatus || call.twilioStatus;
+      call.lastTwilioStatusAt = new Date().toISOString();
+      if (req.body.CallStatus === "completed") call.status = "Completed";
+    }
+    const attempt = upsertCallAttempt(order, {
+      callSid: req.body.CallSid,
+      callKey: req.query.callKey,
+      phone: req.body.To
+    }, {
+      status: req.body.CallStatus || "status_update",
+      callSid: req.body.CallSid,
+      completedAt: req.body.CallStatus === "completed" ? new Date().toISOString() : undefined
+    });
+    if (attempt.retry?.needed) {
+      order.timeline.push({
+        label: "Vendor call retry queued",
+        detail: `${attempt.vendorName} ${attempt.status}; retry after ${attempt.retry.retryAfter}.`,
+        stamp: new Date().toISOString()
+      });
+    }
+    saveState();
+  }
+  res.json({ ok: true });
+});
+
+app.post("/api/work-orders/:id/vendor-outreach/retry-due", async (req, res) => {
+  try {
+    const order = ensureWorkOrderDispatchFields(workOrders.find((item) => item.id === req.params.id));
+    if (!order) {
+      res.status(404).json({ error: "work order not found" });
+      return;
+    }
+    const now = new Date();
+    const due = (order.vendorOutreach.attempts || []).filter((attempt) =>
+      attempt.retry?.needed &&
+      attempt.retry.retryAfter &&
+      new Date(attempt.retry.retryAfter) <= now
+    );
+    const results = [];
+    for (const attempt of due) {
+      attempt.retry.startedAt = new Date().toISOString();
+      attempt.retry.needed = false;
+      const result = await startVendorQuoteCalls(order.id, {
+        actor: req.body.actor || "retry-policy",
+        testOnly: req.body.testOnly === true,
+        testVendorPhone: req.body.testVendorPhone || "",
+        onlyVendorPhone: attempt.phone
+      });
+      results.push({ attemptId: attempt.id, result });
+    }
+    saveState();
+    res.json({ orderId: order.id, retried: results.length, results });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.use((req, res, next) => {
   if (req.path.startsWith("/api")) {
     next();
@@ -827,6 +1408,7 @@ function escapeXml(value) {
 const server = app.listen(port, () => {
   console.log(`LivingRelay API running on http://127.0.0.1:${port}`);
 });
+attachMediaRelay(server);
 server.ref();
 const keepAlive = setInterval(() => {}, 2147483647);
 server.on("close", () => clearInterval(keepAlive));

@@ -1,6 +1,8 @@
-import { event, invoices, message, people, properties, recordAudit, saveState, vendors, workOrders } from "./data.js";
+import { accounts, event, invoices, message, people, properties, recordAudit, saveState, vendors, workOrders } from "./data.js";
 import { findVendorOptions } from "./anthropicVendorSearch.js";
 import { buildInitialGuidance, handleTenantTroubleshootingReply, needsImmediateManagerNotice } from "./issueGuidance.js";
+import { buildInvoiceDeliveryInstructions } from "./vendorWorkflow.js";
+import { buildTenantAvailability, ensureWorkOrderDispatchFields, shouldAutoStartVendorOutreach } from "./vendorWorkflow.js";
 
 export function normalizePhone(value = "") {
   const digits = String(value).replace(/\D/g, "");
@@ -40,7 +42,7 @@ export function getPrimaryContacts(property) {
   return {
     manager: people.find((person) => person.id === property.managerId) || people.find((person) => person.id === property.adminId) || people.find((person) => person.role === "Manager"),
     owner: people.find((person) => person.id === property.ownerId),
-    admin: people.find((person) => person.id === property.adminId)
+    admin: people.find((person) => person.id === property.adminId) || people.find((person) => person.role === "Manager")
   };
 }
 
@@ -70,6 +72,16 @@ function notificationActionsForProperty(property, topic, orderId) {
     .map(({ type }) => ({ type, orderId }));
 }
 
+function accountForProperty(property) {
+  return accounts.find((account) => account.id === property?.accountId);
+}
+
+function billingNeedsSetup(property) {
+  const account = accountForProperty(property);
+  const status = property?.billingSetupStatus || account?.billingSetupStatus || (account?.stripeCustomerId ? "Card on file" : "Needs card");
+  return status !== "Card on file";
+}
+
 export async function createWorkOrderFromTenant({ tenant, body, mediaItems = [] }) {
   const property = getPropertyForPerson(tenant);
   const triage = classifyIssue(body);
@@ -88,6 +100,19 @@ export async function createWorkOrderFromTenant({ tenant, body, mediaItems = [] 
     vendorId: vendor.id,
     issue: body,
     access: "Needs follow-up",
+    serviceWindow: triage.severity === "Urgent" ? "ASAP / emergency" : "Next available",
+    tenantAvailability: buildTenantAvailability({ access: "Needs follow-up", severity: triage.severity, issue: body }),
+    vendorOutreach: {
+      status: "Not started",
+      mode: "Manual",
+      outcomes: []
+    },
+    completionPackage: {
+      status: "Not requested",
+      photos: [],
+      notes: "",
+      invoiceDelivery: "Not received"
+    },
     managerApproved: false,
     ownerApproved: !needsOwner,
     invoiceId: null,
@@ -120,8 +145,13 @@ export async function escalateTenantOrder({ order, tenant }) {
     escalatedAt: new Date().toISOString()
   };
   order.timeline.push(event("AI prepared vendor options", `${order.vendorOptions.length} local options prepared after tenant troubleshooting.`));
+  ensureWorkOrderDispatchFields(order);
   saveState();
-  return notificationActionsForProperty(property, "tenant_report", order.id);
+  const actions = notificationActionsForProperty(property, "tenant_report", order.id);
+  if (shouldAutoStartVendorOutreach(order, property)) {
+    actions.push({ type: "call_vendor_quotes", orderId: order.id });
+  }
+  return actions;
 }
 
 export function latestOpenOrderForPerson(person, body = "") {
@@ -163,6 +193,40 @@ export async function handleInboundCommand({ from, body, mediaItems = [] }) {
   }
 
   if (person.role === "Tenant") {
+    if (order && command.startsWith("AVAILABLE")) {
+      order.access = normalizedBody.replace(/^AVAILABLE\s*/i, "").trim() || normalizedBody;
+      order.tenantAvailability = buildTenantAvailability({ access: order.access, severity: order.severity, issue: order.issue });
+      order.serviceWindow = order.tenantAvailability.serviceWindow;
+      order.messages.push(message("tenant", normalizedBody));
+      order.timeline.push(event("Tenant availability updated", order.access));
+      saveState();
+      return {
+        response: `${order.id}: got your availability. We have this as ${order.tenantAvailability.serviceWindow}: ${order.access}`,
+        actions: [{ type: "notify_manager_tenant_availability", orderId: order.id }]
+      };
+    }
+    if (order && (command.startsWith("CONFIRM") || command.startsWith("YES"))) {
+      order.tenantTimingConfirmed = true;
+      order.dispatchStage = "vendor_booked";
+      order.timeline.push(event("Tenant confirmed service timing", normalizedBody));
+      saveState();
+      return {
+        response: `${order.id}: timing confirmed. We will keep the vendor and manager updated.`,
+        actions: [{ type: "notify_manager_tenant_confirmed", orderId: order.id }]
+      };
+    }
+    if (order && command.startsWith("CANCEL")) {
+      order.tenantTimingConfirmed = false;
+      order.status = "Tenant requested reschedule";
+      order.dispatchStage = "tenant_timing_confirmation";
+      order.timeline.push(event("Tenant requested cancellation/reschedule", normalizedBody));
+      saveState();
+      return {
+        response: `${order.id}: got it. We are pausing the booking and notifying the manager.`,
+        actions: [{ type: "notify_manager_tenant_cancelled", orderId: order.id }]
+      };
+    }
+
     if (order?.status === "Tenant troubleshooting") {
       const outcome = handleTenantTroubleshootingReply({ order, tenant: person, body: normalizedBody, mediaItems });
       if (outcome.escalate) {
@@ -175,9 +239,13 @@ export async function handleInboundCommand({ from, body, mediaItems = [] }) {
     }
 
     const created = await createWorkOrderFromTenant({ tenant: person, body: normalizedBody, mediaItems });
+    const property = properties.find((item) => item.id === created.propertyId);
     const actions = needsImmediateManagerNotice(created)
       ? [{ type: "notify_manager_guidance_started", orderId: created.id }]
       : [];
+    if (billingNeedsSetup(property)) {
+      actions.push({ type: "notify_billing_setup_required", orderId: created.id });
+    }
     return {
       response: created.messages.at(-1).text,
       actions
@@ -188,6 +256,7 @@ export async function handleInboundCommand({ from, body, mediaItems = [] }) {
     return { response: "LivingRelay does not see an open work order for you right now.", actions: [] };
   }
 
+  const property = properties.find((item) => item.id === order.propertyId) || getPropertyForPerson(person);
   order.messages.push(message(person.role.toLowerCase(), normalizedBody));
 
   if (command.startsWith("STATUS")) {
@@ -197,16 +266,20 @@ export async function handleInboundCommand({ from, body, mediaItems = [] }) {
     };
   }
 
-  if (person.role === "Manager" || person.role === "Admin") {
+  if (person.role === "Manager") {
     if (command.startsWith("APPROVE")) {
       order.managerApproved = true;
       order.status = order.ownerApproved ? "Vendor coordination" : "Owner approval";
       order.timeline.push(event("Manager approved by SMS", `${person.name} approved ${order.id}.`));
+      const actions = order.ownerApproved ? [] : [{ type: "notify_owner_approval", orderId: order.id }];
+      if (order.ownerApproved && shouldAutoStartVendorOutreach(ensureWorkOrderDispatchFields(order), property)) {
+        actions.push({ type: "call_vendor_quotes", orderId: order.id });
+      }
       return {
         response: order.ownerApproved
           ? `${order.id} approved. Reply VENDOR to send the job to the preferred vendor.`
           : `${order.id} approved. Owner approval is required next.`,
-        actions: order.ownerApproved ? [] : [{ type: "notify_owner_approval", orderId: order.id }]
+        actions
       };
     }
     if (command.startsWith("VENDOR")) {
@@ -231,13 +304,20 @@ export async function handleInboundCommand({ from, body, mediaItems = [] }) {
       order.status = "Vendor coordination";
       order.timeline.push(event("Vendor dispatch requested by SMS", `${person.name} requested vendor coordination.`));
       saveState();
-      return { response: `${order.id} queued for vendor outreach.`, actions: [{ type: "notify_vendor", orderId: order.id }] };
+      return { response: `${order.id} queued for vendor outreach.`, actions: [{ type: "call_vendor_quotes", orderId: order.id }] };
     }
     if (command.startsWith("CLOSE")) {
       order.status = "Closed";
       order.timeline.push(event("Closed by SMS", `${person.name} closed ${order.id}.`));
       recordAudit(person.name, "Closed work order", order.id);
       return { response: `${order.id} is closed.`, actions: [{ type: "notify_tenant_closed", orderId: order.id }] };
+    }
+    if (command.startsWith("CANCEL")) {
+      order.status = "Manager cancelled dispatch";
+      order.dispatchStage = "manager_approval";
+      order.timeline.push(event("Manager cancelled dispatch", `${person.name} paused or cancelled vendor arrangements.`));
+      saveState();
+      return { response: `${order.id} dispatch is paused. Tenant and owner will be updated.`, actions: [{ type: "notify_tenant_cancelled_by_manager", orderId: order.id }] };
     }
   }
 
@@ -246,19 +326,36 @@ export async function handleInboundCommand({ from, body, mediaItems = [] }) {
       order.ownerApproved = true;
       order.status = "Vendor coordination";
       order.timeline.push(event("Owner approved by SMS", `${person.name} approved ${order.id}.`));
-      return { response: `${order.id} approved. Manager has been notified.`, actions: [{ type: "notify_manager_owner_approved", orderId: order.id }] };
+      const actions = [{ type: "notify_manager_owner_approved", orderId: order.id }];
+      if (shouldAutoStartVendorOutreach(ensureWorkOrderDispatchFields(order), property)) {
+        actions.push({ type: "call_vendor_quotes", orderId: order.id });
+      }
+      return { response: `${order.id} approved. Manager has been notified.`, actions };
     }
     if (command.startsWith("DENY")) {
       order.status = "Owner denied";
+      order.dispatchStage = "owner_approval";
       order.timeline.push(event("Owner denied by SMS", `${person.name} denied ${order.id}.`));
       return { response: `${order.id} marked denied. Manager has been notified.`, actions: [{ type: "notify_manager_owner_denied", orderId: order.id }] };
+    }
+    if (command.startsWith("CANCEL")) {
+      order.status = "Owner cancelled approval";
+      order.dispatchStage = "owner_approval";
+      order.timeline.push(event("Owner cancelled approval", `${person.name} changed approval for ${order.id}.`));
+      saveState();
+      return { response: `${order.id} approval is paused. Manager has been notified.`, actions: [{ type: "notify_manager_owner_denied", orderId: order.id }] };
     }
     if (command.startsWith("PAID")) {
       order.timeline.push(event("Owner marked paid by SMS", `${person.name} marked the invoice paid off platform.`));
       const invoice = invoices.find((item) => item.id === order.invoiceId);
-      if (invoice) invoice.status = "Paid off platform";
+      if (invoice) {
+        invoice.status = "Paid";
+        invoice.paymentStatus = "Paid";
+        invoice.paidAt = new Date().toISOString();
+        invoice.note = `${invoice.note || ""} Marked paid outside LivingRelay.`.trim();
+      }
       saveState();
-      return { response: `${order.id} invoice marked paid off platform.`, actions: [] };
+      return { response: `${order.id} vendor invoice marked paid outside LivingRelay.`, actions: [] };
     }
   }
 
@@ -272,6 +369,13 @@ export async function handleInboundCommand({ from, body, mediaItems = [] }) {
       order.status = "Vendor declined";
       order.timeline.push(event("Vendor declined by SMS", `${person.name} declined ${order.id}.`));
       return { response: `${order.id} declined. Manager has been notified.`, actions: [{ type: "notify_manager_vendor_declined", orderId: order.id }] };
+    }
+    if (command.startsWith("ISSUE") || command.startsWith("CAN'T") || command.startsWith("CANT")) {
+      order.status = "Vendor issue";
+      order.dispatchStage = "vendor_calls";
+      order.timeline.push(event("Vendor reported booking issue", normalizedBody));
+      saveState();
+      return { response: `${order.id}: got it. Manager has been notified and we will coordinate next steps.`, actions: [{ type: "notify_manager_vendor_issue", orderId: order.id }] };
     }
     order.timeline.push(event("Vendor message", normalizedBody));
     return { response: `Got it. We added your update to ${order.id}.`, actions: [{ type: "notify_tenant_status", orderId: order.id }] };
@@ -288,6 +392,7 @@ export function composeActionMessage(action) {
   const contacts = getPrimaryContacts(property);
   const tenant = people.find((person) => person.id === order.tenantId);
   const vendor = vendors.find((item) => item.id === order.vendorId);
+  const invoiceDelivery = buildInvoiceDeliveryInstructions(property);
 
   const messages = {
     notify_manager: {
@@ -306,13 +411,17 @@ export function composeActionMessage(action) {
       to: contacts.manager.phone,
       body: `${order.id}: ${order.severity} ${order.trade} issue in Unit ${order.unit}. LivingRelay is guiding the tenant through safe first steps before vendor outreach. Issue: ${order.issue}\n\nReview: ${reviewLink(order)}`
     },
+    notify_billing_setup_required: {
+      to: contacts.admin.phone,
+      body: `${order.id}: tenant reported an issue at ${property.name}. LivingRelay started the normal intake flow, but billing still needs a card on file before vendor dispatch can be charged. Open Billing to save a payment method: ${billingLink(property)}`
+    },
     notify_owner_approval: {
       to: contacts.owner.phone,
       body: `${order.id}: approve ${order.trade} repair for Unit ${order.unit}? Estimate $${order.estimate}. Reply APPROVE or DENY.`
     },
     notify_vendor: {
       to: vendor.phone,
-      body: `${order.id}: ${order.trade} job at ${property.name}, Unit ${order.unit}. Issue: ${order.issue}. Reply ACCEPT or DECLINE.`
+      body: `${order.id}: ${order.trade} job at ${property.name}, Unit ${order.unit}. Issue: ${order.issue}. Reply ACCEPT or DECLINE.\n\nInvoice instructions: ${invoiceDelivery.instructions}`
     },
     notify_tenant_closed: {
       to: tenant.phone,
@@ -321,6 +430,22 @@ export function composeActionMessage(action) {
     notify_manager_owner_approved: {
       to: contacts.manager.phone,
       body: `${order.id}: owner approved. Reply VENDOR to contact ${vendor.name}.`
+    },
+    notify_manager_tenant_availability: {
+      to: contacts.manager.phone,
+      body: `${order.id}: tenant availability updated. ${order.tenantAvailability?.serviceWindow || order.severity}: ${order.access || order.tenantAvailability?.accessNotes}`
+    },
+    notify_manager_tenant_confirmed: {
+      to: contacts.manager.phone,
+      body: `${order.id}: tenant confirmed service timing. Proceed with final vendor booking or monitor the scheduled visit.`
+    },
+    notify_manager_tenant_cancelled: {
+      to: contacts.manager.phone,
+      body: `${order.id}: tenant asked to cancel/reschedule. Pause vendor booking and coordinate a new window.`
+    },
+    notify_tenant_cancelled_by_manager: {
+      to: tenant.phone,
+      body: `${order.id}: vendor dispatch is paused while the manager reviews next steps.`
     },
     notify_manager_owner_denied: {
       to: contacts.manager.phone,
@@ -333,6 +458,10 @@ export function composeActionMessage(action) {
     notify_manager_vendor_declined: {
       to: contacts.manager.phone,
       body: `${order.id}: ${vendor.name} declined. Choose another vendor.`
+    },
+    notify_manager_vendor_issue: {
+      to: contacts.manager.phone,
+      body: `${order.id}: ${vendor.name} reported an issue with the booking. Check the work order and coordinate tenant/vendor updates.`
     },
     notify_tenant_status: {
       to: tenant.phone,
@@ -362,4 +491,9 @@ function formatVendorOptions(order) {
 function reviewLink(order) {
   const base = process.env.APP_PUBLIC_URL || "http://127.0.0.1:5173";
   return `${base}/?review=${encodeURIComponent(order.id)}`;
+}
+
+function billingLink(property) {
+  const base = process.env.APP_PUBLIC_URL || "http://127.0.0.1:5173";
+  return `${base}/?property=${encodeURIComponent(property.id)}&section=billing`;
 }

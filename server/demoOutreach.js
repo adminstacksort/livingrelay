@@ -90,10 +90,10 @@ export function runFullFlowDemo(orderId) {
   order.demoFlow = [
     { persona: "Tenant", action: "Texted issue", detail: order.issue },
     { persona: "LivingRelay", action: "Parsed and triaged", detail: `${order.severity} ${order.trade}, estimate $${order.estimate}` },
-    { persona: "Admin / manager", action: "Received options", detail: `${outreach.outcomes.length} vendors reviewed` },
+    { persona: "Manager", action: "Received options", detail: `${outreach.outcomes.length} vendors reviewed` },
     { persona: "Owner", action: "Approved spend", detail: `Approved estimated repair for Unit ${order.unit}` },
     { persona: "Vendor", action: "Provided quote", detail: `${firstAvailable.vendorName}: ${firstAvailable.quote}, ${firstAvailable.availability}` },
-    { persona: "Admin / manager", action: "Selected vendor", detail: firstAvailable.vendorName },
+    { persona: "Manager", action: "Selected vendor", detail: firstAvailable.vendorName },
     { persona: "Tenant", action: "Received update", detail: `Vendor selected; scheduling next` },
     { persona: "Owner", action: "Invoice ready", detail: "Invoice stored for off-platform payment and tax bundle" }
   ];

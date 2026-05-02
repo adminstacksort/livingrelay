@@ -15,6 +15,8 @@ The source repo runs CI on pull requests and branch pushes. Dev deploys from act
 dev=https://dev.livingrelay.com
 staging=https://staging.livingrelay.com
 production=https://livingrelay.com
+site_admin=https://admin.livingrelay.com
+app=https://app.livingrelay.com
 ```
 
 ## GitHub Setup
@@ -94,7 +96,15 @@ TWILIO_AUTH_TOKEN
 TWILIO_MESSAGING_NUMBER
 ANTHROPIC_API_KEY
 SESSION_SECRET
+STRIPE_SECRET_KEY
+STRIPE_WEBHOOK_SECRET
+DISPATCH_FEE_CENTS
+OWNER_SUBSCRIPTION_AMOUNT_CENTS
+SITE_ADMIN_HOST=admin.livingrelay.com
+SITE_ADMIN_PASSWORD
 ```
+
+`SITE_ADMIN_HOST` gates the admin console and `/api/site-admin/*` endpoints by request host. In production, admin login should only be reachable through `admin.livingrelay.com`.
 
 When `ENABLE_VENDOR_CALLS=true`, also configure:
 
@@ -121,10 +131,12 @@ Create Route 53 records in the `livingrelay.com` hosted zone:
 dev.livingrelay.com      A/AAAA alias -> dev ALB
 staging.livingrelay.com  A/AAAA alias -> staging ALB
 livingrelay.com          A/AAAA alias -> production ALB
-www.livingrelay.com      CNAME or redirect -> livingrelay.com
+www.livingrelay.com      A/AAAA alias -> production ALB
+admin.livingrelay.com    A/AAAA alias -> production ALB with Host header preserved
+app.livingrelay.com      A/AAAA alias -> production ALB
 ```
 
-Use an ACM certificate that covers `livingrelay.com`, `www.livingrelay.com`, `staging.livingrelay.com`, and `dev.livingrelay.com`.
+Use an ACM certificate that covers `livingrelay.com` and `*.livingrelay.com`.
 
 Current AWS foundation:
 

@@ -1,5 +1,6 @@
 import { getPostgresStatus } from "./postgresState.js";
 import { getTwilioStatus } from "./twilioClient.js";
+import { platformSettings } from "./data.js";
 
 const productionRequired = [
   "APP_PUBLIC_URL",
@@ -17,7 +18,10 @@ export async function getReadiness() {
   const twilio = getTwilioStatus();
   const vendorCallsEnabled = process.env.ENABLE_VENDOR_CALLS === "true";
   const elevenLabsMissing = vendorCallsEnabled
-    ? ["ELEVENLABS_API_KEY", "ELEVENLABS_AGENT_ID", "ELEVENLABS_AGENT_PHONE_NUMBER_ID"].filter((key) => !process.env[key])
+    ? [
+      ...["ELEVENLABS_API_KEY", "ELEVENLABS_AGENT_ID", "ELEVENLABS_AGENT_PHONE_NUMBER_ID"].filter((key) => !process.env[key]),
+      ...(process.env.NODE_ENV === "production" && !process.env.ELEVENLABS_WEBHOOK_SECRET ? ["ELEVENLABS_WEBHOOK_SECRET"] : [])
+    ]
     : [];
 
   return {
@@ -32,7 +36,10 @@ export async function getReadiness() {
     },
     vendorCalls: {
       enabled: vendorCallsEnabled,
-      missing: elevenLabsMissing
+      missing: elevenLabsMissing,
+      testMode: platformSettings.vendorCallTestMode !== false || process.env.VENDOR_CALL_TEST_MODE === "true",
+      productionEnabled: platformSettings.productionVendorCallsEnabled !== false,
+      testNumberConfigured: Boolean(platformSettings.vendorCallTestNumber || process.env.VENDOR_CALL_TEST_NUMBER)
     }
   };
 }

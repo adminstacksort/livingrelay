@@ -60,7 +60,7 @@ App behavior:
 
 1. Match `From` to a person phone number.
 2. Resolve role and property/unit/vendor relationship.
-3. If tenant: parse the issue, create or update a work order, use Anthropic to prepare 5 local vendor options with estimated ranges, and notify manager/admin/owner based on each person's notification settings.
+3. If tenant: parse the issue, create or update a work order, use Anthropic to prepare 5 local vendor options with estimated ranges, and notify manager/owner based on each person's notification settings.
 4. If manager: parse approval commands like `APPROVE`, `VENDOR 1`, `VENDOR 2`, `CALL ME`, `CLOSE`.
 5. If owner: parse `APPROVE`, `DENY`, questions, and `PAID`.
 6. If vendor: parse `ACCEPT`, `DECLINE`, ETA, invoice/photo messages.
@@ -76,7 +76,7 @@ Admins and owners should be able to choose:
 
 The default should be:
 
-- property manager/admin: tenant reports + every update + key updates
+- manager: tenant reports + every update + key updates
 - owner: tenant reports + key updates, but not every update
 
 Tenant report notifications are informational unless the message is an explicit approval request.
@@ -113,9 +113,60 @@ ELEVENLABS_API_KEY
 ELEVENLABS_AGENT_ID
 ELEVENLABS_AGENT_PHONE_NUMBER_ID
 ENABLE_VENDOR_CALLS=true
+ELEVENLABS_WEBHOOK_SECRET
+INBOUND_EMAIL_ADDRESS=invoices@livingrelay.com
 ```
 
 Calls are disabled unless `ENABLE_VENDOR_CALLS=true`. This prevents accidental calls during development.
+
+Safe test mode:
+
+```text
+VENDOR_CALL_TEST_MODE=true
+VENDOR_CALL_TEST_NUMBER=+1YOURPHONE
+```
+
+When test mode is on, vendor outreach calls only the test number and labels the target as `Test vendor (...)`. Managers can also use the `Call me first` button, which calls their own login phone as the vendor. Leave `VENDOR_CALL_TEST_MODE=true` until at least one full call and post-call webhook lands correctly on a work order.
+
+Vendor calls are gated in three places:
+
+- Platform admin dashboard: global `Route vendor calls to test mode` and `Enable production vendor calls`.
+- Customer account: `Enable production vendor calls`.
+- Property manager dispatch settings: `Enable production vendor calls`.
+
+Production vendor calls require all production toggles to be on. Test mode is a global safety override and routes calls to the configured test number or the manager’s own phone through `Call me first`.
+
+Twilio-owned call mode:
+
+```text
+VENDOR_CALL_PROVIDER=twilio_register
+TWILIO_VOICE_NUMBER=+1...
+TWILIO_MEDIA_STREAM_URL=wss://your-media-relay.example.com/twilio/media
+```
+
+In this mode LivingRelay starts outbound voice calls through Twilio, Twilio calls back to `/api/twilio/elevenlabs/outbound`, and LivingRelay registers the answered call with ElevenLabs through `POST /v1/convai/twilio/register-call`. ElevenLabs returns TwiML, which LivingRelay returns to Twilio.
+
+This gives LivingRelay ownership of the Twilio call lifecycle and prepares the listen-in path. LivingRelay now exposes a built-in media relay:
+
+```text
+wss://YOUR-API-HOST/api/media/twilio
+wss://YOUR-API-HOST/api/media/listen
+```
+
+When using `twilio_register`, LivingRelay injects a Twilio `<Start><Stream track="both_tracks">` before the ElevenLabs TwiML. Twilio streams μ-law 8kHz audio into `/api/media/twilio`, and the manager `Audio` button opens `/api/media/listen` in the browser and plays the live audio. `TWILIO_MEDIA_STREAM_URL` is optional; set it only if the media relay runs on a separate host.
+
+The manager `Join` button still dials the manager as a standby/coordinator path. Browser listen-in is handled by the `Audio` button.
+
+Vendor outreach records:
+
+- Every outbound vendor call creates/updates a `vendorOutreach.attempts[]` record on the work order.
+- Attempts store vendor, phone, provider, status, call SID, conversation ID, transcript, summary/outcome, retry decision, and hold detection.
+- ElevenLabs post-call webhooks append transcripts and structured outcomes.
+- Twilio status callbacks mark calls as `completed`, `no-answer`, `busy`, `failed`, etc.
+- No-answer/busy/failed/canceled attempts are queued for retry up to the property retry policy limit.
+- Hold detection is transcript/summary based for now. If the transcript or outcome contains phrases such as `on hold`, `please hold`, or `all representatives are busy`, the attempt is marked `hold_timeout` and retried sooner. A future media classifier can feed the same field for stronger hold-music detection.
+
+The ElevenLabs agent prompt should include this policy: if a property manager joins or is introduced, acknowledge them as the lead maintenance coordinator, defer decisions to them, and continue helping capture vendor details.
 
 The ElevenLabs agent receives dynamic variables:
 
@@ -130,6 +181,45 @@ The ElevenLabs agent receives dynamic variables:
 - vendor name
 
 The first agent goal should be: collect whether the vendor can take the job, earliest availability, rough quote/callout fee, and whether they need photos or access details.
+
+Current dispatch workflow target:
+
+1. Tenant reports an issue and LivingRelay starts safe troubleshooting.
+2. Tenant confirms `STILL` or otherwise says it is not self-fixable.
+3. LivingRelay prepares local vendor options through configured property preferences first, then Anthropic/web search fallbacks.
+4. Property dispatch settings decide whether manager starts calls or calls can start automatically after approval rules clear.
+5. ElevenLabs calls vendors in prioritized order for now. The call script captures availability, quote/callout fees, discounts, warranty, photo/access needs, and confirms invoices should go to the property manager, owner, and LivingRelay records unless the property has different instructions.
+6. LivingRelay stores structured outcomes and recommends a vendor to the manager.
+7. Manager and owner approval gates still apply before final booking.
+8. Tenant confirms the proposed timing by text or web.
+9. LivingRelay finalizes the vendor booking and tracks change events such as tenant cancellation, owner denial, or vendor scheduling issues.
+10. Vendor closeout stores completion notes, work photos, warranty, invoice delivery, and off-platform payment tracking.
+
+Useful SMS commands added for the dispatch loop:
+
+- tenant: `AVAILABLE after 1 PM tomorrow`, `CONFIRM`, `CANCEL`
+- manager: `APPROVE`, `VENDOR 1`, `CANCEL`, `CLOSE`
+- owner: `APPROVE`, `DENY`, `CANCEL`, `PAID`
+- vendor: `ACCEPT`, `DECLINE`, `ISSUE ...`
+
+ElevenLabs result webhook:
+
+```text
+POST /api/elevenlabs/vendor-call-result
+```
+
+Payloads should include `work_order_id` plus any structured fields available: `vendor_name`, `phone`, `quote`, `availability`, `discount`, `warranty`, `needs_photos`, `invoice_email`, `invoice_recipients`, `invoice_delivery_instructions`, `conversation_id`, `call_sid`, and `summary`.
+
+The endpoint accepts both the simple internal shape above and ElevenLabs post-call transcription/failure webhooks. In production, set `ELEVENLABS_WEBHOOK_SECRET`; the server verifies the `ElevenLabs-Signature` HMAC header before storing results.
+
+Recommended first live test:
+
+1. Set `ENABLE_VENDOR_CALLS=true`.
+2. Set `VENDOR_CALL_TEST_MODE=true` and `VENDOR_CALL_TEST_NUMBER` to your phone.
+3. Configure the ElevenLabs post-call webhook URL to `/api/elevenlabs/vendor-call-result`.
+4. Open a work order and click `Call me first`.
+5. Answer as if you are the vendor and provide availability, quote, discount, warranty, photo needs, and invoice-recipient confirmation.
+6. Confirm the work order shows a structured vendor outcome before disabling test mode.
 
 ### Twilio Console Setup
 
@@ -173,7 +263,8 @@ Message types:
 
 ## Stripe Billing
 
-Stripe is for property profile subscriptions only. Repair payments remain off platform in v1.
+Stripe stores the payer's payment method and charges LivingRelay's coordination fee only when vendor dispatch is booked.
+Property creation, tenant/owner setup, tenant intake, and LLM-only advice are free. Vendor repair payments never run through LivingRelay in v1.
 
 ### Required Credentials
 
@@ -181,28 +272,46 @@ Stripe is for property profile subscriptions only. Repair payments remain off pl
 STRIPE_SECRET_KEY
 STRIPE_PUBLISHABLE_KEY
 STRIPE_WEBHOOK_SECRET
-STRIPE_PRICE_BASE_PROPERTY
-STRIPE_PRICE_ADDITIONAL_PROPERTY
+APP_PUBLIC_URL
+DISPATCH_FEE_CENTS=2500
+OWNER_SUBSCRIPTION_AMOUNT_CENTS=9900
 ```
 
 ### Billing Rules
 
-- Creating the first property requires an active subscription.
-- Each additional property adds a per-property line item.
-- If billing is inactive, tenant SMS intake is paused for that property.
-- Owners can still access historical invoices even if subscription is inactive.
+- Accounts can add any number of properties with no monthly or per-property fee.
+- The default payer is the owner, but the property manager can choose to pay for the account.
+- A user can identify as owner, property manager, or both during property setup.
+- After a property is created, the next screen should prompt for a card on file. Skipping is secondary and leaves the property/account in `Needs card`.
+- Adding tenants, owners, managers, or vendors saves their role silently; no SMS goes out until setup is launched.
+- When setup is launched, each person receives role-specific instructions.
+- A $25 dispatch coordination fee is recorded only when a vendor is booked.
+- Saved payment methods are set as the customer's default Stripe payment method so dispatch invoices can be charged automatically.
+- No fee is charged when the tenant issue is solved by LLM guidance without vendor coordination.
+- If a tenant reports the first issue before billing is complete, LivingRelay continues the normal intake/troubleshooting flow and texts the account manager to finish billing setup before vendor dispatch.
+- When vendors are called, they are asked to send invoices to the property manager, owner, and LivingRelay records inbox unless the property manager gives different instructions.
+- Vendor invoices are routed to the property manager contact on file by email when available, otherwise SMS/phone follow-up.
+- LivingRelay tracks vendor invoice delivery and paid/unpaid status, but the property manager/owner pays the vendor directly outside the app.
+- Owners can still access vendor invoice history and tax bundles because repair payments stay off platform.
+- Owners can upload maintenance bills for free and receive annual/category summaries plus possible capital-improvement candidates for future sale-basis review.
+- Owner Subscription is `$99/year` and unlocks updated spreadsheet files plus prefilled tax packet exports for rental property expenses.
 
-### Future Endpoints
+### Endpoints
 
 ```text
-POST /api/stripe/create-checkout-session
-POST /api/stripe/create-portal-session
+POST /api/billing/setup-session
+POST /api/billing/portal-session
+POST /api/billing/owner-subscription-session
+POST /api/work-orders/:id/book-vendor
+POST /api/properties/:id/owner-expenses
 POST /api/stripe/webhook
 ```
 
 Stripe events to handle:
 
-- `checkout.session.completed`
+- `checkout.session.completed` for setup mode
+- `checkout.session.completed` for Owner Subscription checkout
+- `setup_intent.succeeded`
 - `customer.subscription.created`
 - `customer.subscription.updated`
 - `customer.subscription.deleted`
@@ -211,13 +320,13 @@ Stripe events to handle:
 
 ## Repair Payments
 
-Repair payments stay off platform.
+Vendor repair payments stay off platform. LivingRelay never collects, transfers, or remits vendor repair money in v1.
 
 The app only tracks:
 
 - invoice received
-- sent to owner
-- approved
+- sent to property manager
+- paid/unpaid
 - paid off platform
 - reminders sent
 - tax export included

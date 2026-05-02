@@ -1,4 +1,6 @@
 import { event, people, properties, recordAudit, saveState, workOrders } from "./data.js";
+import { createMediaRelayToken } from "./mediaRelay.js";
+import { callManagerForListenIn } from "./twilioClient.js";
 
 export function getLiveCalls(orderId) {
   const order = workOrders.find((item) => item.id === orderId);
@@ -33,11 +35,16 @@ export function attachOutboundCallSessions(order, callResults = []) {
     id: `call-${order.id}-${index + 1}`,
     vendorName: call.vendor,
     phone: call.phone,
+    callKey: call.callKey || null,
     status: call.success ? "Live" : "Failed",
     mode: call.success ? "AI handling" : "Needs manager",
     canMonitor: call.success === true,
     canTakeOver: call.success === true,
+    listenInAvailable: call.provider === "twilio_register",
+    joinUrl: call.provider === "twilio_register" ? buildManagerJoinUrl(order.id, `call-${order.id}-${index + 1}`) : null,
     monitorUrl: buildMonitorUrl(call),
+    browserListenUrl: call.provider === "twilio_register" ? buildBrowserListenUrl(order.id, call.callKey || `call-${order.id}-${index + 1}`) : null,
+    mediaStreamUrl: call.mediaStreamUrl || null,
     conversationId: call.conversation_id || call.conversationId || null,
     callSid: call.callSid || call.call_sid || null,
     startedAt: new Date().toISOString(),
@@ -52,7 +59,7 @@ export function attachOutboundCallSessions(order, callResults = []) {
 export function listenToCall(orderId, callId, actorId) {
   const { order, call } = findCall(orderId, callId);
   if (!order || !call) return { error: "call not found" };
-  const actor = people.find((person) => person.id === actorId) || people.find((person) => person.role === "Admin");
+  const actor = people.find((person) => person.id === actorId) || people.find((person) => person.role === "Manager");
 
   call.mode = "Manager listening";
   call.listener = {
@@ -66,10 +73,46 @@ export function listenToCall(orderId, callId, actorId) {
   return { order, call, monitorUrl: call.monitorUrl };
 }
 
+export async function dialManagerIntoCall(orderId, callId, actorId) {
+  const { order, call } = findCall(orderId, callId);
+  if (!order || !call) return { error: "call not found" };
+  const actor = people.find((person) => person.id === actorId) || people.find((person) => person.role === "Manager");
+  if (!actor?.phone) return { error: "manager phone not found" };
+  if (!call.listenInAvailable) {
+    call.mode = "Listen-in unavailable";
+    call.listener = {
+      name: actor?.name || "Manager",
+      phone: actor?.phone || null,
+      requestedAt: new Date().toISOString(),
+      note: "This call was not started through Twilio register-call."
+    };
+    saveState();
+    return { order, call, error: "listen-in requires Twilio-owned register-call mode" };
+  }
+  const baseUrl = process.env.APP_PUBLIC_URL || "http://127.0.0.1:8787";
+  const join = await callManagerForListenIn({
+    to: actor.phone,
+    twimlUrl: `${baseUrl}/api/twilio/manager-listen?orderId=${encodeURIComponent(orderId)}&callId=${encodeURIComponent(callId)}`,
+    statusCallback: `${baseUrl}/api/twilio/voice-status?orderId=${encodeURIComponent(orderId)}&callId=${encodeURIComponent(callId)}&manager=1`
+  });
+  call.mode = "Manager join dialed";
+  call.listener = {
+    name: actor.name,
+    phone: actor.phone,
+    joinedCallSid: join.sid,
+    requestedAt: new Date().toISOString(),
+    note: "Manager was dialed for listen-in/coordinator join."
+  };
+  order.timeline.push(event("Manager listen-in dialed", `${actor.name} was called to join ${call.vendorName}.`));
+  saveState();
+  recordAudit(actor.name, "Dialed manager into vendor call", `${order.id}: ${call.vendorName}.`);
+  return { order, call, join };
+}
+
 export function takeOverCall(orderId, callId, actorId) {
   const { order, call } = findCall(orderId, callId);
   if (!order || !call) return { error: "call not found" };
-  const actor = people.find((person) => person.id === actorId) || people.find((person) => person.role === "Admin");
+  const actor = people.find((person) => person.id === actorId) || people.find((person) => person.role === "Manager");
 
   call.mode = "Human takeover requested";
   call.status = "Transfer requested";
@@ -99,6 +142,18 @@ function buildMonitorUrl(call) {
   const conversationId = call.conversation_id || call.conversationId;
   if (!conversationId) return null;
   return `wss://api.elevenlabs.io/v1/convai/conversations/${conversationId}/monitor`;
+}
+
+function buildManagerJoinUrl(orderId, callId) {
+  const baseUrl = process.env.APP_PUBLIC_URL || "http://127.0.0.1:8787";
+  return `${baseUrl}/api/twilio/manager-listen?orderId=${encodeURIComponent(orderId)}&callId=${encodeURIComponent(callId)}`;
+}
+
+function buildBrowserListenUrl(orderId, callKey) {
+  const baseUrl = process.env.APP_PUBLIC_URL || "http://127.0.0.1:8787";
+  const wsBase = baseUrl.replace(/^https:/, "wss:").replace(/^http:/, "ws:");
+  const token = createMediaRelayToken({ orderId, callKey, role: "listener" });
+  return `${wsBase}/api/media/listen?orderId=${encodeURIComponent(orderId)}&callKey=${encodeURIComponent(callKey)}&token=${encodeURIComponent(token)}`;
 }
 
 function buildCallSummary(order, outcome) {

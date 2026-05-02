@@ -6,6 +6,7 @@
     "dev": "concurrently \"npm run dev:web\" \"npm run dev:api\"",
     "dev:api": "node server/index.js",
     "dev:web": "vite --host 127.0.0.1",
+    "aws:https": "node scripts/provision-aws-https.mjs",
     "start": "node server/index.js",
     "smoke": "node scripts/smoke-health.mjs",
     "readiness": "node -e \"fetch('http://127.0.0.1:'+(process.env.SERVER_PORT||8787)+'/api/readiness').then(async r=>{console.log(await r.text()); process.exit(r.ok?0:1)}).catch(e=>{console.error(e); process.exit(1)})\""
@@ -20,6 +21,7 @@
     "react": "latest",
     "react-dom": "latest",
     "twilio": "^6.0.0",
-    "vite": "latest"
+    "vite": "latest",
+    "ws": "^8.20.0"
   }
 }

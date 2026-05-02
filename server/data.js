@@ -8,6 +8,12 @@ const dataDir = path.join(__dirname, "..", "data");
 const dataFile = path.join(dataDir, "local-state.json");
 
 const seedState = {
+  platformSettings: {
+    vendorCallTestMode: true,
+    productionVendorCallsEnabled: true,
+    vendorCallTestNumber: process.env.VENDOR_CALL_TEST_NUMBER || "",
+    updatedAt: "2026-05-02T12:00:00.000Z"
+  },
   accounts: [
     {
       id: "acct-1",
@@ -18,6 +24,9 @@ const seedState = {
       billingPayerRole: "Owner",
       billingPayerPersonId: "owner-1",
       billingSetupStatus: "Card on file",
+      ownerSubscriptionStatus: "Free",
+      ownerSubscriptionPlan: "Owner Subscription",
+      productionVendorCallsEnabled: true,
       createdAt: "2026-04-01T12:00:00.000Z"
     }
   ],
@@ -44,7 +53,17 @@ const seedState = {
       billingPayerPersonId: "owner-1",
       billingSetupStatus: "Card on file",
       approvalThreshold: 150,
-      rules: "Plumbing under $300 goes to Carlos first. Unit 3B needs owner approval above $150. HVAC always requires manager review. Emergencies: active water, gas smell, sparking, no lock."
+      rules: "Plumbing under $300 goes to Carlos first. Unit 3B needs owner approval above $150. HVAC always requires manager review. Emergencies: active water, gas smell, sparking, no lock.",
+      dispatchSettings: {
+        vendorOutreachMode: "manager_approval",
+        autoOutreachAfterTenantConfirmed: false,
+        emergencyOutreachMode: "manager_approval",
+        maxVendorsToCall: 5,
+        requireTenantAvailabilityBeforeBooking: true,
+        inboundInvoiceEmail: "invoices@livingrelay.com",
+        invoiceRecipientPolicy: "manager_owner_system",
+        productionVendorCallsEnabled: true
+      }
     }
   ],
   vendors: [
@@ -65,6 +84,34 @@ const seedState = {
       vendorId: "v-1",
       issue: "Water is dripping under the kitchen sink and the cabinet floor is wet.",
       access: "Anytime after 1 PM. Text before entering.",
+      serviceWindow: "ASAP / emergency",
+      tenantAvailability: {
+        serviceWindow: "ASAP / emergency",
+        preferredWindows: ["Anytime after 1 PM"],
+        accessNotes: "Anytime after 1 PM. Text before entering.",
+        permissionToEnter: true,
+        needsFollowUp: false,
+        updatedAt: "2026-04-30T12:00:00.000Z"
+      },
+      vendorOutreach: {
+        status: "Not started",
+        mode: "Manual",
+        questions: [
+          "Are you available for this job, and what is your earliest arrival window?",
+          "What callout, diagnostic, emergency, after-hours, or minimum labor fee applies?",
+          "Can you offer any property-manager, repeat-customer, or multi-unit discount?",
+          "What warranty do you provide on labor and parts?",
+          "Do you need tenant photos, access instructions, parking, gate code, or shutoff details before dispatch?",
+          "Unless the property manager gives different instructions, can you send the invoice to the property manager, owner, and LivingRelay recordkeeping inbox?"
+        ],
+        outcomes: []
+      },
+      completionPackage: {
+        status: "Not requested",
+        photos: [],
+        notes: "",
+        invoiceDelivery: "Not received"
+      },
       managerApproved: true,
       ownerApproved: false,
       dispatchFee: {
@@ -97,6 +144,12 @@ const seedState = {
       recipientName: "Jordan Lee",
       recipientPhone: "+13105550100",
       recipientEmail: "jordan@shahproperty.example",
+      recipients: [
+        { role: "Property manager", name: "Jordan Lee", email: "jordan@shahproperty.example", phone: "+13105550100" },
+        { role: "Owner", name: "Priya Shah", email: "priya@shahproperty.example", phone: "+13105550102" },
+        { role: "LivingRelay records", name: "LivingRelay records", email: "invoices@livingrelay.com", phone: "" }
+      ],
+      invoiceDeliveryInstructions: "Unless otherwise instructed, send the vendor invoice to Property manager: jordan@shahproperty.example; Owner: priya@shahproperty.example; LivingRelay records: invoices@livingrelay.com.",
       taxYear: "2026",
       receivedAt: "Apr 30",
       note: "Vendor invoice is paid outside LivingRelay. Track payment status here only."
@@ -122,6 +175,7 @@ const seedState = {
 };
 
 export const state = await loadState();
+export const platformSettings = state.platformSettings;
 export const accounts = state.accounts;
 export const people = state.people;
 export const properties = state.properties;
@@ -165,11 +219,20 @@ async function loadState() {
 }
 
 function mergeLoadedState(loaded) {
+  const platformSettings = {
+    vendorCallTestMode: loaded.platformSettings?.vendorCallTestMode ?? true,
+    productionVendorCallsEnabled: loaded.platformSettings?.productionVendorCallsEnabled ?? true,
+    vendorCallTestNumber: loaded.platformSettings?.vendorCallTestNumber ?? process.env.VENDOR_CALL_TEST_NUMBER ?? "",
+    updatedAt: loaded.platformSettings?.updatedAt || new Date().toISOString()
+  };
   const accounts = (loaded.accounts?.length ? loaded.accounts : seedState.accounts).map((account) => ({
     ...account,
     plan: account.plan?.includes("$149") ? "$0/property + $25 vendor dispatch" : account.plan || "$0/property + $25 vendor dispatch",
     billingPayerRole: account.billingPayerRole || "Owner",
-    billingSetupStatus: account.billingSetupStatus || (account.stripeCustomerId ? "Card on file" : "Needs card")
+    billingSetupStatus: account.billingSetupStatus || (account.stripeCustomerId ? "Card on file" : "Needs card"),
+    ownerSubscriptionStatus: account.ownerSubscriptionStatus || "Free",
+    ownerSubscriptionPlan: account.ownerSubscriptionPlan || "Owner Subscription",
+    productionVendorCallsEnabled: account.productionVendorCallsEnabled !== false
   }));
   const people = ensureSiteAdmin(loaded.people || seedState.people, accounts)
     .map((person) => person.role === "Admin" ? { ...person, role: "Manager" } : person);
@@ -182,6 +245,16 @@ function mergeLoadedState(loaded) {
     billingPayerRole: property.billingPayerRole || "Owner",
     billingSetupStatus: property.billingSetupStatus || "Needs card",
     launchNotificationStatus: property.launchNotificationStatus || "Pending setup",
+    dispatchSettings: {
+      vendorOutreachMode: "manager_approval",
+      autoOutreachAfterTenantConfirmed: false,
+      emergencyOutreachMode: "manager_approval",
+      maxVendorsToCall: 5,
+      requireTenantAvailabilityBeforeBooking: true,
+      inboundInvoiceEmail: process.env.INBOUND_EMAIL_ADDRESS || "invoices@livingrelay.com",
+      productionVendorCallsEnabled: true,
+      ...(property.dispatchSettings || {})
+    },
     rules: String(property.rules || "").replace(/\badmin review\b/gi, "manager review")
   }));
   const workOrders = (loaded.workOrders || seedState.workOrders).map((order) => ({
@@ -194,6 +267,7 @@ function mergeLoadedState(loaded) {
   return {
     ...seedState,
     ...loaded,
+    platformSettings,
     accounts,
     people,
     properties,
