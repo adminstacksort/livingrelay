@@ -10,7 +10,15 @@ This is the shortest path from local demo to a usable AWS-hosted LivingRelay.
 - **SSM Parameter Store** stores secrets.
 - **S3** should store Twilio media once media download/storage is implemented.
 - **CloudWatch Logs** captures server logs.
-- **Twilio** points inbound SMS to `https://your-domain.com/api/twilio/inbound`.
+- **Twilio** points inbound SMS to each environment's inbound webhook.
+
+## Canonical Domains
+
+- Dev: `https://dev.livingrelay.com`
+- Staging: `https://staging.livingrelay.com`
+- Production: `https://livingrelay.com`
+
+Each domain should terminate TLS at the environment-specific ALB listener, then forward to the matching ECS service on port `8787`.
 
 ## First AWS Launch
 
@@ -20,10 +28,12 @@ This is the shortest path from local demo to a usable AWS-hosted LivingRelay.
 4. Build and push the Docker image to ECR.
 5. Create an ECS Fargate service using `deploy/aws-ecs-task-definition.example.json`.
 6. Put an ALB in front of ECS with HTTPS.
-7. Set `APP_PUBLIC_URL` to the ALB/domain URL.
+7. Set `APP_PUBLIC_URL` to the environment domain.
 8. Configure Twilio SMS webhook:
    - Method: `POST`
-   - URL: `https://your-domain.com/api/twilio/inbound`
+   - Dev URL: `https://dev.livingrelay.com/api/twilio/inbound`
+   - Staging URL: `https://staging.livingrelay.com/api/twilio/inbound`
+   - Production URL: `https://livingrelay.com/api/twilio/inbound`
 9. Check:
    - `GET /api/health`
    - `GET /api/readiness`

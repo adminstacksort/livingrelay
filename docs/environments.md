@@ -1,20 +1,28 @@
 # Environments
 
-LivingRelay now has a three-repo operating model:
+LivingRelay now has a four-repo, three-environment operating model:
 
 - `adminstacksort/livingrelay`: source-of-truth development repo.
+- `adminstacksort/livingrelay-dev`: raw development deployment mirror.
 - `adminstacksort/livingrelay-staging`: staging deployment mirror.
 - `adminstacksort/livingrelay-production`: production deployment mirror.
 
-The source repo should run CI on pull requests and branch pushes. Staging should deploy from `main`. Production should deploy only from a published GitHub Release or a manual workflow dispatch.
+The source repo runs CI on pull requests and branch pushes. Dev deploys from active development branches. Staging deploys from `main`. Production deploys only from a published GitHub Release or a manual workflow dispatch.
 
-Note: workflow files need to be added by a GitHub token/user with `workflow` scope. The current Codex GitHub token cannot push `.github/workflows/*`, so this repo keeps the workflow plan documented here instead of committing those files from Codex.
+## Canonical Domains
+
+```text
+dev=https://dev.livingrelay.com
+staging=https://staging.livingrelay.com
+production=https://livingrelay.com
+```
 
 ## GitHub Setup
 
-Create two empty private repositories:
+Create three empty private repositories:
 
 ```bash
+gh repo create adminstacksort/livingrelay-dev --private
 gh repo create adminstacksort/livingrelay-staging --private
 gh repo create adminstacksort/livingrelay-production --private
 ```
@@ -22,17 +30,19 @@ gh repo create adminstacksort/livingrelay-production --private
 Add local remotes after the repositories exist:
 
 ```bash
+git remote add dev git@github.com:adminstacksort/livingrelay-dev.git
 git remote add staging git@github.com:adminstacksort/livingrelay-staging.git
 git remote add production git@github.com:adminstacksort/livingrelay-production.git
 ```
 
-Protect `main` in all three repositories. Require pull requests, at least one approval, passing CI, and conversation resolution before merging. Production should additionally restrict who can approve deployments in the GitHub `production` environment.
+Protect `main` in the source, staging, and production repositories. Require pull requests, at least one approval, passing CI, and conversation resolution before merging. Production should additionally restrict who can approve deployments in the GitHub `production` environment.
 
 ## Required Source Repo Variables
 
 Configure these as GitHub Actions repository variables in `adminstacksort/livingrelay`:
 
 ```text
+DEV_REPOSITORY=adminstacksort/livingrelay-dev
 STAGING_REPOSITORY=adminstacksort/livingrelay-staging
 PRODUCTION_REPOSITORY=adminstacksort/livingrelay-production
 ```
@@ -43,17 +53,18 @@ Configure these as GitHub Actions repository or environment secrets:
 
 ```text
 REPO_SYNC_TOKEN
+DEV_DEPLOY_WEBHOOK_URL
 STAGING_DEPLOY_WEBHOOK_URL
 PRODUCTION_DEPLOY_WEBHOOK_URL
 ```
 
-`REPO_SYNC_TOKEN` should be a fine-grained GitHub token with contents read/write access to only the staging and production mirror repositories.
+`REPO_SYNC_TOKEN` should be a fine-grained GitHub token with contents read/write access to only the dev, staging, and production mirror repositories.
 
 The deploy webhook secrets are optional if the hosting platform deploys directly from GHCR image tags. When present, the workflow calls them after publishing the image.
 
 ## Runtime Secrets
 
-Keep runtime secrets separate between staging and production. Use `.env.staging.example` and `.env.production.example` as checklists.
+Keep runtime secrets separate between dev, staging, and production. Use `.env.dev.example`, `.env.staging.example`, and `.env.production.example` as checklists.
 
 Both deployed environments require:
 
@@ -79,9 +90,23 @@ ELEVENLABS_AGENT_PHONE_NUMBER_ID
 
 1. Work on feature branches in `adminstacksort/livingrelay`.
 2. Open a pull request into `main`; CI must pass.
-3. Merge to `main`; the staging workflow should build the Docker image, push GHCR staging tags, mirror code to the staging repo, and trigger the staging deploy webhook.
-4. Verify staging at `/api/health` and `/api/readiness`.
-5. Publish a GitHub Release from the verified commit; the production workflow should build production image tags, mirror code to the production repo, and trigger production deploy.
+3. Push to an active `codex/*` or `develop` branch; the dev workflow builds the Docker image, pushes GHCR dev tags, mirrors code to the dev repo, and triggers the dev deploy webhook for `dev.livingrelay.com`.
+4. Merge to `main`; the staging workflow builds the Docker image, pushes GHCR staging tags, mirrors code to the staging repo, and triggers the staging deploy webhook for `staging.livingrelay.com`.
+5. Verify staging at `/api/health` and `/api/readiness`.
+6. Publish a GitHub Release from the verified commit; the production workflow builds production image tags, mirrors code to the production repo, and triggers production deploy for `livingrelay.com`.
+
+## DNS Plan
+
+Create Route 53 records in the `livingrelay.com` hosted zone:
+
+```text
+dev.livingrelay.com      A/AAAA alias -> dev ALB
+staging.livingrelay.com  A/AAAA alias -> staging ALB
+livingrelay.com          A/AAAA alias -> production ALB
+www.livingrelay.com      CNAME or redirect -> livingrelay.com
+```
+
+Use an ACM certificate that covers `livingrelay.com`, `www.livingrelay.com`, `staging.livingrelay.com`, and `dev.livingrelay.com`.
 
 ## Health Checks
 

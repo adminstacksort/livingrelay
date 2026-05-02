@@ -1,0 +1,75 @@
+name: Deploy Dev
+
+on:
+  push:
+    branches:
+      - "codex/**"
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: dev-${{ github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}/livingrelay
+  DEV_DEPLOY_WEBHOOK_URL: ${{ secrets.DEV_DEPLOY_WEBHOOK_URL }}
+  REPO_SYNC_TOKEN_CONFIGURED: ${{ secrets.REPO_SYNC_TOKEN != '' }}
+
+jobs:
+  deploy:
+    name: Build, publish, and deploy dev
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify
+        run: npm run check && npm run smoke
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push dev image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:dev
+            ${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
+
+      - name: Mirror code to dev repo
+        if: ${{ vars.DEV_REPOSITORY != '' && env.REPO_SYNC_TOKEN_CONFIGURED == 'true' }}
+        env:
+          TARGET_REPOSITORY: ${{ vars.DEV_REPOSITORY }}
+          REPO_SYNC_TOKEN: ${{ secrets.REPO_SYNC_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add dev "https://x-access-token:${REPO_SYNC_TOKEN}@github.com/${TARGET_REPOSITORY}.git"
+          git push dev HEAD:main --force-with-lease
+
+      - name: Trigger dev runtime deploy
+        if: ${{ env.DEV_DEPLOY_WEBHOOK_URL != '' }}
+        run: curl -fsS -X POST "${DEV_DEPLOY_WEBHOOK_URL}"
