@@ -8,71 +8,23 @@ on:
 
 permissions:
   contents: read
+  id-token: write
   packages: write
 
 concurrency:
   group: staging
   cancel-in-progress: true
 
-env:
-  IMAGE_NAME: ghcr.io/${{ github.repository }}/livingrelay
-  STAGING_DEPLOY_WEBHOOK_URL: ${{ secrets.STAGING_DEPLOY_WEBHOOK_URL }}
-  STAGING_DEPLOY_KEY_CONFIGURED: ${{ secrets.STAGING_DEPLOY_KEY != '' }}
-
 jobs:
   deploy:
-    name: Build, publish, and deploy staging
-    runs-on: ubuntu-latest
-    environment: staging
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Verify
-        run: npm run check && npm run smoke
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push staging image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ env.IMAGE_NAME }}:staging
-            ${{ env.IMAGE_NAME }}:staging-${{ github.sha }}
-
-      - name: Mirror code to staging repo
-        if: ${{ vars.STAGING_REPOSITORY != '' && env.STAGING_DEPLOY_KEY_CONFIGURED == 'true' }}
-        env:
-          TARGET_REPOSITORY: ${{ vars.STAGING_REPOSITORY }}
-          DEPLOY_KEY: ${{ secrets.STAGING_DEPLOY_KEY }}
-        run: |
-          mkdir -p ~/.ssh
-          printf '%s\n' "${DEPLOY_KEY}" > ~/.ssh/livingrelay-staging-deploy-key
-          chmod 600 ~/.ssh/livingrelay-staging-deploy-key
-          ssh-keyscan github.com >> ~/.ssh/known_hosts
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote add staging "git@github.com:${TARGET_REPOSITORY}.git"
-          GIT_SSH_COMMAND="ssh -i ~/.ssh/livingrelay-staging-deploy-key -o IdentitiesOnly=yes" git push staging HEAD:main --force
-
-      - name: Trigger staging runtime deploy
-        if: ${{ env.STAGING_DEPLOY_WEBHOOK_URL != '' }}
-        run: curl -fsS -X POST "${STAGING_DEPLOY_WEBHOOK_URL}"
+    uses: ./.github/workflows/_deploy-environment.yml
+    with:
+      environment: staging
+      image_tag: staging
+      repository_variable: STAGING_REPOSITORY
+      deploy_key_secret: STAGING_DEPLOY_KEY
+      deploy_webhook_secret: STAGING_DEPLOY_WEBHOOK_URL
+      ecs_service_variable: STAGING_ECS_SERVICE
+      ecs_task_definition_variable: STAGING_ECS_TASK_DEFINITION
+      source_ref: ${{ github.ref }}
+    secrets: inherit

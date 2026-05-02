@@ -45,6 +45,22 @@ Configure these as GitHub Actions repository variables in `adminstacksort/living
 DEV_REPOSITORY=adminstacksort/livingrelay-dev
 STAGING_REPOSITORY=adminstacksort/livingrelay-staging
 PRODUCTION_REPOSITORY=adminstacksort/livingrelay-production
+AWS_REGION=us-east-1
+AWS_ACCOUNT_ID=365609840635
+AWS_ROLE_ARN=arn:aws:iam::365609840635:role/livingrelay-github-actions-deploy
+AWS_ECR_REPOSITORY=livingrelay
+```
+
+After ECS services exist, also configure:
+
+```text
+AWS_ECS_CLUSTER=<cluster-name>
+DEV_ECS_SERVICE=<dev-service-name>
+DEV_ECS_TASK_DEFINITION=<dev-task-definition-family-or-arn>
+STAGING_ECS_SERVICE=<staging-service-name>
+STAGING_ECS_TASK_DEFINITION=<staging-task-definition-family-or-arn>
+PRODUCTION_ECS_SERVICE=<production-service-name>
+PRODUCTION_ECS_TASK_DEFINITION=<production-task-definition-family-or-arn>
 ```
 
 ## Required Source Repo Secrets
@@ -109,6 +125,15 @@ www.livingrelay.com      CNAME or redirect -> livingrelay.com
 ```
 
 Use an ACM certificate that covers `livingrelay.com`, `www.livingrelay.com`, `staging.livingrelay.com`, and `dev.livingrelay.com`.
+
+Current AWS foundation:
+
+```text
+Route 53 hosted zone ID=Z03036513QMYCCOVJDG6S
+ACM certificate ARN=arn:aws:acm:us-east-1:365609840635:certificate/9c7e281d-fd9e-4b71-9a9c-1a028bdb4dd3
+ECR repository=365609840635.dkr.ecr.us-east-1.amazonaws.com/livingrelay
+GitHub OIDC deploy role=arn:aws:iam::365609840635:role/livingrelay-github-actions-deploy
+```
 
 ## Health Checks
 

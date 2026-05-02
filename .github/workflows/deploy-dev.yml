@@ -9,71 +9,23 @@ on:
 
 permissions:
   contents: read
+  id-token: write
   packages: write
 
 concurrency:
   group: dev-${{ github.ref_name }}
   cancel-in-progress: true
 
-env:
-  IMAGE_NAME: ghcr.io/${{ github.repository }}/livingrelay
-  DEV_DEPLOY_WEBHOOK_URL: ${{ secrets.DEV_DEPLOY_WEBHOOK_URL }}
-  DEV_DEPLOY_KEY_CONFIGURED: ${{ secrets.DEV_DEPLOY_KEY != '' }}
-
 jobs:
   deploy:
-    name: Build, publish, and deploy dev
-    runs-on: ubuntu-latest
-    environment: dev
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Verify
-        run: npm run check && npm run smoke
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push dev image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ env.IMAGE_NAME }}:dev
-            ${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
-
-      - name: Mirror code to dev repo
-        if: ${{ vars.DEV_REPOSITORY != '' && env.DEV_DEPLOY_KEY_CONFIGURED == 'true' }}
-        env:
-          TARGET_REPOSITORY: ${{ vars.DEV_REPOSITORY }}
-          DEPLOY_KEY: ${{ secrets.DEV_DEPLOY_KEY }}
-        run: |
-          mkdir -p ~/.ssh
-          printf '%s\n' "${DEPLOY_KEY}" > ~/.ssh/livingrelay-dev-deploy-key
-          chmod 600 ~/.ssh/livingrelay-dev-deploy-key
-          ssh-keyscan github.com >> ~/.ssh/known_hosts
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote add dev "git@github.com:${TARGET_REPOSITORY}.git"
-          GIT_SSH_COMMAND="ssh -i ~/.ssh/livingrelay-dev-deploy-key -o IdentitiesOnly=yes" git push dev HEAD:main --force
-
-      - name: Trigger dev runtime deploy
-        if: ${{ env.DEV_DEPLOY_WEBHOOK_URL != '' }}
-        run: curl -fsS -X POST "${DEV_DEPLOY_WEBHOOK_URL}"
+    uses: ./.github/workflows/_deploy-environment.yml
+    with:
+      environment: dev
+      image_tag: dev
+      repository_variable: DEV_REPOSITORY
+      deploy_key_secret: DEV_DEPLOY_KEY
+      deploy_webhook_secret: DEV_DEPLOY_WEBHOOK_URL
+      ecs_service_variable: DEV_ECS_SERVICE
+      ecs_task_definition_variable: DEV_ECS_TASK_DEFINITION
+      source_ref: ${{ github.ref }}
+    secrets: inherit

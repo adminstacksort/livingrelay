@@ -8,6 +8,14 @@ ghcr.io/<owner>/<repo>/livingrelay:production
 ghcr.io/<owner>/<repo>/livingrelay:dev
 ```
 
+It also publishes matching images to ECR:
+
+```text
+365609840635.dkr.ecr.us-east-1.amazonaws.com/livingrelay:dev
+365609840635.dkr.ecr.us-east-1.amazonaws.com/livingrelay:staging
+365609840635.dkr.ecr.us-east-1.amazonaws.com/livingrelay:production
+```
+
 The container listens on `SERVER_PORT`, defaulting to `8787`.
 
 Recommended platform settings:

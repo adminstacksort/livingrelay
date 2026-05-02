@@ -1,0 +1,152 @@
+name: Deploy Environment
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      image_tag:
+        required: true
+        type: string
+      repository_variable:
+        required: true
+        type: string
+      deploy_key_secret:
+        required: true
+        type: string
+      deploy_webhook_secret:
+        required: true
+        type: string
+      ecs_service_variable:
+        required: true
+        type: string
+      ecs_task_definition_variable:
+        required: true
+        type: string
+      source_ref:
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
+jobs:
+  deploy:
+    name: Build, publish, and deploy ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+      AWS_ECR_REPOSITORY: ${{ vars.AWS_ECR_REPOSITORY }}
+      AWS_ECS_CLUSTER: ${{ vars.AWS_ECS_CLUSTER }}
+      AWS_ECS_SERVICE: ${{ vars[inputs.ecs_service_variable] }}
+      AWS_ECS_TASK_DEFINITION: ${{ vars[inputs.ecs_task_definition_variable] }}
+      TARGET_REPOSITORY: ${{ vars[inputs.repository_variable] }}
+      DEPLOY_KEY: ${{ secrets[inputs.deploy_key_secret] }}
+      DEPLOY_WEBHOOK_URL: ${{ secrets[inputs.deploy_webhook_secret] }}
+      GHCR_IMAGE_NAME: ghcr.io/${{ github.repository }}/livingrelay
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify
+        run: npm run check && npm run smoke
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push GHCR image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.GHCR_IMAGE_NAME }}:${{ inputs.image_tag }}
+            ${{ env.GHCR_IMAGE_NAME }}:${{ inputs.image_tag }}-${{ github.sha }}
+
+      - name: Configure AWS credentials
+        if: ${{ env.AWS_ROLE_ARN != '' && env.AWS_REGION != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        if: ${{ env.AWS_ROLE_ARN != '' && env.AWS_REGION != '' && env.AWS_ACCOUNT_ID != '' && env.AWS_ECR_REPOSITORY != '' }}
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push ECR image
+        if: ${{ steps.ecr-login.outcome == 'success' }}
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.AWS_ECR_REPOSITORY }}:${{ inputs.image_tag }}
+            ${{ env.ECR_REGISTRY }}/${{ env.AWS_ECR_REPOSITORY }}:${{ inputs.image_tag }}-${{ github.sha }}
+
+      - name: Deploy image to ECS
+        if: ${{ steps.ecr-login.outcome == 'success' && env.AWS_ECS_CLUSTER != '' && env.AWS_ECS_SERVICE != '' && env.AWS_ECS_TASK_DEFINITION != '' }}
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_URI: ${{ steps.ecr-login.outputs.registry }}/${{ env.AWS_ECR_REPOSITORY }}:${{ inputs.image_tag }}-${{ github.sha }}
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${AWS_ECS_TASK_DEFINITION}" \
+            --query taskDefinition > task-definition.json
+          jq --arg image "${IMAGE_URI}" '
+            .containerDefinitions |= map(if .name == "livingrelay" then .image = $image else . end)
+            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)
+          ' task-definition.json > next-task-definition.json
+          TASK_DEFINITION_ARN="$(aws ecs register-task-definition \
+            --cli-input-json file://next-task-definition.json \
+            --query "taskDefinition.taskDefinitionArn" \
+            --output text)"
+          aws ecs update-service \
+            --cluster "${AWS_ECS_CLUSTER}" \
+            --service "${AWS_ECS_SERVICE}" \
+            --task-definition "${TASK_DEFINITION_ARN}"
+          aws ecs wait services-stable \
+            --cluster "${AWS_ECS_CLUSTER}" \
+            --services "${AWS_ECS_SERVICE}"
+
+      - name: Mirror code to environment repo
+        if: ${{ env.TARGET_REPOSITORY != '' && env.DEPLOY_KEY != '' }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${DEPLOY_KEY}" > ~/.ssh/livingrelay-deploy-key
+          chmod 600 ~/.ssh/livingrelay-deploy-key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add environment "git@github.com:${TARGET_REPOSITORY}.git"
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/livingrelay-deploy-key -o IdentitiesOnly=yes" git push environment HEAD:main --force
+
+      - name: Trigger runtime deploy webhook
+        if: ${{ env.DEPLOY_WEBHOOK_URL != '' }}
+        run: curl -fsS -X POST "${DEPLOY_WEBHOOK_URL}"
