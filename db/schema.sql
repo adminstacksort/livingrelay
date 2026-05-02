@@ -46,7 +46,7 @@ create table if not exists people (
   pin_hash text,
   notify jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
-  unique (account_id, phone)
+  unique (phone)
 );
 
 create table if not exists properties (
@@ -237,7 +237,7 @@ create table if not exists audit_events (
   created_at timestamptz not null default now()
 );
 
-create index if not exists idx_people_account_phone on people(account_id, phone);
+create index if not exists idx_people_account on people(account_id);
 create index if not exists idx_properties_account on properties(account_id);
 create index if not exists idx_work_orders_property_status on work_orders(property_id, status);
 create index if not exists idx_billing_events_property on billing_events(property_id, created_at);

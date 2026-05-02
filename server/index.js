@@ -16,7 +16,7 @@ import { getReadiness } from "./config.js";
 import { getRuntimeEnvironment, getStateId } from "./postgresState.js";
 import { chargeStripeDispatchFee, createStripeOwnerSubscriptionSession, createStripePortalSession, createStripeSetupSession, dispatchFeeCents, ownerSubscriptionCents, retrieveStripeCheckoutSession, retrieveStripeSetupIntent, setCustomerDefaultPaymentMethod, stripeBillingStatus } from "./stripeBilling.js";
 import { attachMediaRelay, getMediaRelayRoom } from "./mediaRelay.js";
-import { consumeVerifiedPhoneToken, createPhoneChallenge, phoneMatches, verifyPhoneChallenge } from "./phoneVerification.js";
+import { consumeVerifiedPhoneToken, createPhoneChallenge, verifyPhoneChallenge } from "./phoneVerification.js";
 import {
   buildTenantAvailability,
   buildInvoiceDeliveryInstructions,
@@ -240,8 +240,13 @@ app.post("/api/phone-verifications/verify", (req, res) => {
 app.post("/api/auth/login/start", async (req, res) => {
   try {
     const { phone, pin } = req.body;
-    const person = people.find((item) => item.role !== "Site Admin" && phoneMatches(item.phone, phone) && item.pin === pin);
-    if (!person) {
+    const phoneIdentity = resolveUniquePhoneIdentity(phone);
+    if (phoneIdentity.error) {
+      res.status(phoneIdentity.status).json({ error: phoneIdentity.error });
+      return;
+    }
+    const person = phoneIdentity.person;
+    if (person.pin !== pin) {
       res.status(401).json({ error: "Invalid phone or PIN" });
       return;
     }
@@ -267,8 +272,13 @@ app.post("/api/auth/login/start", async (req, res) => {
 
 app.post("/api/auth/login/verify", (req, res) => {
   try {
-    const person = people.find((item) => item.role !== "Site Admin" && phoneMatches(item.phone, req.body.phone) && item.pin === req.body.pin);
-    if (!person) {
+    const phoneIdentity = resolveUniquePhoneIdentity(req.body.phone);
+    if (phoneIdentity.error) {
+      res.status(phoneIdentity.status).json({ error: phoneIdentity.error });
+      return;
+    }
+    const person = phoneIdentity.person;
+    if (person.pin !== req.body.pin) {
       res.status(401).json({ error: "Invalid phone or PIN" });
       return;
     }
@@ -309,6 +319,14 @@ app.post("/api/onboarding/property", (req, res) => {
   const personRole = role === "Owner" ? "Owner" : "Manager";
   const canonicalManagerPhone = normalizePhone(verifiedPhone.phone || managerPhone);
   const phonePeople = peopleForPhone(canonicalManagerPhone).filter((person) => person.role !== "Site Admin");
+  if (phonePeople.length > 1) {
+    res.status(409).json({ error: "This phone number is assigned to multiple users. Each person must have a unique phone number before onboarding can continue." });
+    return;
+  }
+  if (phonePeople.length === 1 && phonePeople[0].role !== personRole) {
+    res.status(409).json({ error: `This phone number already belongs to a ${phonePeople[0].role}. Use a unique phone number for each person.` });
+    return;
+  }
   let account = accountForPhonePeople(phonePeople);
   const reconciled = Boolean(account);
   if (!account) {
@@ -651,11 +669,17 @@ app.post("/api/admin/people", (req, res) => {
     res.status(400).json({ error: "name, role, phone, and propertyId are required" });
     return;
   }
+  const canonicalPhone = normalizePhone(phone);
+  const existingPhonePerson = peopleForPhone(canonicalPhone)[0];
+  if (existingPhonePerson) {
+    res.status(409).json({ error: `Phone number already belongs to ${existingPhonePerson.name}. Each person must have a unique phone number.` });
+    return;
+  }
   const person = {
     id: `${role.toLowerCase().replace(/\s+/g, "-")}-${people.length + 1}`,
     name,
     role,
-    phone,
+    phone: canonicalPhone,
     email: email || undefined,
     pin: pin || String(Math.floor(1000 + Math.random() * 9000)),
     propertyIds: propertyId ? [propertyId] : [],
@@ -1135,6 +1159,20 @@ function accountForProperty(propertyId) {
 function peopleForPhone(phone) {
   const normalized = normalizePhone(phone);
   return people.filter((person) => normalizePhone(person.phone) === normalized);
+}
+
+function resolveUniquePhoneIdentity(phone) {
+  const matches = peopleForPhone(phone).filter((person) => person.role !== "Site Admin");
+  if (matches.length === 0) {
+    return { status: 401, error: "Invalid phone or PIN" };
+  }
+  if (matches.length > 1) {
+    return {
+      status: 409,
+      error: "This phone number is assigned to multiple users. Each person must have a unique phone number."
+    };
+  }
+  return { person: matches[0] };
 }
 
 function accountForPhonePeople(phonePeople) {

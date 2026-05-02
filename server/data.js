@@ -52,9 +52,9 @@ const seedState = {
     { id: "owner-1", name: "Priya Shah", role: "Owner", phone: "+13105550102", email: "priya@shahproperty.example", pin: "3333", propertyIds: ["p-1"], notify: { tenantReports: true, everyUpdate: false, keyUpdates: true } },
     { id: "tenant-1", name: "Maya Chen", role: "Tenant", phone: "+13105550103", pin: "4444", propertyIds: ["p-1"], unit: "Garden flat" },
     { id: "vendor-1", name: "Carlos Plumbing", role: "Vendor", phone: "+13105550104", pin: "5555", propertyIds: ["p-1"], trade: "Plumbing" },
-    { id: "test-manager", name: "Test Manager", role: "Manager", phone: "+15555555555", email: "manager@test.livingrelay.com", pin: "1111", propertyIds: ["p-test"], managesPropertyIds: ["p-test"], accountIds: ["acct-test"], notify: { tenantReports: true, everyUpdate: true, keyUpdates: true } },
-    { id: "test-owner", name: "Test Owner", role: "Owner", phone: "+15555555555", email: "owner@test.livingrelay.com", pin: "2222", propertyIds: ["p-test"], accountIds: ["acct-test"], notify: { tenantReports: true, everyUpdate: false, keyUpdates: true } },
-    { id: "test-tenant", name: "Test Tenant", role: "Tenant", phone: "+15555555555", pin: "3333", propertyIds: ["p-test"], unit: "Test unit" }
+    { id: "test-manager", name: "Test Manager", role: "Manager", phone: "+15555555551", email: "manager@test.livingrelay.com", pin: "1111", propertyIds: ["p-test"], managesPropertyIds: ["p-test"], accountIds: ["acct-test"], notify: { tenantReports: true, everyUpdate: true, keyUpdates: true } },
+    { id: "test-owner", name: "Test Owner", role: "Owner", phone: "+15555555552", email: "owner@test.livingrelay.com", pin: "2222", propertyIds: ["p-test"], accountIds: ["acct-test"], notify: { tenantReports: true, everyUpdate: false, keyUpdates: true } },
+    { id: "test-tenant", name: "Test Tenant", role: "Tenant", phone: "+15555555553", pin: "3333", propertyIds: ["p-test"], unit: "Test unit" }
   ],
   properties: [
     {

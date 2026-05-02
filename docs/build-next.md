@@ -4,7 +4,7 @@
 
 The active app now demonstrates:
 
-- shared phone + PIN login
+- unique phone + PIN login
 - role-aware mobile web surfaces
 - manager property setup
 - subscription/payment placeholder

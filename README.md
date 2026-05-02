@@ -24,7 +24,7 @@ Do not open `index.html` directly from Finder. The demo is a Vite/React app and 
 
 ## Current Real V1 Prototype Scope
 
-- Shared phone + PIN login
+- Unique phone + PIN login
 - Role-aware views for manager, owner, tenant, and vendor coordination
 - Property subscription/payment placeholder
 - SMS-style work orders
@@ -37,7 +37,7 @@ Do not open `index.html` directly from Finder. The demo is a Vite/React app and 
 
 ## Next Product Direction
 
-The real product should become an SMS-first coordination system with a shared login URL, role-specific PINs, paid property profiles, persistent work orders, invoice records, and optional voice calls to vendors.
+The real product should become an SMS-first coordination system with a shared login URL, unique phone-based identity, paid property profiles, persistent work orders, invoice records, and optional voice calls to vendors.
 
 See:
 
