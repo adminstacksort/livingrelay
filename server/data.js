@@ -8,23 +8,41 @@ const dataDir = path.join(__dirname, "..", "data");
 const dataFile = path.join(dataDir, "local-state.json");
 
 const seedState = {
+  accounts: [
+    {
+      id: "acct-1",
+      name: "Shah Property Group",
+      status: "Active",
+      plan: "$0/property + $25 vendor dispatch",
+      stripeCustomerId: "cus_demo_shah",
+      billingPayerRole: "Owner",
+      billingPayerPersonId: "owner-1",
+      billingSetupStatus: "Card on file",
+      createdAt: "2026-04-01T12:00:00.000Z"
+    }
+  ],
   people: [
-    { id: "admin-1", name: "Jordan Lee", role: "Admin", phone: "+13105550100", pin: "1111", propertyIds: ["p-1", "p-2"], managesPropertyIds: ["p-1"], notify: { tenantReports: true, everyUpdate: true, keyUpdates: true } },
-    { id: "owner-1", name: "Priya Shah", role: "Owner", phone: "+13105550102", pin: "3333", propertyIds: ["p-1"], notify: { tenantReports: true, everyUpdate: false, keyUpdates: true } },
+    { id: "site-admin-1", name: "Avery Stone", role: "Site Admin", phone: "+13105550199", pin: "9999", propertyIds: [], accountIds: ["acct-1"], notify: { platformAlerts: true } },
+    { id: "admin-1", name: "Jordan Lee", role: "Manager", phone: "+13105550100", email: "jordan@shahproperty.example", pin: "1111", propertyIds: ["p-1", "p-2"], managesPropertyIds: ["p-1"], notify: { tenantReports: true, everyUpdate: true, keyUpdates: true } },
+    { id: "owner-1", name: "Priya Shah", role: "Owner", phone: "+13105550102", email: "priya@shahproperty.example", pin: "3333", propertyIds: ["p-1"], notify: { tenantReports: true, everyUpdate: false, keyUpdates: true } },
     { id: "tenant-1", name: "Maya Chen", role: "Tenant", phone: "+13105550103", pin: "4444", propertyIds: ["p-1"], unit: "3B" },
     { id: "vendor-1", name: "Carlos Plumbing", role: "Vendor", phone: "+13105550104", pin: "5555", propertyIds: ["p-1"], trade: "Plumbing" }
   ],
   properties: [
     {
       id: "p-1",
+      accountId: "acct-1",
       name: "Mar Vista Flats",
       address: "11820 Pacific Ave, Los Angeles, CA",
       subscription: "Active",
-      plan: "$149/mo base + $39/property",
+      plan: "$0/property + $25 only when a vendor is booked",
       units: ["2A", "3B", "7C"],
       ownerId: "owner-1",
       managerId: "admin-1",
       adminId: "admin-1",
+      billingPayerRole: "Owner",
+      billingPayerPersonId: "owner-1",
+      billingSetupStatus: "Card on file",
       approvalThreshold: 150,
       rules: "Plumbing under $300 goes to Carlos first. Unit 3B needs owner approval above $150. HVAC always requires manager review. Emergencies: active water, gas smell, sparking, no lock."
     }
@@ -49,6 +67,11 @@ const seedState = {
       access: "Anytime after 1 PM. Text before entering.",
       managerApproved: true,
       ownerApproved: false,
+      dispatchFee: {
+        status: "Not charged",
+        amount: 25,
+        reason: "Vendor has not been booked yet."
+      },
       invoiceId: "inv-1",
       timeline: [
         event("Tenant texted issue", "Maya reported active water under kitchen sink."),
@@ -68,10 +91,29 @@ const seedState = {
       orderId: "WO-2481",
       vendor: "Carlos Plumbing",
       amount: 325,
-      status: "Awaiting owner approval",
+      status: "Unpaid",
+      paymentStatus: "Unpaid",
+      paymentRail: "Vendor direct",
+      recipientName: "Jordan Lee",
+      recipientPhone: "+13105550100",
+      recipientEmail: "jordan@shahproperty.example",
       taxYear: "2026",
       receivedAt: "Apr 30",
-      note: "Estimate only. Payment will happen off platform."
+      note: "Vendor invoice is paid outside LivingRelay. Track payment status here only."
+    }
+  ],
+  billingEvents: [
+    {
+      id: "bill-1",
+      type: "dispatch_fee",
+      accountId: "acct-1",
+      propertyId: "p-1",
+      orderId: "WO-2481",
+      amount: 25,
+      status: "Not charged",
+      payerRole: "Owner",
+      note: "Coordination fee is charged only after a vendor is booked.",
+      createdAt: "2026-04-30T12:00:00.000Z"
     }
   ],
   auditLog: [
@@ -80,11 +122,13 @@ const seedState = {
 };
 
 export const state = await loadState();
+export const accounts = state.accounts;
 export const people = state.people;
 export const properties = state.properties;
 export const vendors = state.vendors;
 export const workOrders = state.workOrders;
 export const invoices = state.invoices;
+export const billingEvents = state.billingEvents;
 export const auditLog = state.auditLog;
 
 export function saveState() {
@@ -121,16 +165,61 @@ async function loadState() {
 }
 
 function mergeLoadedState(loaded) {
+  const accounts = (loaded.accounts?.length ? loaded.accounts : seedState.accounts).map((account) => ({
+    ...account,
+    plan: account.plan?.includes("$149") ? "$0/property + $25 vendor dispatch" : account.plan || "$0/property + $25 vendor dispatch",
+    billingPayerRole: account.billingPayerRole || "Owner",
+    billingSetupStatus: account.billingSetupStatus || (account.stripeCustomerId ? "Card on file" : "Needs card")
+  }));
+  const people = ensureSiteAdmin(loaded.people || seedState.people, accounts)
+    .map((person) => person.role === "Admin" ? { ...person, role: "Manager" } : person);
+  const properties = (loaded.properties || seedState.properties).map((property) => ({
+    ...property,
+    accountId: property.accountId || accounts[0]?.id || "acct-1",
+    plan: property.plan?.includes("$149") || property.plan?.includes("Payment required")
+      ? "$0/property + $25 only when a vendor is booked"
+      : property.plan || "$0/property + $25 only when a vendor is booked",
+    billingPayerRole: property.billingPayerRole || "Owner",
+    billingSetupStatus: property.billingSetupStatus || "Needs card",
+    launchNotificationStatus: property.launchNotificationStatus || "Pending setup",
+    rules: String(property.rules || "").replace(/\badmin review\b/gi, "manager review")
+  }));
+  const workOrders = (loaded.workOrders || seedState.workOrders).map((order) => ({
+    ...order,
+    demoFlow: order.demoFlow?.map((step) => ({
+      ...step,
+      persona: step.persona === "Admin / manager" ? "Manager" : step.persona
+    }))
+  }));
   return {
     ...seedState,
     ...loaded,
-    people: loaded.people || seedState.people,
-    properties: loaded.properties || seedState.properties,
+    accounts,
+    people,
+    properties,
     vendors: loaded.vendors || seedState.vendors,
-    workOrders: loaded.workOrders || seedState.workOrders,
+    workOrders,
     invoices: loaded.invoices || seedState.invoices,
+    billingEvents: loaded.billingEvents || seedState.billingEvents,
     auditLog: loaded.auditLog || []
   };
+}
+
+function ensureSiteAdmin(loadedPeople, accounts) {
+  if (loadedPeople.some((person) => person.role === "Site Admin")) return loadedPeople;
+  return [
+    {
+      id: "site-admin-1",
+      name: "Avery Stone",
+      role: "Site Admin",
+      phone: "+13105550199",
+      pin: "9999",
+      propertyIds: [],
+      accountIds: accounts.map((account) => account.id),
+      notify: { platformAlerts: true }
+    },
+    ...loadedPeople
+  ];
 }
 
 function audit(actor, action, detail) {
