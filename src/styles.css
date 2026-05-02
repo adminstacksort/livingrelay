@@ -257,7 +257,7 @@ textarea:focus {
 
 .mobile-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin: 8px 0 14px;
 }
@@ -637,6 +637,73 @@ select {
   line-height: 1.35;
 }
 
+.stale-panel {
+  border: 1px solid #d8d0c3;
+  border-radius: 8px;
+  background: #fffdfa;
+  padding: 12px;
+}
+
+.stale-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.stale-list {
+  display: grid;
+  gap: 8px;
+}
+
+.stale-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #e8e0d4;
+  border-radius: 8px;
+  background: #fbf6ef;
+  padding: 10px;
+}
+
+.stale-card span {
+  color: #8a5f53;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.stale-card strong {
+  display: block;
+  margin-top: 4px;
+}
+
+.stale-card p {
+  margin-top: 4px;
+  color: #5e6a66;
+  font-size: 12px;
+}
+
+.stale-actions {
+  display: grid;
+  gap: 6px;
+}
+
+.stale-empty {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #e8e0d4;
+  border-radius: 8px;
+  background: #fbf6ef;
+  padding: 10px;
+  color: #4f5d59;
+  font-size: 13px;
+  font-weight: 780;
+}
+
 .demo-control {
   border: 1px solid #d8d0c3;
   border-radius: 8px;
@@ -854,7 +921,7 @@ select {
   }
 
   .mobile-metrics {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .subscription-card,
@@ -896,6 +963,14 @@ select {
 
   .flow-steps {
     grid-template-columns: 1fr;
+  }
+
+  .stale-card {
+    grid-template-columns: 1fr;
+  }
+
+  .stale-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .demo-reference {

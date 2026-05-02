@@ -202,9 +202,11 @@ function App() {
   const propertiesData = appData?.properties || properties;
   const vendorsData = appData?.vendors || vendors;
   const auditData = appData?.auditLog || [];
+  const staleWorkOrders = appData?.staleWorkOrders || [];
   const activeProperty = propertiesData.find((property) => property.id === activePropertyId) || propertiesData[0];
   const visibleOrders = orders.filter((order) => order.propertyId === activeProperty.id);
   const activeOrder = visibleOrders.find((order) => order.id === activeOrderId) || visibleOrders[0];
+  const visibleStaleOrders = staleWorkOrders.filter((order) => order.propertyId === activeProperty.id);
   const user = session ? peopleData.find((person) => person.id === session.userId) : null;
 
   useEffect(() => {
@@ -335,6 +337,24 @@ function App() {
     await loadState();
   }
 
+  async function nudgeOrder(orderId, send = false) {
+    await fetch(`/api/work-orders/${orderId}/nudge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ send, actor: user?.name || "manager" })
+    });
+    await loadState();
+  }
+
+  async function nudgeStaleOrders(send = false) {
+    await fetch(`/api/properties/${activeProperty.id}/stale-nudges`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ thresholdHours: 12, send, actor: user?.name || "manager" })
+    });
+    await loadState();
+  }
+
   async function addInvoice(order) {
     if (appData) {
       await fetch(`/api/work-orders/${order.id}/invoices`, {
@@ -369,8 +389,8 @@ function App() {
     const invoiceTotal = invoices
       .filter((invoice) => invoice.propertyId === activeProperty.id)
       .reduce((sum, invoice) => sum + invoice.amount, 0);
-    return { open, approvals, invoiceTotal };
-  }, [activeProperty.id, invoices, visibleOrders]);
+    return { open, approvals, invoiceTotal, stale: visibleStaleOrders.length };
+  }, [activeProperty.id, invoices, visibleOrders, visibleStaleOrders.length]);
 
   if (!session) {
     return (
@@ -434,6 +454,7 @@ function App() {
       <section className="mobile-metrics">
         <Metric icon={<ClipboardList />} label="Open" value={metrics.open} />
         <Metric icon={<Bell />} label="Approvals" value={metrics.approvals} />
+        <Metric icon={<AlertTriangle />} label="Stale" value={metrics.stale} />
         <Metric icon={<ReceiptText />} label="2026 invoices" value={formatMoney(metrics.invoiceTotal)} />
       </section>
 
@@ -453,6 +474,7 @@ function App() {
           people={peopleData}
           vendors={vendorsData}
           auditLog={auditData}
+          staleOrders={visibleStaleOrders}
           demoScenarios={appData?.demoScenarios || []}
           demoStatus={demoStatus}
           reloadState={loadState}
@@ -460,6 +482,8 @@ function App() {
           selectDemoQuote={selectDemoQuote}
           runFullFlowDemo={runFullFlowDemo}
           createDemoScenario={createDemoScenario}
+          nudgeOrder={nudgeOrder}
+          nudgeStaleOrders={nudgeStaleOrders}
         />
       )}
 
@@ -501,7 +525,7 @@ function App() {
   );
 }
 
-function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice, sendSms, sendStatus, people, vendors, auditLog, demoScenarios, demoStatus, reloadState, runDemoOutreach, selectDemoQuote, runFullFlowDemo, createDemoScenario }) {
+function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice, sendSms, sendStatus, people, vendors, auditLog, staleOrders, demoScenarios, demoStatus, reloadState, runDemoOutreach, selectDemoQuote, runFullFlowDemo, createDemoScenario, nudgeOrder, nudgeStaleOrders }) {
   const vendor = vendors.find((item) => item.id === activeOrder.vendorId);
   const admin = people.find((person) => person.id === property.adminId);
   const owner = people.find((person) => person.id === property.ownerId);
@@ -524,6 +548,12 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
           <MiniRow icon={<Wrench />} label="Rules" value={property.rules} />
         </div>
         <AdminTools property={property} people={people} vendors={vendors} auditLog={auditLog} reloadState={reloadState} />
+        <StaleNudgePanel
+          staleOrders={staleOrders}
+          setActiveOrderId={setActiveOrderId}
+          nudgeOrder={nudgeOrder}
+          nudgeStaleOrders={nudgeStaleOrders}
+        />
         <DemoControlCenter
           people={people}
           scenarios={demoScenarios}
@@ -577,6 +607,9 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
             </button>
             <button className="ghost" onClick={() => runFullFlowDemo(activeOrder.id)}>
               <SparkleIcon /> Full demo
+            </button>
+            <button className="ghost" onClick={() => nudgeOrder(activeOrder.id)}>
+              <AlertTriangle size={16} /> Nudge
             </button>
           </div>
           {sendStatus && <p className="send-status">{sendStatus}</p>}
@@ -688,6 +721,46 @@ function AdminTools({ property, people, vendors, auditLog, reloadState }) {
             <span>{item.detail}</span>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function StaleNudgePanel({ staleOrders, setActiveOrderId, nudgeOrder, nudgeStaleOrders }) {
+  return (
+    <div className="stale-panel">
+      <div className="stale-head">
+        <div>
+          <span className="eyebrow">Closeout nudges</span>
+          <h3>{staleOrders.length} stale item{staleOrders.length === 1 ? "" : "s"}</h3>
+        </div>
+        <button className="secondary" disabled={!staleOrders.length} onClick={() => nudgeStaleOrders(false)}>
+          <Bell size={15} /> Nudge all
+        </button>
+      </div>
+      <div className="stale-list">
+        {staleOrders.length ? staleOrders.slice(0, 4).map((order) => (
+          <article key={order.id} className="stale-card">
+            <div>
+              <span>{order.id} · Unit {order.unit} · {order.hoursIdle ?? "?"}h idle</span>
+              <strong>{order.nextAction}</strong>
+              <p>{order.status} · {order.trade}</p>
+            </div>
+            <div className="stale-actions">
+              <button className="ghost" onClick={() => setActiveOrderId(order.id)}>
+                <ChevronRight size={15} /> View
+              </button>
+              <button className="ghost" onClick={() => nudgeOrder(order.id)}>
+                <Send size={15} /> Prep
+              </button>
+            </div>
+          </article>
+        )) : (
+          <div className="stale-empty">
+            <Check size={16} />
+            <span>No stale open items over 12 hours.</span>
+          </div>
+        )}
       </div>
     </div>
   );

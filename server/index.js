@@ -6,6 +6,7 @@ import { getTwilioStatus, sendSms } from "./twilioClient.js";
 import { startVendorQuoteCalls } from "./elevenLabsCalls.js";
 import { runFullFlowDemo, selectDemoQuote, simulateVendorOutreach } from "./demoOutreach.js";
 import { createDemoScenario, listDemoScenarios } from "./demoScenarios.js";
+import { getStaleWorkOrders, nudgeStaleWorkOrders, nudgeWorkOrder } from "./staleNudges.js";
 
 const app = express();
 const port = Number(process.env.SERVER_PORT || 8787);
@@ -18,7 +19,17 @@ app.get("/api/health", (req, res) => {
 });
 
 app.get("/api/state", (req, res) => {
-  res.json({ people, properties, vendors, workOrders, invoices, auditLog, twilio: getTwilioStatus(), demoScenarios: listDemoScenarios() });
+  res.json({
+    people,
+    properties,
+    vendors,
+    workOrders,
+    invoices,
+    auditLog,
+    twilio: getTwilioStatus(),
+    demoScenarios: listDemoScenarios(),
+    staleWorkOrders: getStaleWorkOrders({ thresholdHours: 12 })
+  });
 });
 
 app.post("/api/demo/scenario", (req, res) => {
@@ -127,6 +138,46 @@ app.post("/api/work-orders/:id/invoices", (req, res) => {
   saveState();
   recordAudit("manager", "Created invoice", `${invoice.id} for ${order.id}.`);
   res.json({ invoice, order });
+});
+
+app.get("/api/properties/:id/stale-work-orders", (req, res) => {
+  res.json({
+    thresholdHours: Number(req.query.thresholdHours || 12),
+    staleWorkOrders: getStaleWorkOrders({
+      propertyId: req.params.id,
+      thresholdHours: req.query.thresholdHours || 12
+    })
+  });
+});
+
+app.post("/api/properties/:id/stale-nudges", async (req, res) => {
+  try {
+    const result = await nudgeStaleWorkOrders({
+      propertyId: req.params.id,
+      thresholdHours: req.body.thresholdHours || 12,
+      send: req.body.send === true,
+      actor: req.body.actor || "manager"
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/work-orders/:id/nudge", async (req, res) => {
+  try {
+    const result = await nudgeWorkOrder(req.params.id, {
+      send: req.body.send === true,
+      actor: req.body.actor || "manager"
+    });
+    if (result.error) {
+      res.status(404).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.post("/api/work-orders/:id/demo-outreach", (req, res) => {
