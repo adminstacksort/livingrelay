@@ -622,15 +622,21 @@ const tenantIssueStarters = [
 ];
 
 const rememberedPhoneStorageKey = "livingrelay.rememberedPhone";
+const authTokenStorageKey = "livingrelay.authToken";
+const sessionUserStorageKey = "livingrelay.sessionUserId";
 
 function App() {
-  const [session, setSession] = useState(null);
+  const [session, setSession] = useState(() => {
+    const userId = window.localStorage.getItem(sessionUserStorageKey);
+    return userId ? { userId } : null;
+  });
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
   const [rememberedPhone, setRememberedPhone] = useState("");
   const [editingRememberedPhone, setEditingRememberedPhone] = useState(false);
   const [sitePassword, setSitePassword] = useState("");
   const [siteAdminToken, setSiteAdminToken] = useState("");
+  const [authToken, setAuthToken] = useState(() => window.localStorage.getItem(authTokenStorageKey) || "");
   const [loginError, setLoginError] = useState("");
   const [loginVerification, setLoginVerification] = useState({ challengeId: "", code: "", state: "idle", message: "" });
   const [activePropertyId, setActivePropertyId] = useState("p-1");
@@ -695,7 +701,37 @@ function App() {
   const route = parseDashboardRoute();
 
   function authHeaders(headers = {}) {
-    return siteAdminToken ? { ...headers, Authorization: `Bearer ${siteAdminToken}` } : headers;
+    const token = siteAdminToken || authToken;
+    return token ? { ...headers, Authorization: `Bearer ${token}` } : headers;
+  }
+
+  async function apiRequest(url, options = {}) {
+    const response = await fetch(url, {
+      ...options,
+      headers: authHeaders(options.headers || {})
+    });
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : {};
+    if (!response.ok) throw new Error(data.error || `Request failed: ${response.status}`);
+    return data;
+  }
+
+  function persistSession(userId, token = "") {
+    setSession({ userId });
+    window.localStorage.setItem(sessionUserStorageKey, userId);
+    if (token) {
+      setAuthToken(token);
+      window.localStorage.setItem(authTokenStorageKey, token);
+    }
+  }
+
+  async function signOut() {
+    await fetch("/api/auth/logout", { method: "POST", headers: authHeaders() }).catch(() => {});
+    setSession(null);
+    setSiteAdminToken("");
+    setAuthToken("");
+    window.localStorage.removeItem(authTokenStorageKey);
+    window.localStorage.removeItem(sessionUserStorageKey);
   }
 
   useEffect(() => {
@@ -754,7 +790,7 @@ function App() {
     const billingReturn = params.get("billing");
     const sessionId = params.get("session_id");
     if (!sessionId || !["setup-complete", "owner-subscription-complete"].includes(billingReturn)) return;
-    await fetch(billingReturn === "owner-subscription-complete" ? "/api/billing/confirm-owner-subscription" : "/api/billing/confirm-setup-session", {
+    await apiRequest(billingReturn === "owner-subscription-complete" ? "/api/billing/confirm-owner-subscription" : "/api/billing/confirm-setup-session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sessionId })
@@ -779,7 +815,7 @@ function App() {
         setPhone(nextRememberedPhone);
         setEditingRememberedPhone(false);
       }
-      setSession({ userId: data.userId });
+      persistSession(data.userId, data.token);
       setActivePropertyId(defaultPropertyIdForLogin(match, propertiesData));
       setAdminSection(match?.role === "Site Admin" ? "accounts" : "operations");
       setLoginVerification({ challengeId: "", code: "", state: "idle", message: "" });
@@ -920,7 +956,7 @@ function App() {
       await loadState();
       setPhone(data.person.phone);
       setPin(data.person.pin);
-      setSession({ userId: data.person.id });
+      persistSession(data.person.id, data.token);
       setActivePropertyId(data.property.id);
       setAdminSection("operations");
       setSignupVerification({ challengeId: "", code: "", token: "", state: "idle", message: "" });
@@ -941,7 +977,7 @@ function App() {
     const vendor = vendorsData.find((item) => item.trade === triage.trade) || vendorsData[0];
     const needsOwner = triage.estimate > 150;
     if (appData) {
-      const response = await fetch("/api/admin/work-orders", {
+      const data = await apiRequest("/api/admin/work-orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -959,7 +995,6 @@ function App() {
           actorRole: user?.role || "User"
         })
       });
-      const data = await response.json();
       if (data.order?.id) setActiveOrderId(data.order.id);
       setRequest({ ...defaultRequest, unit: propertyLocationLabel(activeProperty) });
       await loadState();
@@ -1076,7 +1111,7 @@ function App() {
   }
 
   async function nudgeOrder(orderId, send = false) {
-    await fetch(`/api/work-orders/${orderId}/nudge`, {
+    await apiRequest(`/api/work-orders/${orderId}/nudge`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ send, actor: user?.name || "manager" })
@@ -1085,7 +1120,7 @@ function App() {
   }
 
   async function nudgeStaleOrders(send = false) {
-    await fetch(`/api/properties/${activeProperty.id}/stale-nudges`, {
+    await apiRequest(`/api/properties/${activeProperty.id}/stale-nudges`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ thresholdHours: 12, send, actor: user?.name || "manager" })
@@ -1095,7 +1130,7 @@ function App() {
 
   async function updateLiveCall(orderId, callId, action) {
     const routeAction = action === "join" ? "join" : action;
-    await fetch(`/api/work-orders/${orderId}/live-calls/${callId}/${routeAction}`, {
+    await apiRequest(`/api/work-orders/${orderId}/live-calls/${callId}/${routeAction}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ actorId: user?.id })
@@ -1105,18 +1140,17 @@ function App() {
 
   async function startVendorOutreach(orderId, mode = "live") {
     setSendStatus(mode === "demo" ? "Generating demo vendor call outcomes..." : mode === "test" ? "Calling your phone as the test vendor..." : "Starting vendor outreach...");
-    const response = await fetch(`/api/work-orders/${orderId}/vendor-outreach`, {
+    const data = await apiRequest(`/api/work-orders/${orderId}/vendor-outreach`, {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ actor: user?.name || "manager", mode, demoFallback: true, testVendorPhone: mode === "test" ? user?.phone : "" })
     });
-    const data = await response.json();
     setSendStatus(data.started === false ? `Vendor outreach skipped: ${data.reason || data.error}` : data.demo ? "Demo vendor outcomes generated." : data.testMode ? `Test vendor call started to ${user?.phone}.` : "Vendor outreach started.");
     await loadState();
   }
 
   async function selectVendorOutcome(orderId, outcomeId) {
-    await fetch(`/api/work-orders/${orderId}/vendor-outreach/select`, {
+    await apiRequest(`/api/work-orders/${orderId}/vendor-outreach/select`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ actor: user?.name || "manager", outcomeId })
@@ -1125,7 +1159,7 @@ function App() {
   }
 
   async function recordCompletionPackage(orderId) {
-    await fetch(`/api/work-orders/${orderId}/completion-package`, {
+    await apiRequest(`/api/work-orders/${orderId}/completion-package`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1142,7 +1176,7 @@ function App() {
 
   async function bookVendor(order) {
     if (appData) {
-      await fetch(`/api/work-orders/${order.id}/book-vendor`, {
+      await apiRequest(`/api/work-orders/${order.id}/book-vendor`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ actor: user?.name || "manager" })
@@ -1159,7 +1193,7 @@ function App() {
 
   async function addInvoice(order) {
     if (appData) {
-      await fetch(`/api/work-orders/${order.id}/invoices`, {
+      await apiRequest(`/api/work-orders/${order.id}/invoices`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount: order.estimate, note: "Vendor invoice is paid directly to the vendor. LivingRelay tracks whether it has been paid." })
@@ -1256,7 +1290,7 @@ function App() {
           <h1>{user.role === "Site Admin" ? "Admin Console" : activeProperty.name}</h1>
           <p>{user.role === "Site Admin" ? `${user.name} · Platform admin` : `${user.name} · ${user.role}`}</p>
         </div>
-        <button className="icon-button" onClick={() => { setSession(null); setSiteAdminToken(""); }} aria-label="Sign out"><LockKeyhole size={18} /></button>
+        <button className="icon-button" onClick={signOut} aria-label="Sign out"><LockKeyhole size={18} /></button>
       </header>
 
       {user.role !== "Site Admin" && <section className="property-switcher">

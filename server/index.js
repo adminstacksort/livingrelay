@@ -42,6 +42,7 @@ const siteAdminHosts = new Set([
 ].map((host) => host.toLowerCase()));
 const demoHost = process.env.DEMO_HOST || "demo.livingrelay.com";
 const siteAdminSessions = new Set();
+const appSessions = new Map();
 
 app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   try {
@@ -119,7 +120,7 @@ app.get("/api/state", (req, res) => {
       ownerSubscriptionCurrentPeriodEnd,
       productionVendorCallsEnabled: productionVendorCallsEnabled !== false
     })),
-    people: includeSiteAdmin ? people : people.filter((person) => person.role !== "Site Admin"),
+    people: (includeSiteAdmin ? people : people.filter((person) => person.role !== "Site Admin")).map(safePerson),
     properties,
     platformSettings: includeSiteAdmin ? platformSettings : {
       vendorCallTestMode: platformSettings.vendorCallTestMode,
@@ -255,7 +256,9 @@ app.post("/api/auth/login/start", async (req, res) => {
       person.phoneVerificationRequired = false;
       saveState();
       recordAudit(person.name, "Test account login", "Seeded test account login bypassed SMS verification.");
-      res.json({ userId: person.id, person, bypassedSms: true });
+      const token = createAppSession(person);
+      setAppSessionCookie(res, token);
+      res.json({ userId: person.id, person: safePerson(person), token, bypassedSms: true });
       return;
     }
     const result = await createPhoneChallenge({
@@ -292,10 +295,19 @@ app.post("/api/auth/login/verify", (req, res) => {
     person.phoneVerificationRequired = true;
     saveState();
     recordAudit(person.name, "Verified phone login", `Login verified for ${maskPhone(person.phone)}.`);
-    res.json({ userId: person.id, person });
+    const token = createAppSession(person);
+    setAppSessionCookie(res, token);
+    res.json({ userId: person.id, person: safePerson(person), token });
   } catch (error) {
     res.status(error.statusCode || 400).json({ error: error.message });
   }
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  const token = bearerToken(req) || cookieValue(req, "lr_session");
+  if (token) appSessions.delete(token);
+  res.clearCookie("lr_session");
+  res.json({ ok: true });
 });
 
 app.post("/api/onboarding/property", (req, res) => {
@@ -394,7 +406,9 @@ app.post("/api/onboarding/property", (req, res) => {
 
   saveState();
   recordAudit("self-serve", reconciled ? "Added property to existing account" : "Created property", `${managerName} created ${property.name}${reconciled ? " on an existing phone account" : ""}.`);
-  res.json({ account, person, property, reconciled, phoneVerified: true });
+  const token = createAppSession(person);
+  setAppSessionCookie(res, token);
+  res.json({ account, person, property, reconciled, phoneVerified: true, token });
 });
 
 app.use("/api/site-admin", requireSiteAdminHost);
@@ -441,6 +455,40 @@ function hasSiteAdminSession(req) {
   return Boolean(token && siteAdminSessions.has(token));
 }
 
+function createAppSession(person) {
+  const token = randomUUID();
+  appSessions.set(token, { userId: person.id, createdAt: Date.now() });
+  return token;
+}
+
+function appSessionUser(req) {
+  const token = bearerToken(req) || cookieValue(req, "lr_session");
+  const session = token ? appSessions.get(token) : null;
+  if (!session) return null;
+  return people.find((person) => person.id === session.userId) || null;
+}
+
+function bearerToken(req) {
+  return String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+}
+
+function cookieValue(req, name) {
+  return String(req.headers.cookie || "")
+    .split(";")
+    .map((item) => item.trim())
+    .map((item) => item.split("="))
+    .find(([key]) => key === name)?.[1] || "";
+}
+
+function setAppSessionCookie(res, token) {
+  res.cookie("lr_session", token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 1000 * 60 * 60 * 24 * 30
+  });
+}
+
 function isDemoExperienceRequest(req, res) {
   const host = requestHost(req);
   if (host === demoHost || isLocalDevHost(req)) {
@@ -470,6 +518,51 @@ function requireSiteAdminSession(req, res, next) {
 }
 
 app.use("/api/site-admin", requireSiteAdminSession);
+
+function requireAppSession(req, res, next) {
+  if (hasSiteAdminSession(req)) {
+    req.user = people.find((person) => person.role === "Site Admin") || null;
+    next();
+    return;
+  }
+  const user = appSessionUser(req);
+  if (user) {
+    req.user = user;
+    if (!isAuthorizedAppRequest(req, user)) {
+      res.status(403).json({ error: "This role cannot perform that action" });
+      return;
+    }
+    next();
+    return;
+  }
+  res.status(401).json({ error: "Login required" });
+}
+
+function isAuthorizedAppRequest(req, user) {
+  const path = req.originalUrl.split("?")[0];
+  const role = user.role;
+  const managerRoles = new Set(["Manager", "Admin"]);
+  const ownerManagerRoles = new Set(["Owner", "Manager", "Admin"]);
+  if (path.startsWith("/api/admin/work-orders") && req.method === "POST") {
+    return ["Tenant", "Manager", "Admin"].includes(role);
+  }
+  if (path.startsWith("/api/admin")) return managerRoles.has(role);
+  if (path.startsWith("/api/billing")) return ownerManagerRoles.has(role);
+  if (path.startsWith("/api/invoices")) return ownerManagerRoles.has(role);
+  if (path.startsWith("/api/properties")) return ownerManagerRoles.has(role);
+  if (path.startsWith("/api/people")) return managerRoles.has(role) || path.includes(`/${user.id}/`);
+  if (path.startsWith("/api/work-orders")) return ["Tenant", "Manager", "Admin", "Owner", "Vendor"].includes(role);
+  return true;
+}
+
+app.use([
+  "/api/admin",
+  "/api/billing",
+  "/api/work-orders",
+  "/api/invoices",
+  "/api/people",
+  "/api/properties"
+], requireAppSession);
 
 app.get("/api/site-admin/diagnostics", async (req, res) => {
   const readiness = await getReadiness();
@@ -1018,6 +1111,29 @@ app.post("/api/work-orders/:id/invoices", (req, res) => {
   res.json({ invoice, order });
 });
 
+app.patch("/api/work-orders/:id", (req, res) => {
+  const order = workOrders.find((item) => item.id === req.params.id);
+  if (!order) {
+    res.status(404).json({ error: "work order not found" });
+    return;
+  }
+  const allowed = ["status", "managerApproved", "ownerApproved", "vendorId", "dispatchStage"];
+  for (const key of allowed) {
+    if (req.body[key] !== undefined) order[key] = req.body[key];
+  }
+  if (req.body.timelineLabel || req.body.timelineDetail) {
+    order.timeline = order.timeline || [];
+    order.timeline.push({
+      label: req.body.timelineLabel || "Updated work order",
+      detail: req.body.timelineDetail || "",
+      stamp: new Date().toISOString()
+    });
+  }
+  saveState();
+  recordAudit(req.body.actor || req.user?.name || "app", "Updated work order", `${order.id} set to ${order.status}.`);
+  res.json({ order });
+});
+
 app.post("/api/properties/:id/owner-expenses", (req, res) => {
   const property = properties.find((item) => item.id === req.params.id);
   if (!property) {
@@ -1414,6 +1530,11 @@ function safeEnvValue(key) {
   return process.env[key];
 }
 
+function safePerson(person = {}) {
+  const { pin, ...publicPerson } = person;
+  return publicPerson;
+}
+
 function maskPhone(phone = "") {
   const value = String(phone);
   const digits = value.replace(/\D/g, "");
@@ -1424,7 +1545,7 @@ function maskPhone(phone = "") {
 function isTestLoginPerson(person) {
   const phoneDigits = String(person?.phone || "").replace(/\D/g, "").slice(-10);
   return Boolean(
-    phoneDigits === "5555555555"
+    (phoneDigits === "5555555555" || phoneDigits.startsWith("55555555"))
     && person?.id?.startsWith("test-")
     && (person.propertyIds || []).includes("p-test")
     && ((person.accountIds || []).includes("acct-test") || person.role === "Tenant")
