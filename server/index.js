@@ -983,8 +983,10 @@ app.post("/api/site-admin/qa/run", async (req, res) => {
         testVendorPhone: qaPhone,
         testOnly: true
       });
-    const issues = qaIssuesForRun({ scenario, order, property, qaPhone, qaEmail, deliveries, callResult, callbacks });
     const workflow = buildQaWorkflowSimulation({ scenario, order, property, tenant, manager, owner, vendor, deliveries, callResult, callbacks });
+    const lifecycleDeliveries = await deliverQaLifecycleNotifications({ workflow, rolesToTest, qaPhone, qaEmail, realMessagesAllowed, callbacks });
+    deliveries.push(...lifecycleDeliveries);
+    const issues = qaIssuesForRun({ scenario, order, property, qaPhone, qaEmail, deliveries, callResult, callbacks });
     const personas = buildQaPersonaExperiences({ rolesToTest, scenario, order, property, tenant, manager, owner, vendor, deliveries, callResult, callbacks, workflow });
     order.timeline.push(event("QA run completed", `${issues.length} issue${issues.length === 1 ? "" : "s"} found.`));
     const runSnapshot = {
