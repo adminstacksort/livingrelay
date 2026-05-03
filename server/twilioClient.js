@@ -1,13 +1,17 @@
 import twilio from "twilio";
 
-const required = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_MESSAGING_NUMBER"];
+const required = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"];
 
 export function getTwilioStatus() {
   const missing = required.filter((key) => !process.env[key]);
+  const hasSender = Boolean(process.env.TWILIO_MESSAGING_SERVICE_SID || process.env.TWILIO_MESSAGING_NUMBER);
+  if (!hasSender) missing.push("TWILIO_MESSAGING_SERVICE_SID or TWILIO_MESSAGING_NUMBER");
   return {
     configured: missing.length === 0,
     missing,
-    from: process.env.TWILIO_MESSAGING_NUMBER || null
+    from: process.env.TWILIO_MESSAGING_NUMBER || null,
+    messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID || null,
+    senderMode: process.env.TWILIO_MESSAGING_SERVICE_SID ? "messaging_service" : "phone_number"
   };
 }
 
@@ -18,11 +22,16 @@ export async function sendSms({ to, body }) {
   }
 
   const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-  const result = await client.messages.create({
-    from: process.env.TWILIO_MESSAGING_NUMBER,
+  const message = {
     to,
     body
-  });
+  };
+  if (process.env.TWILIO_MESSAGING_SERVICE_SID) {
+    message.messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
+  } else {
+    message.from = process.env.TWILIO_MESSAGING_NUMBER;
+  }
+  const result = await client.messages.create(message);
 
   return {
     sent: true,

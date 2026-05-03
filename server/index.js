@@ -984,7 +984,8 @@ app.post("/api/site-admin/qa/run", async (req, res) => {
         testOnly: true
       });
     const issues = qaIssuesForRun({ scenario, order, property, qaPhone, qaEmail, deliveries, callResult, callbacks });
-    const personas = buildQaPersonaExperiences({ rolesToTest, scenario, order, property, tenant, manager, owner, vendor, deliveries, callResult, callbacks });
+    const workflow = buildQaWorkflowSimulation({ scenario, order, property, tenant, manager, owner, vendor, deliveries, callResult, callbacks });
+    const personas = buildQaPersonaExperiences({ rolesToTest, scenario, order, property, tenant, manager, owner, vendor, deliveries, callResult, callbacks, workflow });
     order.timeline.push(event("QA run completed", `${issues.length} issue${issues.length === 1 ? "" : "s"} found.`));
     const runSnapshot = {
       id: runId,
@@ -998,6 +999,7 @@ app.post("/api/site-admin/qa/run", async (req, res) => {
       workOrderId: order.id,
       status: issues.some((issue) => issue.severity === "error") ? "Issues found" : "Passed with warnings check",
       issues,
+      workflow,
       personas,
       deliveries,
       userUpdates,
@@ -2669,10 +2671,125 @@ function normalizeQaRoles(roles = defaultQaPersonaRoles) {
   return selected.filter((role) => allowed.has(role));
 }
 
-function buildQaPersonaExperiences({ rolesToTest, scenario, order, property, tenant, manager, owner, vendor, deliveries, callResult, callbacks }) {
+function buildQaWorkflowSimulation({ scenario, order, property, tenant, manager, owner, vendor, deliveries, callResult, callbacks }) {
+  const smsDelivery = deliveries.find((item) => item.channel === "sms");
+  const emailDelivery = deliveries.find((item) => item.channel === "email");
+  const vendorName = vendor?.name || "matched vendor";
+  const managerName = manager?.name || "Test Manager";
+  const ownerName = owner?.name || "Test Owner";
+  const tenantName = tenant?.name || "Test Tenant";
+  const estimateText = formatQaMoney(order.estimate);
+  const invoiceText = formatQaMoney(Math.round(Number(order.estimate || 0) * 1.08));
+  return [
+    {
+      id: "tenant_report",
+      actor: "Tenant",
+      recipient: "LivingRelay",
+      title: "Tenant reports issue",
+      detail: `${tenantName} reports: ${scenario.issue}`,
+      state: "work_order_created",
+      message: `Created ${order.id} for ${property.name}, ${order.unit}.`,
+      visibleTo: ["tenant", "manager"],
+      channels: ["app_thread", "sms_preview"]
+    },
+    {
+      id: "manager_notified",
+      actor: "LivingRelay",
+      recipient: "Manager",
+      title: "Manager notified",
+      detail: `${managerName} gets the triage, access notes, urgency, and estimated cost.`,
+      state: "manager_review",
+      message: `Urgent ${order.trade} request needs review. Tenant availability: ${order.access}`,
+      visibleTo: ["manager"],
+      channels: ["app_dashboard", smsDelivery?.sent ? "sms_sent" : "sms_preview"]
+    },
+    {
+      id: "manager_vendor_outreach",
+      actor: "Manager",
+      recipient: "Vendors",
+      title: "Manager approves vendor outreach",
+      detail: `${managerName} approves outreach so LivingRelay can contact ${order.trade} vendors.`,
+      state: "vendor_outreach_approved",
+      message: "Start vendor quote calls with tenant access notes and invoice instructions.",
+      visibleTo: ["manager", "vendor"],
+      channels: ["app_action", "call_flow"]
+    },
+    {
+      id: "vendor_options",
+      actor: "LivingRelay",
+      recipient: "Manager",
+      title: "Vendor options found",
+      detail: `${vendorName} is available today with an estimated ${estimateText} repair and standard warranty.`,
+      state: "vendor_options_ready",
+      message: `${vendorName}: earliest today, estimate ${estimateText}, asks for photos before arrival.`,
+      visibleTo: ["manager", "vendor"],
+      channels: [callResult?.skipped ? "mocked_call_result" : "call_result"]
+    },
+    {
+      id: "owner_approval_request",
+      actor: "LivingRelay",
+      recipient: "Owner",
+      title: "Owner approval requested",
+      detail: Number(order.estimate || 0) > Number(property.approvalThreshold || 250)
+        ? `${ownerName} receives approval request because ${estimateText} exceeds threshold.`
+        : `${ownerName} receives FYI because ${estimateText} is within threshold.`,
+      state: order.ownerApproved === false ? "owner_approval_pending" : "owner_fyi",
+      message: `${order.id}: approve ${vendorName} for ${estimateText}?`,
+      visibleTo: ["owner", "manager"],
+      channels: ["app_approval", emailDelivery?.sent ? "email_sent" : "email_preview"]
+    },
+    {
+      id: "owner_approves",
+      actor: "Owner",
+      recipient: "Manager",
+      title: "Owner approves",
+      detail: `${ownerName} approves the vendor option and LivingRelay notifies ${managerName}.`,
+      state: "owner_approved",
+      message: `Approved: ${vendorName} for ${estimateText}. Manager can schedule.`,
+      visibleTo: ["owner", "manager"],
+      channels: ["app_notification", "email_preview"]
+    },
+    {
+      id: "tenant_scheduled",
+      actor: "Manager",
+      recipient: "Tenant",
+      title: "Repair scheduled",
+      detail: `${vendorName} is scheduled using tenant availability and access notes.`,
+      state: "scheduled",
+      message: `${vendorName} is scheduled for the next available window. Reply if access changes.`,
+      visibleTo: ["tenant", "manager", "vendor"],
+      channels: ["app_thread", smsDelivery?.sent ? "sms_sent" : "sms_preview"]
+    },
+    {
+      id: "job_done",
+      actor: "Vendor",
+      recipient: "LivingRelay",
+      title: "Job completed",
+      detail: `${vendorName} marks the job done, attaches completion notes, and sends invoice instructions.`,
+      state: "completion_received",
+      message: "Repair complete. Photos/notes/invoice pending manager review.",
+      visibleTo: ["tenant", "manager", "vendor"],
+      channels: ["app_update"]
+    },
+    {
+      id: "owner_paid_invoice",
+      actor: "Owner",
+      recipient: "Manager",
+      title: "Owner paid invoice",
+      detail: `${ownerName} pays or records payment for the ${invoiceText} invoice, and ${managerName} is notified.`,
+      state: "invoice_paid",
+      message: `Invoice paid: ${invoiceText}. Work order can be closed after manager review.`,
+      visibleTo: ["owner", "manager"],
+      channels: ["app_notification", emailDelivery?.sent ? "email_sent" : "email_preview"]
+    }
+  ].map((step, index) => ({ ...step, index: index + 1 }));
+}
+
+function buildQaPersonaExperiences({ rolesToTest, scenario, order, property, tenant, manager, owner, vendor, deliveries, callResult, callbacks, workflow }) {
   const smsDelivery = deliveries.find((item) => item.channel === "sms");
   const emailDelivery = deliveries.find((item) => item.channel === "email");
   const needsOwnerApproval = order.ownerApproved === false;
+  const visibleSteps = (role) => workflow.filter((step) => step.visibleTo.includes(role)).map((step) => `${step.index}. ${step.title}: ${step.message}`);
   const personaBuilders = {
     tenant: () => ({
       role: "tenant",
@@ -2690,6 +2807,7 @@ function buildQaPersonaExperiences({ rolesToTest, scenario, order, property, ten
         `Access and availability: ${order.access}`,
         callbacks.mismatch ? "Reply notice: SMS replies route to the configured public callback environment." : "Reply box accepts STATUS-style SMS follow-up."
       ],
+      journey: visibleSteps("tenant"),
       checks: [
         qaPersonaCheck(Boolean(order.messages?.length), "Thread contains tenant and relay messages", "Tenant thread has no messages."),
         qaPersonaCheck(Boolean(order.tenantAvailability?.preferredWindows?.length), "Availability is parsed for scheduling", "Tenant availability was not parsed."),
@@ -2712,6 +2830,7 @@ function buildQaPersonaExperiences({ rolesToTest, scenario, order, property, ten
         "Vendor outreach controls",
         "Completion and invoice placeholders"
       ],
+      journey: visibleSteps("manager"),
       checks: [
         qaPersonaCheck(Boolean(order.id), "Work order is visible", "Work order was not created."),
         qaPersonaCheck(order.dispatchStage === "qa_review", "QA stage is explicit", "Dispatch stage is not marked for QA review."),
@@ -2736,6 +2855,7 @@ function buildQaPersonaExperiences({ rolesToTest, scenario, order, property, ten
         `Threshold: ${formatQaMoney(property.approvalThreshold || 250)}`,
         "Audit trail and work order context"
       ],
+      journey: visibleSteps("owner"),
       checks: [
         qaPersonaCheck(needsOwnerApproval ? order.ownerApproved === false : order.ownerApproved === true, "Approval state matches estimate threshold", "Approval state does not match estimate threshold."),
         qaPersonaCheck(Boolean(order.timeline?.length), "Owner has timeline context", "Timeline context is missing."),
@@ -2760,6 +2880,7 @@ function buildQaPersonaExperiences({ rolesToTest, scenario, order, property, ten
         "Invoice delivery instruction",
         "Manager comparison summary"
       ],
+      journey: visibleSteps("vendor"),
       checks: [
         qaPersonaCheck(Boolean(vendor?.name), "Matching trade vendor selected", "No matching vendor was selected."),
         qaPersonaCheck(callResult?.skipped || (callResult?.calls || []).length > 0, "Call flow is either attempted or explicitly skipped", "Vendor call flow has no attempt or skip reason."),

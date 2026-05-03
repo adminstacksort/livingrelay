@@ -2555,6 +2555,25 @@ body:has(.login-card.admin-login-card) {
   padding-left: 16px;
 }
 
+.qa-persona-journey {
+  background: #ffffff;
+  border: 1px solid #eeeeeb;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+}
+
+.qa-persona-journey strong {
+  font-size: 12px;
+}
+
+.qa-persona-journey p {
+  color: #4f5d59;
+  font-size: 12px;
+  margin: 0;
+}
+
 .qa-persona-checks {
   display: flex;
   flex-wrap: wrap;
@@ -2580,6 +2599,53 @@ body:has(.login-card.admin-login-card) {
   border-color: #f0c8bb;
   background: #fae1d6;
   color: #a83232;
+}
+
+.qa-workflow-step {
+  border-top: 1px solid #eeeeeb;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  padding: 10px 0;
+}
+
+.qa-workflow-step:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.qa-workflow-step > span {
+  align-items: center;
+  background: #0a0a0a;
+  border-radius: 999px;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 900;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.qa-workflow-step div {
+  display: grid;
+  gap: 4px;
+}
+
+.qa-workflow-step strong {
+  font-size: 13px;
+}
+
+.qa-workflow-step p {
+  color: #26312f;
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.qa-workflow-step small {
+  color: #737373;
+  font-size: 11px;
 }
 
 .qa-run-log {

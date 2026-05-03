@@ -8,7 +8,6 @@ const productionRequired = [
   "DATABASE_URL",
   "TWILIO_ACCOUNT_SID",
   "TWILIO_AUTH_TOKEN",
-  "TWILIO_MESSAGING_NUMBER",
   "ANTHROPIC_API_KEY",
   "SESSION_SECRET"
 ];
@@ -23,6 +22,7 @@ export async function getReadiness() {
   if (!googlePlacesConfigured) missing.push("GOOGLE_PLACES_API_KEY");
   const database = await getPostgresStatus();
   const twilio = getTwilioStatus();
+  if (!twilio.configured) missing.push(...twilio.missing.filter((key) => !missing.includes(key)));
   const email = getEmailStatus();
   const vendorCallsEnabled = process.env.ENABLE_VENDOR_CALLS === "true";
   const elevenLabsMissing = vendorCallsEnabled

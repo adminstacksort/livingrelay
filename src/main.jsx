@@ -3736,6 +3736,12 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
                 <DiagnosticRow key={`${delivery.channel}-${index}`} label={delivery.channel} value={[delivery.to, delivery.status, delivery.errorCode ? `Twilio ${delivery.errorCode}` : "", delivery.providerId, delivery.reason].filter(Boolean).join(" · ")} tone={delivery.skipped ? "warn" : delivery.sent ? "ok" : "error"} />
               ))}
             </DiagnosticBlock>
+            <DiagnosticBlock title="Workflow Simulation">
+              {!run.workflow?.length && <DiagnosticRow label="Flow" value="No workflow simulation returned." tone="warn" />}
+              {run.workflow?.map((step) => (
+                <QaWorkflowStep step={step} key={step.id} />
+              ))}
+            </DiagnosticBlock>
             <DiagnosticBlock title="Persona Experiences">
               {!run.personas?.length && <DiagnosticRow label="Roles" value="No personas selected for this QA run." tone="warn" />}
               {run.personas?.map((persona) => (
@@ -3818,10 +3824,29 @@ function QaPersonaPreview({ persona }) {
       <ul>
         {(persona.screens || []).map((screen) => <li key={screen}>{screen}</li>)}
       </ul>
+      {Boolean(persona.journey?.length) && (
+        <div className="qa-persona-journey">
+          <strong>Role journey</strong>
+          {persona.journey.map((step) => <p key={step}>{step}</p>)}
+        </div>
+      )}
       <div className="qa-persona-checks">
         {(persona.checks || []).map((check, index) => (
           <span className={check.status} key={`${persona.role}-${index}`}>{check.detail}</span>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function QaWorkflowStep({ step }) {
+  return (
+    <div className="qa-workflow-step">
+      <span>{step.index}</span>
+      <div>
+        <strong>{step.title}</strong>
+        <p>{step.detail}</p>
+        <small>{step.actor} → {step.recipient} · {step.state} · {(step.channels || []).join(", ")}</small>
       </div>
     </div>
   );
