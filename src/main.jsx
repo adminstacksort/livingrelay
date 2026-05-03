@@ -3206,6 +3206,9 @@ function LoginForm({ phone, setPhone, pin, setPin, sitePassword, setSitePassword
 
 function PinCodeInput({ value, onChange }) {
   const digits = formatPinInput(value);
+  const [visible, setVisible] = useState(false);
+  const toggleLabel = visible ? "Hide PIN" : "Show PIN";
+
   return (
     <span className="pin-code-field">
       <input
@@ -3216,8 +3219,17 @@ function PinCodeInput({ value, onChange }) {
         maxLength={4}
       />
       <span className="pin-slots" aria-hidden="true">
-        {[0, 1, 2, 3].map((index) => <span key={index}>{digits[index] || ""}</span>)}
+        {[0, 1, 2, 3].map((index) => <span key={index}>{digits[index] ? (visible ? digits[index] : "*") : ""}</span>)}
       </span>
+      <button
+        type="button"
+        className="pin-toggle"
+        onClick={() => setVisible((current) => !current)}
+        aria-label={toggleLabel}
+        title={toggleLabel}
+      >
+        {visible ? <EyeOff size={18} /> : <Eye size={18} />}
+      </button>
     </span>
   );
 }

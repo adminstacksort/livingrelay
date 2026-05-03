@@ -251,7 +251,7 @@ select:focus {
   pointer-events: none;
   position: absolute;
   top: 12px;
-  width: 172px;
+  width: min(172px, calc(100% - 76px));
 }
 
 .pin-slots span {
@@ -265,6 +265,35 @@ select:focus {
   height: 24px;
   justify-content: center;
   line-height: 1;
+}
+
+.pin-toggle {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: #596662;
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  z-index: 2;
+}
+
+.pin-toggle:hover {
+  background: rgba(28, 103, 91, 0.08);
+  color: #1c675b;
+}
+
+.pin-toggle:focus-visible {
+  box-shadow: 0 0 0 3px rgba(28, 103, 91, 0.16);
+  outline: none;
 }
 
 .places-autocomplete {
