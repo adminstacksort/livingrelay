@@ -2652,6 +2652,14 @@ function qaIssuesForRun({ scenario, order, property, qaPhone, qaEmail, deliverie
   const emailDelivery = deliveries.find((item) => item.channel === "email");
   if (qaEmail && !emailDelivery) add("error", "Email", "Email delivery was requested but no email attempt was recorded.");
   if (emailDelivery && !emailDelivery.sent) add("warn", "Email", emailDelivery.reason || "Email provider reported failure.");
+  const lifecycleDeliveries = deliveries.filter((item) => String(item.channel || "").startsWith("lifecycle_"));
+  const lifecycleFailed = lifecycleDeliveries.filter((item) => !item.sent && !item.skipped);
+  const lifecycleSkipped = lifecycleDeliveries.filter((item) => item.skipped);
+  if (lifecycleDeliveries.length) {
+    if (lifecycleFailed.length) add("warn", "Lifecycle notifications", `${lifecycleFailed.length}/${lifecycleDeliveries.length} lifecycle notification attempts failed. See Messages for step-level details.`);
+    else if (lifecycleSkipped.length) add("warn", "Lifecycle notifications", `${lifecycleSkipped.length}/${lifecycleDeliveries.length} lifecycle notifications were preview-only.`);
+    else add("ok", "Lifecycle notifications", `${lifecycleDeliveries.length} lifecycle notifications were attempted successfully.`);
+  }
   if (callResult?.skipped) {
     add("warn", "Vendor calls", callResult.reason || "Vendor call skipped for environment consistency.");
   } else if (callResult?.started === false) {
@@ -2785,6 +2793,132 @@ function buildQaWorkflowSimulation({ scenario, order, property, tenant, manager,
       channels: ["app_notification", emailDelivery?.sent ? "email_sent" : "email_preview"]
     }
   ].map((step, index) => ({ ...step, index: index + 1 }));
+}
+
+async function deliverQaLifecycleNotifications({ workflow, rolesToTest, qaPhone, qaEmail, realMessagesAllowed, callbacks }) {
+  const notifications = buildQaLifecycleNotifications({ workflow, rolesToTest });
+  const deliveries = [];
+  for (const notification of notifications) {
+    if (notification.channel === "sms") {
+      if (!qaPhone) {
+        deliveries.push({ channel: "lifecycle_sms", stepId: notification.stepId, role: notification.role, to: "", sent: false, skipped: true, preview: notification.body, reason: "No QA phone provided." });
+        continue;
+      }
+      if (!realMessagesAllowed) {
+        deliveries.push({
+          channel: "lifecycle_sms",
+          stepId: notification.stepId,
+          role: notification.role,
+          to: maskPhone(qaPhone),
+          sent: false,
+          skipped: true,
+          preview: notification.body,
+          reason: `Skipped. SMS replies route to ${callbacks.smsInboundUrl}, but this QA run is on ${callbacks.requestUrl}.`
+        });
+        continue;
+      }
+      try {
+        const sms = await sendSms({ to: qaPhone, body: notification.body });
+        const smsStatus = sms.sid ? await waitForSmsDeliveryStatus(sms.sid) : sms;
+        const smsFailed = ["failed", "undelivered"].includes(String(smsStatus.status || "").toLowerCase());
+        deliveries.push({
+          channel: "lifecycle_sms",
+          stepId: notification.stepId,
+          role: notification.role,
+          to: maskPhone(qaPhone),
+          sent: sms.sent && !smsFailed,
+          providerId: sms.sid || "",
+          status: smsStatus.status || sms.status || "",
+          errorCode: smsStatus.errorCode || null,
+          preview: notification.body,
+          reason: smsFailed ? twilioSmsFailureDetail(smsStatus) : sms.error || smsStatus.status || sms.status || "sent"
+        });
+      } catch (error) {
+        deliveries.push({ channel: "lifecycle_sms", stepId: notification.stepId, role: notification.role, to: maskPhone(qaPhone), sent: false, preview: notification.body, reason: error.message });
+      }
+      continue;
+    }
+    if (notification.channel === "email") {
+      if (!qaEmail) {
+        deliveries.push({ channel: "lifecycle_email", stepId: notification.stepId, role: notification.role, to: "", sent: false, skipped: true, subject: notification.subject, preview: notification.body, reason: "No QA email provided." });
+        continue;
+      }
+      try {
+        const email = await sendEmail({ to: qaEmail, subject: notification.subject, text: notification.body });
+        deliveries.push({
+          channel: "lifecycle_email",
+          stepId: notification.stepId,
+          role: notification.role,
+          to: maskEmail(qaEmail),
+          sent: email.sent,
+          providerId: email.id || "",
+          subject: notification.subject,
+          preview: notification.body,
+          reason: email.reason || email.id || "sent"
+        });
+      } catch (error) {
+        deliveries.push({ channel: "lifecycle_email", stepId: notification.stepId, role: notification.role, to: maskEmail(qaEmail), sent: false, subject: notification.subject, preview: notification.body, reason: error.message });
+      }
+    }
+  }
+  return deliveries;
+}
+
+function buildQaLifecycleNotifications({ workflow, rolesToTest }) {
+  const selected = new Set(rolesToTest);
+  const notifications = [];
+  const addSms = (step, role) => {
+    if (!selected.has(role)) return;
+    notifications.push({
+      channel: "sms",
+      role,
+      stepId: step.id,
+      body: `[LivingRelay QA ${step.index}/${workflow.length}] ${step.title}: ${step.message}`
+    });
+  };
+  const addEmail = (step, role) => {
+    if (!selected.has(role)) return;
+    notifications.push({
+      channel: "email",
+      role,
+      stepId: step.id,
+      subject: `[LivingRelay QA] ${step.title}`,
+      body: [
+        `LivingRelay QA lifecycle update`,
+        ``,
+        `Role: ${qaRoleLabel(role)}`,
+        `Step ${step.index}: ${step.title}`,
+        `Actor: ${step.actor}`,
+        `Recipient: ${step.recipient}`,
+        `State: ${step.state}`,
+        ``,
+        step.detail,
+        ``,
+        step.message
+      ].join("\n")
+    });
+  };
+  for (const step of workflow) {
+    if (step.id === "tenant_report") addSms(step, "tenant");
+    if (step.id === "manager_notified") {
+      addSms(step, "manager");
+      addEmail(step, "manager");
+    }
+    if (step.id === "vendor_options") addEmail(step, "manager");
+    if (step.id === "owner_approval_request") addEmail(step, "owner");
+    if (step.id === "owner_approves") addEmail(step, "manager");
+    if (step.id === "tenant_scheduled") addSms(step, "tenant");
+    if (step.id === "job_done") {
+      addSms(step, "tenant");
+      addEmail(step, "manager");
+    }
+    if (step.id === "owner_paid_invoice") addEmail(step, "manager");
+  }
+  return notifications;
+}
+
+function qaRoleLabel(role) {
+  return qaPersonaRoles.find((item) => item.id === role)?.label || role;
 }
 
 function buildQaPersonaExperiences({ rolesToTest, scenario, order, property, tenant, manager, owner, vendor, deliveries, callResult, callbacks, workflow }) {
