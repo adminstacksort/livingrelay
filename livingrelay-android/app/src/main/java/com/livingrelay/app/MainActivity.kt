@@ -413,6 +413,10 @@ class RelayViewModel : ViewModel() {
 
     fun patchActiveOrder(status: String, label: String, detail: String, managerApproved: Boolean? = null, ownerApproved: Boolean? = null) {
         val order = activeOrder ?: return
+        patchOrder(order.id, status, label, detail, managerApproved, ownerApproved)
+    }
+
+    fun patchOrder(id: String, status: String, label: String, detail: String, managerApproved: Boolean? = null, ownerApproved: Boolean? = null) {
         viewModelScope.launch {
             try {
                 val body = JSONObject()
@@ -422,7 +426,7 @@ class RelayViewModel : ViewModel() {
                     .put("actor", session?.name ?: "Android")
                 if (managerApproved != null) body.put("managerApproved", managerApproved)
                 if (ownerApproved != null) body.put("ownerApproved", ownerApproved)
-                val response = requestJson("PATCH", "api/work-orders/${order.id}", body)
+                val response = requestJson("PATCH", "api/work-orders/$id", body)
                 upsertOrder(parseWorkOrder(response.getJSONObject("order")))
                 apiStatus = label
             } catch (error: Exception) {
@@ -839,8 +843,7 @@ fun OwnerView(store: RelayViewModel) {
                 WorkOrderCard(store, order)
                 Button(
                     onClick = {
-                        store.activeOrderId = order.id
-                        store.patchActiveOrder("Vendor scheduled", "Owner approved", "Owner approved by native Android app.", ownerApproved = true)
+                        store.patchOrder(order.id, "Vendor scheduled", "Owner approved", "Owner approved by native app.", ownerApproved = true)
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Approve by SMS") }
@@ -855,20 +858,22 @@ fun TenantView(store: RelayViewModel) {
     var unit by remember { mutableStateOf(store.session?.unit ?: "Garden flat") }
     var issue by remember { mutableStateOf("") }
     var access by remember { mutableStateOf("") }
+    var photos by remember { mutableStateOf("") }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         PanelCard {
-            SectionHeader(Icons.Filled.Build, "Resident request", "Tell LivingRelay what broke")
+            SectionHeader(Icons.Filled.Home, "Tenant Android", "Report an issue")
             TextFieldRow("Unit", unit, { unit = it })
             TextFieldRow("Issue", issue, { issue = it })
             TextFieldRow("Access notes", access, { access = it })
+            TextFieldRow("Photos/videos", photos, { photos = it })
             Button(onClick = { store.createTenantOrder(unit, issue, access) }, modifier = Modifier.fillMaxWidth()) {
-                Text("Send request")
+                Text("Send to manager")
             }
         }
         PanelCard {
-            SectionHeader(Icons.Filled.List, "Updates", "Your open requests")
-            store.visibleOrders.filter { it.tenantId == store.session?.id }.forEach { order ->
-                WorkOrderCard(store, order)
+            SectionHeader(Icons.Filled.Phone, "SMS mirror", "My updates")
+            store.visibleOrders.forEach { order ->
+                MiniRow(order.status, order.issue)
             }
         }
     }
@@ -877,24 +882,23 @@ fun TenantView(store: RelayViewModel) {
 @Composable
 fun VendorView(store: RelayViewModel) {
     val trade = store.session?.trade
-    val jobs = store.visibleOrders.filter { trade == null || it.trade == trade }
+    val vendorId = store.session?.id
+    val jobs = store.visibleOrders.filter { order -> order.vendorId == vendorId || order.trade == trade }
     PanelCard {
-        SectionHeader(Icons.Filled.Build, "Vendor queue", "Jobs that match your trade")
+        SectionHeader(Icons.Filled.Build, "SMS accepting flow", "Vendor jobs")
         if (jobs.isEmpty()) StatusText("No jobs are waiting.")
         jobs.forEach { order ->
             WorkOrderCard(store, order)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = {
-                        store.activeOrderId = order.id
-                        store.patchActiveOrder("Vendor scheduled", "Vendor accepted", "Vendor confirmed the appointment window.")
+                        store.patchOrder(order.id, "Vendor accepted", "Vendor accepted", "Vendor accepted the job in the native app.")
                     },
                     modifier = Modifier.weight(1f)
                 ) { Text("Accept") }
                 ElevatedButton(
                     onClick = {
-                        store.activeOrderId = order.id
-                        store.patchActiveOrder("Needs vendor", "Vendor declined", "Manager needs another vendor.")
+                        store.patchOrder(order.id, "Vendor declined", "Vendor declined", "Vendor declined the job in the native app.")
                     },
                     modifier = Modifier.weight(1f)
                 ) { Text("Decline") }
