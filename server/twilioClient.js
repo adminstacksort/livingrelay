@@ -33,6 +33,18 @@ export async function sendSms({ to, body }) {
   };
 }
 
+export async function getSmsMessageStatus(messageSid) {
+  const client = getTwilioClient();
+  const message = await client.messages(messageSid).fetch();
+  return {
+    sid: message.sid,
+    status: message.status,
+    errorCode: message.errorCode,
+    errorMessage: message.errorMessage || "",
+    dateSent: message.dateSent
+  };
+}
+
 export function getTwilioClient() {
   const status = getTwilioStatus();
   if (!status.configured) {

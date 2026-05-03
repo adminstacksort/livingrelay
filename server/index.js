@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { accessRequests, accounts, auditLog, billingEvents, event, invoices, message, notifications, people, platformSettings, properties, prospectingLeads, recordAudit, referrals, saveState, vendors, waitForStatePersistence, workOrders } from "./data.js";
 import { composeActionMessage, handleInboundCommand, normalizePhone } from "./smsLogic.js";
-import { getTwilioStatus, sendSms } from "./twilioClient.js";
+import { getSmsMessageStatus, getTwilioStatus, sendSms } from "./twilioClient.js";
 import { sendEmail } from "./emailClient.js";
 import { generateProspectingLeadBatches, generateProspectingLeads } from "./prospectingResearch.js";
 import { registerTwilioCallWithElevenLabs, startVendorQuoteCalls } from "./elevenLabsCalls.js";
@@ -916,14 +916,17 @@ app.post("/api/site-admin/qa/run", async (req, res) => {
             to: qaPhone,
             body: userUpdates.sms.body
           });
+          const smsStatus = sms.sid ? await waitForSmsDeliveryStatus(sms.sid) : sms;
+          const smsFailed = ["failed", "undelivered"].includes(String(smsStatus.status || "").toLowerCase());
           deliveries.push({
             channel: "sms",
             to: maskPhone(qaPhone),
-            sent: sms.sent,
+            sent: sms.sent && !smsFailed,
             providerId: sms.sid || "",
-            status: sms.status || "",
+            status: smsStatus.status || sms.status || "",
+            errorCode: smsStatus.errorCode || null,
             preview: userUpdates.sms.body,
-            reason: sms.error || sms.status || "sent"
+            reason: smsFailed ? twilioSmsFailureDetail(smsStatus) : sms.error || smsStatus.status || sms.status || "sent"
           });
         } catch (error) {
           deliveries.push({ channel: "sms", to: maskPhone(qaPhone), sent: false, preview: userUpdates.sms.body, reason: error.message });
@@ -2601,6 +2604,23 @@ function qaIssuesForRun({ scenario, order, property, qaPhone, qaEmail, deliverie
   }
   if (!issues.length) add("ok", "QA", "No blocking issues found in this scenario.");
   return issues;
+}
+
+async function waitForSmsDeliveryStatus(messageSid) {
+  let latest = { sid: messageSid, status: "queued" };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1500));
+    latest = await getSmsMessageStatus(messageSid);
+    if (["delivered", "sent", "failed", "undelivered"].includes(String(latest.status || "").toLowerCase())) break;
+  }
+  return latest;
+}
+
+function twilioSmsFailureDetail(status = {}) {
+  if (Number(status.errorCode) === 30034) {
+    return "Twilio 30034: US A2P 10DLC registration is missing or not associated with this sending number.";
+  }
+  return [status.errorCode ? `Twilio ${status.errorCode}` : "", status.errorMessage || status.status || "SMS provider reported failure"].filter(Boolean).join(": ");
 }
 
 function normalizeOptionalPhone(phone = "") {

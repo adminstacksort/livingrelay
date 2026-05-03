@@ -14,6 +14,8 @@ import {
   Database,
   DollarSign,
   Download,
+  Eye,
+  EyeOff,
   FileText,
   Gift,
   MapPin,
@@ -2937,7 +2939,7 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
             <input className="sr-only" name="username" autoComplete="username" value="LivingRelay admin" readOnly tabIndex={-1} aria-hidden="true" />
             <label>
               Password
-              <input name="password" type="password" value={sitePassword} onChange={(event) => setSitePassword(event.target.value)} autoComplete="current-password" autoFocus />
+              <PasswordInput name="password" value={sitePassword} onChange={setSitePassword} autoComplete="current-password" autoFocus />
             </label>
             <label className="checkbox-row">
               <input type="checkbox" checked={siteAdminRemember} onChange={(event) => setSiteAdminRemember(event.target.checked)} />
@@ -3186,7 +3188,7 @@ function LoginForm({ phone, setPhone, pin, setPin, sitePassword, setSitePassword
       {loginCandidate?.role === "Site Admin" && (
         <label>
           Admin password
-          <input type="password" value={sitePassword} onChange={(event) => setSitePassword(event.target.value)} autoComplete="current-password" />
+          <PasswordInput value={sitePassword} onChange={setSitePassword} autoComplete="current-password" />
         </label>
       )}
       {loginVerification?.challengeId && (
@@ -3220,6 +3222,33 @@ function PinCodeInput({ value, onChange }) {
   );
 }
 
+function PasswordInput({ value, onChange, name, autoComplete, autoFocus = false }) {
+  const [visible, setVisible] = useState(false);
+  const toggleLabel = visible ? "Hide password" : "Show password";
+
+  return (
+    <span className="password-field">
+      <input
+        name={name}
+        type={visible ? "text" : "password"}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        autoComplete={autoComplete}
+        autoFocus={autoFocus}
+      />
+      <button
+        type="button"
+        className="password-toggle"
+        onClick={() => setVisible((current) => !current)}
+        aria-label={toggleLabel}
+        title={toggleLabel}
+      >
+        {visible ? <EyeOff size={18} /> : <Eye size={18} />}
+      </button>
+    </span>
+  );
+}
+
 function LegacyLandingPage({ phone, setPhone, pin, setPin, sitePassword, setSitePassword, siteAdminConsoleAvailable, login, loginCandidate, loginError, loginPeople, setLoginError, landingMode, setLandingMode, signupForm, setSignupForm, signupStatus, createOnboardingProperty }) {
   if (siteAdminConsoleAvailable) {
     return (
@@ -3243,7 +3272,7 @@ function LegacyLandingPage({ phone, setPhone, pin, setPin, sitePassword, setSite
             {loginCandidate?.role === "Site Admin" && (
               <label>
                 Site admin password
-                <input type="password" value={sitePassword} onChange={(event) => setSitePassword(event.target.value)} autoComplete="current-password" />
+                <PasswordInput value={sitePassword} onChange={setSitePassword} autoComplete="current-password" />
               </label>
             )}
             <button className="primary wide" type="submit"><LockKeyhole size={16} /> Enter site admin</button>
@@ -3497,7 +3526,11 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
       setRun(data.run);
       if (data.run?.callbacks) setCallbackInfo(data.run.callbacks);
       updateProgress("results", "done");
-      setStatus({ state: data.run.issues?.some((issue) => issue.severity === "error") ? "error" : "ok", message: `${data.run.scenarioTitle} finished with ${data.run.issues?.length || 0} finding${data.run.issues?.length === 1 ? "" : "s"}.` });
+      const deliverySummary = summarizeQaDeliveries(data.run.deliveries || []);
+      setStatus({
+        state: data.run.issues?.some((issue) => issue.severity === "error") ? "error" : "ok",
+        message: `${data.run.scenarioTitle} finished with ${data.run.issues?.length || 0} finding${data.run.issues?.length === 1 ? "" : "s"}.${deliverySummary ? ` ${deliverySummary}` : ""}`
+      });
     } catch (error) {
       setProgress((items) => items.map((item) => item.state === "active" ? { ...item, state: "error" } : item));
       setStatus({ state: "error", message: error.message });
@@ -3577,7 +3610,7 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
             <DiagnosticBlock title="Messages">
               {run.deliveries.length === 0 && <DiagnosticRow label="Delivery" value="No phone or email entered." tone="warn" />}
               {run.deliveries.map((delivery, index) => (
-                <DiagnosticRow key={`${delivery.channel}-${index}`} label={delivery.channel} value={[delivery.to, delivery.providerId || delivery.status || delivery.reason].filter(Boolean).join(" · ")} tone={delivery.skipped ? "warn" : delivery.sent ? "ok" : "error"} />
+                <DiagnosticRow key={`${delivery.channel}-${index}`} label={delivery.channel} value={[delivery.to, delivery.status, delivery.errorCode ? `Twilio ${delivery.errorCode}` : "", delivery.providerId, delivery.reason].filter(Boolean).join(" · ")} tone={delivery.skipped ? "warn" : delivery.sent ? "ok" : "error"} />
               ))}
             </DiagnosticBlock>
             <DiagnosticBlock title="User Updates">
@@ -3611,6 +3644,17 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
       )}
     </div>
   );
+}
+
+function summarizeQaDeliveries(deliveries = []) {
+  if (!deliveries.length) return "";
+  const parts = deliveries.map((delivery) => {
+    const channel = delivery.channel?.toUpperCase() || "DELIVERY";
+    if (delivery.skipped) return `${channel} skipped`;
+    if (delivery.sent) return `${channel} ${delivery.status ? `is ${delivery.status}` : "sent"}`;
+    return `${channel} failed${delivery.errorCode ? ` (${delivery.errorCode})` : ""}`;
+  });
+  return parts.join("; ");
 }
 
 function QaMessagePreview({ channel, to, subject, body }) {
