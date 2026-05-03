@@ -31,6 +31,7 @@ import {
   Sparkles,
   Smartphone,
   Radio,
+  Target,
   Trash2,
   Upload,
   UserRound,
@@ -658,6 +659,45 @@ const publicFooterCityLinks = propertyMaintenanceCities.filter((city) =>
   ["san-francisco-property-maintenance", "boston-property-maintenance", "new-york-city-property-maintenance", "los-angeles-property-maintenance", "chicago-property-maintenance", "houston-property-maintenance"].includes(city.slug)
 );
 
+const siteOrigin = "https://livingrelay.com";
+const productFaqs = [
+  {
+    question: "What is LivingRelay?",
+    answer: "LivingRelay is rental repair coordination software for small property managers and rental owners. It turns tenant maintenance messages into structured work orders with approval history, vendor outreach, status updates, and invoice records."
+  },
+  {
+    question: "Who is LivingRelay built for?",
+    answer: "LivingRelay is built for small rental property operators, including property managers, owners, tenants, and service vendors who need a cleaner repair process without an enterprise maintenance department."
+  },
+  {
+    question: "How does LivingRelay handle tenant maintenance requests?",
+    answer: "Tenants can report issues from their phone. LivingRelay captures symptoms, unit details, photos, access notes, urgency, and repair history so managers and owners can make the next decision with context."
+  },
+  {
+    question: "Does LivingRelay process vendor repair payments?",
+    answer: "Vendor repair payments are handled off platform. LivingRelay keeps invoice status, repair totals, tax-year records, and coordination history organized by property."
+  }
+];
+
+const marketingUseCases = [
+  {
+    title: "For Property Managers",
+    text: "Convert tenant maintenance texts into work orders, classify the issue, collect photos and access notes, route owner approvals, and keep vendor updates tied to the property."
+  },
+  {
+    title: "For Rental Owners",
+    text: "Review repair context before approving spend, see estimate history, track vendor invoices, and keep property-level maintenance records ready for tax season or portfolio review."
+  },
+  {
+    title: "For Tenants",
+    text: "Report repairs from a phone, provide the details managers need, and receive clearer status updates without repeating the same issue in separate conversations."
+  },
+  {
+    title: "For Vendors",
+    text: "Receive cleaner scopes with the property, unit, trade, access window, photos, estimate context, and invoice delivery instructions before committing to a job."
+  }
+];
+
 function publicSitePageFor(pathname = window.location.pathname) {
   const normalized = pathname.replace(/\/+$/, "") || "/";
   if (normalized.startsWith("/property-maintenance/")) {
@@ -669,6 +709,159 @@ function publicSitePageFor(pathname = window.location.pathname) {
 function propertyMaintenanceCityFor(pathname = window.location.pathname) {
   const normalized = pathname.replace(/\/+$/, "") || "/";
   return propertyMaintenanceCities.find((city) => `/property-maintenance/${city.slug}` === normalized) || null;
+}
+
+function absoluteUrl(pathname = window.location.pathname) {
+  const path = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  return `${siteOrigin}${path}`;
+}
+
+function setMetaTag(selector, attrs) {
+  let tag = document.head.querySelector(selector);
+  if (!tag) {
+    tag = document.createElement("meta");
+    document.head.appendChild(tag);
+  }
+  Object.entries(attrs).forEach(([name, value]) => tag.setAttribute(name, value));
+}
+
+function setLinkTag(rel, href) {
+  let tag = document.head.querySelector(`link[rel="${rel}"]`);
+  if (!tag) {
+    tag = document.createElement("link");
+    tag.setAttribute("rel", rel);
+    document.head.appendChild(tag);
+  }
+  tag.setAttribute("href", href);
+}
+
+function applyPublicSeo(content, page, cityArticle) {
+  const url = absoluteUrl(window.location.pathname);
+  const title = `${content.title} | LivingRelay`;
+  const description = content.summary;
+
+  document.title = title;
+  setLinkTag("canonical", url);
+  setMetaTag('meta[name="description"]', { name: "description", content: description });
+  setMetaTag('meta[name="robots"]', { name: "robots", content: "index, follow" });
+  setMetaTag('meta[property="og:title"]', { property: "og:title", content: title });
+  setMetaTag('meta[property="og:description"]', { property: "og:description", content: description });
+  setMetaTag('meta[property="og:url"]', { property: "og:url", content: url });
+  setMetaTag('meta[property="og:type"]', { property: "og:type", content: page === "maintenanceCity" ? "article" : "website" });
+  setMetaTag('meta[name="twitter:title"]', { name: "twitter:title", content: title });
+  setMetaTag('meta[name="twitter:description"]', { name: "twitter:description", content: description });
+
+  if (cityArticle) {
+    setMetaTag('meta[name="keywords"]', {
+      name: "keywords",
+      content: `${cityArticle.city} property maintenance, ${cityArticle.city} rental repairs, property manager maintenance software, tenant repair requests, vendor coordination`
+    });
+  }
+}
+
+function JsonLd({ data }) {
+  return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }} />;
+}
+
+function publicJsonLd(page, content, cityArticle) {
+  const url = absoluteUrl();
+  const base = [
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      name: "LivingRelay",
+      url: siteOrigin,
+      email: "support@livingrelay.com"
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      name: "LivingRelay",
+      url: siteOrigin,
+      description: "SMS-first rental repair coordination software for small property operators."
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "LivingRelay", item: `${siteOrigin}/marketing` },
+        { "@type": "ListItem", position: 2, name: content.title, item: url }
+      ]
+    }
+  ];
+
+  if (page === "marketing" || page === "about") {
+    base.push({
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      name: "LivingRelay",
+      applicationCategory: "BusinessApplication",
+      operatingSystem: "Web, iOS",
+      url,
+      description: content.summary,
+      offers: {
+        "@type": "Offer",
+        price: "0",
+        priceCurrency: "USD",
+        description: "$0 per property, with coordination fees charged only when a vendor dispatch is booked."
+      },
+      audience: {
+        "@type": "Audience",
+        audienceType: "Small rental property managers and rental property owners"
+      },
+      featureList: [
+        "Tenant SMS repair intake",
+        "Property maintenance work orders",
+        "Manager and owner approval workflows",
+        "Vendor coordination",
+        "Invoice and tax-year repair records"
+      ]
+    });
+    base.push({
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      mainEntity: productFaqs.map((item) => ({
+        "@type": "Question",
+        name: item.question,
+        acceptedAnswer: { "@type": "Answer", text: item.answer }
+      }))
+    });
+  }
+
+  if (page === "maintenanceCity" && cityArticle) {
+    base.push({
+      "@context": "https://schema.org",
+      "@type": "Article",
+      headline: cityArticle.title,
+      description: content.summary,
+      author: { "@type": "Organization", name: "LivingRelay" },
+      publisher: { "@type": "Organization", name: "LivingRelay" },
+      mainEntityOfPage: url,
+      articleSection: "Property maintenance",
+      about: [
+        `${cityArticle.city} property maintenance`,
+        "rental repairs",
+        "tenant maintenance requests",
+        "vendor coordination"
+      ]
+    });
+  }
+
+  if (page === "maintenanceIndex") {
+    base.push({
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      name: content.title,
+      description: content.summary,
+      hasPart: propertyMaintenanceCities.map((city) => ({
+        "@type": "Article",
+        name: city.title,
+        url: `${siteOrigin}/property-maintenance/${city.slug}`
+      }))
+    });
+  }
+
+  return base;
 }
 
 const routeRoles = {
@@ -1257,9 +1450,15 @@ function PublicSitePage({ page }) {
     }
   };
   const content = pages[page] || pages.marketing;
+  const jsonLd = publicJsonLd(page, content, cityArticle);
+
+  useEffect(() => {
+    applyPublicSeo(content, page, cityArticle);
+  }, [content, page, cityArticle]);
 
   return (
     <main className="public-page">
+      {jsonLd.map((data, index) => <JsonLd data={data} key={`${page}-jsonld-${index}`} />)}
       <nav className="public-nav" aria-label="Public navigation">
         <a className="public-brand" href="/marketing" aria-label="LivingRelay marketing page">
           <span className="app-mark"><Wrench size={22} /></span>
@@ -1301,6 +1500,14 @@ function PublicSitePage({ page }) {
 function MarketingContent() {
   return (
     <>
+      <section className="answer-strip" aria-label="LivingRelay summary">
+        <div>
+          <span className="eyebrow">Quick answer</span>
+          <h2>LivingRelay is maintenance coordination software for rental repairs.</h2>
+        </div>
+        <p>It helps property managers and rental owners turn tenant SMS messages into organized work orders, approvals, vendor coordination, invoice records, and repair history. It is designed for small rental teams that need operational clarity without adopting a large enterprise maintenance system.</p>
+      </section>
+
       <section className="public-grid three">
         <PublicCard icon={<MessageSquare />} title="Tenant intake" text="Tenants can report repair issues with the context managers need: unit, symptoms, access notes, and photos." />
         <PublicCard icon={<ShieldCheck />} title="Approval workflow" text="Managers and owners can review work orders, estimates, vendor choices, and repair history before work moves forward." />
@@ -1319,6 +1526,17 @@ function MarketingContent() {
           <p><Check size={18} /> Owner visibility without moving repair payments on platform</p>
         </div>
       </section>
+
+      <section className="public-grid two audience-grid" aria-label="LivingRelay users">
+        {marketingUseCases.map((item) => (
+          <article className="public-card answer-card" key={item.title}>
+            <h2>{item.title}</h2>
+            <p>{item.text}</p>
+          </article>
+        ))}
+      </section>
+
+      <FaqSection items={productFaqs} />
     </>
   );
 }
@@ -1445,11 +1663,40 @@ function PropertyMaintenanceIndex() {
 }
 
 function PropertyMaintenanceCityArticle({ city }) {
+  const cityFaqs = [
+    {
+      question: `What are common rental maintenance issues in ${city.city}?`,
+      answer: `Common rental maintenance issues in ${city.city} include ${city.issue}. Managers should collect photos, access notes, urgency, and any relevant equipment or building context before dispatch.`
+    },
+    {
+      question: `How should ${city.city} property managers coordinate repairs?`,
+      answer: `A practical process is to ${city.approach}. LivingRelay supports that workflow by keeping tenant details, approvals, vendor outreach, estimates, and invoices attached to one property record.`
+    },
+    {
+      question: `What repair costs surprise rental owners in ${city.city}?`,
+      answer: city.costs
+    }
+  ];
+
   return (
     <article className="maintenance-article" aria-label={city.title}>
+      <JsonLd data={{
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        mainEntity: cityFaqs.map((item) => ({
+          "@type": "Question",
+          name: item.question,
+          acceptedAnswer: { "@type": "Answer", text: item.answer }
+        }))
+      }} />
       <p className="privacy-date">Part of the LivingRelay city property maintenance series</p>
       <h2>{city.title}: what rental operators actually need to plan for</h2>
       <p>{city.city} maintenance is shaped by {city.climate}. The local rental base includes {city.stock}, so a work order is rarely just a generic repair ticket. The best operators treat each issue as a small operating decision: what is urgent, who needs to approve it, which vendor is right for the building, and what record should exist afterward.</p>
+
+      <section className="article-answer-box">
+        <span className="eyebrow">Short answer</span>
+        <p>For rental property maintenance in {city.city}, operators should prioritize {city.issue}, then keep tenant updates, owner approvals, vendor decisions, estimates, and invoice records in a single work-order history.</p>
+      </section>
 
       <h3>Common Maintenance Needs</h3>
       <p>Common calls in {city.city} include {city.issue}. The first useful step is not always dispatch. It is getting the tenant to send the right context: where the problem is, whether it is active right now, whether there are photos, whether a shutoff or breaker has been tried, and when a vendor can enter.</p>
@@ -1466,6 +1713,8 @@ function PropertyMaintenanceCityArticle({ city }) {
       <h3>Common Costs And Expenses</h3>
       <p>{city.costs} As a planning baseline, national cost guides often place handyman projects around $176 to $689, plumbing calls around $180 to $496, electrician work around $163 to $538, and HVAC repairs across a much wider $130 to $2,000 range. {city.city} pricing can land above or below that depending on licensing, urgency, access, materials, and whether the repair requires repeat visits.</p>
 
+      <FaqSection items={cityFaqs} compact />
+
       <section className="article-cta">
         <div>
           <span className="eyebrow">LivingRelay</span>
@@ -1475,6 +1724,23 @@ function PropertyMaintenanceCityArticle({ city }) {
         <a className="primary" href="/">Open app <ArrowRight size={18} /></a>
       </section>
     </article>
+  );
+}
+
+function FaqSection({ items, compact = false }) {
+  return (
+    <section className={compact ? "faq-section compact" : "faq-section"} aria-label="Frequently asked questions">
+      <span className="eyebrow">FAQ</span>
+      <h2>Questions people ask</h2>
+      <div className="faq-list">
+        {items.map((item) => (
+          <details key={item.question}>
+            <summary>{item.question}</summary>
+            <p>{item.answer}</p>
+          </details>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1679,6 +1945,7 @@ function App() {
   const vendorsData = appData?.vendors || vendors;
   const billingEventsData = appData?.billingEvents || seedBillingEvents;
   const referralsData = appData?.referrals || [];
+  const prospectingLeadsData = appData?.prospectingLeads || [];
   const accessRequestsData = appData?.accessRequests || [];
   const platformSettings = appData?.platformSettings || { vendorCallTestMode: true, productionVendorCallsEnabled: true, vendorCallTestNumber: "" };
   const stripeData = appData?.stripe || { configured: false, missing: ["STRIPE_SECRET_KEY", "APP_PUBLIC_URL"], dispatchFeeCents: 2500 };
@@ -2358,6 +2625,7 @@ function App() {
           orders={orders}
           billingEvents={billingEventsData}
           accessRequests={accessRequestsData}
+          prospectingLeads={prospectingLeadsData}
           stripe={stripeData}
           twilioStatus={twilioStatus}
           platformSettings={platformSettings}
@@ -2383,6 +2651,7 @@ function App() {
           invoices={invoices}
           billingEvents={billingEventsData}
           referrals={referralsData}
+          prospectingLeads={prospectingLeadsData}
           accessRequests={accessRequestsData}
           auditLog={auditData}
           platformSettings={platformSettings}
@@ -2991,6 +3260,7 @@ const LandingPage = LandingPageUnused;
 function AdminConsoleNav({ active, setActive }) {
   const items = [
     ["accounts", LayoutDashboard, "Customers"],
+    ["prospecting", Target, "Prospecting"],
     ["accessRequests", Send, "Access"],
     ["directory", Users, "People"],
     ["properties", Building2, "Properties"],
@@ -3010,7 +3280,7 @@ function AdminConsoleNav({ active, setActive }) {
   );
 }
 
-function SiteOwnerHero({ accounts, people, properties, orders, billingEvents, accessRequests = [], stripe, twilioStatus, platformSettings }) {
+function SiteOwnerHero({ accounts, people, properties, orders, billingEvents, accessRequests = [], prospectingLeads = [], stripe, twilioStatus, platformSettings }) {
   const openOrders = orders.filter((order) => order.status !== "Closed").length;
   const activeAccounts = accounts.filter((account) => account.status === "Active").length;
   const dispatchRevenue = billingEvents.reduce((sum, event) => sum + Number(event.amount || 0), 0);
@@ -3019,6 +3289,7 @@ function SiteOwnerHero({ accounts, people, properties, orders, billingEvents, ac
     const createdAt = new Date(request.createdAt || 0).getTime();
     return createdAt && Date.now() - createdAt < 1000 * 60 * 60 * 24 * 30;
   }).length;
+  const newProspectingLeads = prospectingLeads.filter((lead) => ["New", "Ready to contact"].includes(lead.status || "New")).length;
   return (
     <section className="owner-console-hero">
       <div>
@@ -3031,6 +3302,7 @@ function SiteOwnerHero({ accounts, people, properties, orders, billingEvents, ac
         <MiniRow icon={<DollarSign />} label="Dispatch revenue" value={formatMoney(dispatchRevenue)} />
         <MiniRow icon={<ClipboardList />} label="Open support load" value={openOrders} />
         <MiniRow icon={<Send />} label="Access referrals" value={recentAccessRequests || accessRequests.length} />
+        <MiniRow icon={<Target />} label="Prospecting" value={newProspectingLeads || prospectingLeads.length} />
         <MiniRow icon={<Users />} label="Owner users" value={ownerUsers} />
         <MiniRow icon={<CreditCard />} label="Stripe" value={stripe.configured ? "Ready" : "Needs keys"} />
         <MiniRow icon={<Smartphone />} label="Twilio" value={twilioStatus?.configured ? "Ready" : "Needs config"} />
@@ -3061,7 +3333,7 @@ function RoleSectionAction({ active, setActive, role }) {
   );
 }
 
-function AdminConsole({ active, accounts, people, properties, vendors, orders, invoices, billingEvents, referrals = [], accessRequests = [], auditLog, platformSettings, reloadState, siteAdminToken, setActivePropertyId, setActiveOrderId, setAdminSection }) {
+function AdminConsole({ active, accounts, people, properties, vendors, orders, invoices, billingEvents, referrals = [], prospectingLeads = [], accessRequests = [], auditLog, platformSettings, reloadState, siteAdminToken, setActivePropertyId, setActiveOrderId, setAdminSection }) {
   const activeProperties = properties.length;
   const pendingInvoices = invoices.filter((invoice) => !String(invoice.status).toLowerCase().includes("paid")).length;
   const openOrders = orders.filter((order) => order.status !== "Closed").length;
@@ -3070,6 +3342,7 @@ function AdminConsole({ active, accounts, people, properties, vendors, orders, i
     <section className="admin-console">
       <div className="admin-overview">
         <Metric icon={<LayoutDashboard />} label="Customer accounts" value={accounts.length} />
+        <Metric icon={<Target />} label="Prospecting leads" value={prospectingLeads.length} />
         <Metric icon={<Send />} label="Access requests" value={accessRequests.length} />
         <Metric icon={<DollarSign />} label="Dispatch fees" value={formatMoney(dispatchRevenue)} />
         <Metric icon={<ClipboardList />} label="Open support load" value={openOrders} />
@@ -3078,6 +3351,7 @@ function AdminConsole({ active, accounts, people, properties, vendors, orders, i
         <PlatformVendorCallSettings platformSettings={platformSettings} reloadState={reloadState} siteAdminToken={siteAdminToken} />
         <SiteAccounts accounts={accounts} properties={properties} people={people} orders={orders} invoices={invoices} reloadState={reloadState} siteAdminToken={siteAdminToken} />
       </>}
+      {active === "prospecting" && <AdminProspecting prospectingLeads={prospectingLeads} reloadState={reloadState} siteAdminToken={siteAdminToken} />}
       {active === "accessRequests" && <AdminAccessRequests accessRequests={accessRequests} referrals={referrals} reloadState={reloadState} siteAdminToken={siteAdminToken} />}
       {active === "directory" && <AdminDirectory people={people} properties={properties} accounts={accounts} reloadState={reloadState} />}
       {active === "properties" && <AdminProperties properties={properties} people={people} accounts={accounts} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setAdminSection={setAdminSection} />}
@@ -3085,6 +3359,148 @@ function AdminConsole({ active, accounts, people, properties, vendors, orders, i
       {active === "billing" && <AdminBilling accounts={accounts} properties={properties} invoices={invoices} billingEvents={billingEvents} activeProperties={activeProperties} pendingInvoices={pendingInvoices} reloadState={reloadState} />}
       {active === "diagnostics" && <AdminDiagnostics siteAdminToken={siteAdminToken} platformSettings={platformSettings} />}
       {active === "audit" && <AdminAudit auditLog={auditLog} />}
+    </section>
+  );
+}
+
+function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken }) {
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [form, setForm] = useState({
+    name: "",
+    segment: "Property manager",
+    priority: "Medium",
+    status: "New",
+    contactName: "",
+    contactRole: "",
+    email: "",
+    phone: "",
+    website: "",
+    listingUrl: "",
+    rentalAddress: "",
+    market: "",
+    unitCount: "",
+    sourceName: "",
+    fit: "",
+    notes: ""
+  });
+  const [saveStatus, setSaveStatus] = useState("");
+  const searchable = (lead) => [
+    lead.name,
+    lead.segment,
+    lead.status,
+    lead.priority,
+    lead.fit,
+    lead.contactName,
+    lead.contactRole,
+    lead.email,
+    lead.phone,
+    lead.website,
+    lead.listingUrl,
+    lead.rentalAddress,
+    lead.market,
+    lead.unitCount,
+    lead.sourceName,
+    lead.notes
+  ].join(" ").toLowerCase();
+  const filteredLeads = prospectingLeads
+    .filter((lead) => statusFilter === "All" || (lead.status || "New") === statusFilter)
+    .filter((lead) => searchable(lead).includes(query.toLowerCase()))
+    .sort((left, right) => {
+      const priorityOrder = { High: 0, Medium: 1, Low: 2 };
+      return (priorityOrder[left.priority] ?? 1) - (priorityOrder[right.priority] ?? 1) || new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0);
+    });
+
+  async function addLead(event) {
+    event.preventDefault();
+    setSaveStatus("Saving...");
+    try {
+      await fetch("/api/site-admin/prospecting-leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${siteAdminToken}` },
+        body: JSON.stringify(form)
+      });
+      setForm({ ...form, name: "", contactName: "", email: "", phone: "", website: "", listingUrl: "", rentalAddress: "", fit: "", notes: "" });
+      setSaveStatus("Lead saved");
+      await reloadState?.();
+    } catch (error) {
+      setSaveStatus(error.message || "Could not save lead");
+    }
+  }
+
+  async function updateLead(lead, updates) {
+    await fetch(`/api/site-admin/prospecting-leads/${lead.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${siteAdminToken}` },
+      body: JSON.stringify(updates)
+    });
+    await reloadState?.();
+  }
+
+  return (
+    <section className="panel">
+      <SectionTitle icon={<Target />} title="Prospecting pipeline" eyebrow="Public rental leads" />
+      <div className="admin-overview">
+        <Metric icon={<Target />} label="Total leads" value={prospectingLeads.length} />
+        <Metric icon={<Bell />} label="Ready to contact" value={prospectingLeads.filter((lead) => lead.status === "Ready to contact").length} />
+        <Metric icon={<Check />} label="Contacted" value={prospectingLeads.filter((lead) => lead.status === "Contacted").length} />
+      </div>
+      <div className="search-box">
+        <Search size={16} />
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, market, source, contact, notes, or listing URL" />
+      </div>
+      <div className="role-section-tabs prospecting-filters">
+        {["All", "New", "Ready to contact", "Contacted", "Replied", "Not a fit", "Do not contact"].map((status) => (
+          <button key={status} className={statusFilter === status ? "active" : ""} onClick={() => setStatusFilter(status)}>{status}</button>
+        ))}
+      </div>
+      <div className="admin-card-list">
+        {filteredLeads.length === 0 && <p className="form-note">No prospecting leads match this view yet.</p>}
+        {filteredLeads.map((lead) => (
+          <article className="admin-record prospecting-record" key={lead.id}>
+            <div>
+              <span>{lead.segment || "Property manager"} · {lead.priority || "Medium"} priority · {lead.status || "New"}</span>
+              <strong>{lead.name}</strong>
+              <p>{[lead.market, lead.rentalAddress, lead.unitCount].filter(Boolean).join(" · ") || "Market and portfolio details pending"}</p>
+              <p>{[lead.contactName, lead.contactRole, lead.email, lead.phone].filter(Boolean).join(" · ") || "Public contact details pending"}</p>
+              {lead.fit && <p>{lead.fit}</p>}
+              {lead.notes && <p>{lead.notes}</p>}
+              <p>{[lead.sourceName, lead.website, lead.listingUrl].filter(Boolean).join(" · ")}</p>
+            </div>
+            <div className="record-actions">
+              <select value={lead.status || "New"} onChange={(event) => updateLead(lead, { status: event.target.value })}>
+                {["New", "Researching", "Ready to contact", "Contacted", "Replied", "Not a fit", "Do not contact"].map((status) => <option key={status}>{status}</option>)}
+              </select>
+              <select value={lead.priority || "Medium"} onChange={(event) => updateLead(lead, { priority: event.target.value })}>
+                {["High", "Medium", "Low"].map((priority) => <option key={priority}>{priority}</option>)}
+              </select>
+              {lead.website && <a className="ghost link-like-button" href={lead.website} target="_blank" rel="noreferrer">Website</a>}
+              {lead.listingUrl && <a className="ghost link-like-button" href={lead.listingUrl} target="_blank" rel="noreferrer">Listing</a>}
+            </div>
+          </article>
+        ))}
+      </div>
+      <SectionTitle icon={<Plus />} title="Add lead" eyebrow="Manual or automation entry" />
+      <form className="admin-form" onSubmit={addLead}>
+        <label>Name<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label>
+        <label>Segment<select value={form.segment} onChange={(event) => setForm({ ...form, segment: event.target.value })}><option>Property manager</option><option>Apartment rental</option><option>Small landlord</option><option>Small owner</option></select></label>
+        <label>Priority<select value={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.value })}><option>High</option><option>Medium</option><option>Low</option></select></label>
+        <label>Status<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}><option>New</option><option>Researching</option><option>Ready to contact</option><option>Contacted</option><option>Replied</option><option>Not a fit</option><option>Do not contact</option></select></label>
+        <label>Contact name<input value={form.contactName} onChange={(event) => setForm({ ...form, contactName: event.target.value })} /></label>
+        <label>Contact role<input value={form.contactRole} onChange={(event) => setForm({ ...form, contactRole: event.target.value })} /></label>
+        <label>Email<input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
+        <label>Phone<input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label>
+        <label>Website<input value={form.website} onChange={(event) => setForm({ ...form, website: event.target.value })} /></label>
+        <label>Listing URL<input value={form.listingUrl} onChange={(event) => setForm({ ...form, listingUrl: event.target.value })} /></label>
+        <label>Market<input value={form.market} onChange={(event) => setForm({ ...form, market: event.target.value })} /></label>
+        <label>Rental address<input value={form.rentalAddress} onChange={(event) => setForm({ ...form, rentalAddress: event.target.value })} /></label>
+        <label>Unit count<input value={form.unitCount} onChange={(event) => setForm({ ...form, unitCount: event.target.value })} /></label>
+        <label>Source<input value={form.sourceName} onChange={(event) => setForm({ ...form, sourceName: event.target.value })} /></label>
+        <label className="span-2">Fit<input value={form.fit} onChange={(event) => setForm({ ...form, fit: event.target.value })} /></label>
+        <label className="span-2">Notes<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
+        <button className="primary" type="submit"><Plus size={16} /> Save lead</button>
+        {saveStatus && <p className="form-note">{saveStatus}</p>}
+      </form>
     </section>
   );
 }

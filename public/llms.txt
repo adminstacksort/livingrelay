@@ -1,0 +1,30 @@
+# LivingRelay
+
+LivingRelay is SMS-first rental repair coordination software for small property managers and rental owners.
+
+## What It Does
+
+- Turns tenant maintenance texts into structured repair work orders.
+- Collects unit details, symptoms, urgency, photos, access notes, and repair history.
+- Routes manager review and owner approval decisions.
+- Supports vendor coordination with clear scopes, estimates, and booking context.
+- Keeps invoice status, off-platform payment notes, tax-year totals, and property repair history organized.
+
+## Primary Audience
+
+- Small property managers
+- Rental property owners
+- Tenants reporting maintenance issues
+- Vendors receiving repair scopes and invoice instructions
+
+## Key Pages
+
+- Marketing: https://livingrelay.com/marketing
+- About: https://livingrelay.com/about
+- Support: https://livingrelay.com/support
+- Privacy: https://livingrelay.com/privacy
+- Property maintenance guides: https://livingrelay.com/property-maintenance
+
+## Positioning
+
+LivingRelay is for small rental teams that need clearer maintenance coordination without adopting an enterprise property management system. It does not replace trusted local vendors and does not process vendor repair payments on platform; it organizes the repair workflow, communication trail, approvals, and records around each property.
