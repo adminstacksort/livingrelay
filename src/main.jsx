@@ -3530,8 +3530,15 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
     { id: "hvac_no_heat", title: "No heat urgent HVAC", trade: "HVAC", severity: "Urgent", estimate: 425, issue: "Heat is not turning on and thermostat is blank." },
     { id: "electrical_spark", title: "Electrical spark", trade: "Electrical", severity: "Urgent", estimate: 185, issue: "Bedroom outlet sparked and lights are out." }
   ];
+  const defaultRoles = [
+    { id: "tenant", label: "Tenant" },
+    { id: "manager", label: "Manager" },
+    { id: "owner", label: "Owner" },
+    { id: "vendor", label: "Vendor" }
+  ];
   const [scenarios, setScenarios] = useState(defaultScenarios);
-  const [form, setForm] = useState({ scenarioId: defaultScenarios[0].id, phone: "(386) 453-6280", email: "admin@stacksortenterprises.com", demoFallback: true, allowRealMessages: true });
+  const [roles, setRoles] = useState(defaultRoles);
+  const [form, setForm] = useState({ scenarioId: defaultScenarios[0].id, phone: "(386) 453-6280", email: "admin@stacksortenterprises.com", demoFallback: true, allowRealMessages: true, rolesToTest: ["tenant", "manager", "owner"] });
   const [status, setStatus] = useState({ state: "idle", message: "" });
   const [run, setRun] = useState(null);
   const [runLog, setRunLog] = useState([]);
@@ -3555,10 +3562,20 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
         return;
       }
       if (data.callbacks) setCallbackInfo(data.callbacks);
+      if (data.roles?.length) setRoles(data.roles);
       if (response.ok && data.scenarios?.length) setScenarios(data.scenarios);
     } catch {
       setScenarios(defaultScenarios);
     }
+  }
+
+  function toggleRole(roleId) {
+    setForm((current) => {
+      const selected = new Set(current.rolesToTest || []);
+      if (selected.has(roleId)) selected.delete(roleId);
+      else selected.add(roleId);
+      return { ...current, rolesToTest: Array.from(selected) };
+    });
   }
 
   async function loadRunLog() {
@@ -3655,6 +3672,17 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
           </label>
           <label>QA phone<input value={form.phone} onChange={(event) => setForm({ ...form, phone: formatPhoneInput(event.target.value) })} inputMode="tel" placeholder="Real phone for SMS/test call" /></label>
           <label>QA email<input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} inputMode="email" placeholder="Real email for delivery" /></label>
+          <fieldset className="qa-role-picker span-2">
+            <legend>Roles to test</legend>
+            <div>
+              {roles.map((role) => (
+                <label className="check-row" key={role.id}>
+                  <input type="checkbox" checked={(form.rolesToTest || []).includes(role.id)} onChange={() => toggleRole(role.id)} />
+                  {role.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <label className="check-row span-2"><input type="checkbox" checked={form.allowRealMessages} onChange={(event) => setForm({ ...form, allowRealMessages: event.target.checked })} /> Send real SMS/email to the QA contacts</label>
           <label className="check-row span-2"><input type="checkbox" checked={form.demoFallback} onChange={(event) => setForm({ ...form, demoFallback: event.target.checked })} /> Generate demo vendor outcomes when live calls are disabled</label>
           <button className="primary wide" type="submit" disabled={status.state === "saving"}><Radio size={16} /> {status.state === "saving" ? "Running" : "Run QA"}</button>
@@ -3706,6 +3734,12 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
               {run.deliveries.length === 0 && <DiagnosticRow label="Delivery" value="No phone or email entered." tone="warn" />}
               {run.deliveries.map((delivery, index) => (
                 <DiagnosticRow key={`${delivery.channel}-${index}`} label={delivery.channel} value={[delivery.to, delivery.status, delivery.errorCode ? `Twilio ${delivery.errorCode}` : "", delivery.providerId, delivery.reason].filter(Boolean).join(" · ")} tone={delivery.skipped ? "warn" : delivery.sent ? "ok" : "error"} />
+              ))}
+            </DiagnosticBlock>
+            <DiagnosticBlock title="Persona Experiences">
+              {!run.personas?.length && <DiagnosticRow label="Roles" value="No personas selected for this QA run." tone="warn" />}
+              {run.personas?.map((persona) => (
+                <QaPersonaPreview persona={persona} key={persona.role} />
               ))}
             </DiagnosticBlock>
             <DiagnosticBlock title="User Updates">
@@ -3769,6 +3803,28 @@ function summarizeQaDeliveries(deliveries = []) {
     return `${channel} failed${delivery.errorCode ? ` (${delivery.errorCode})` : ""}`;
   });
   return parts.join("; ");
+}
+
+function QaPersonaPreview({ persona }) {
+  const errorCount = persona.checks?.filter((check) => check.status === "error").length || 0;
+  return (
+    <div className="qa-persona-preview">
+      <div>
+        <span>{persona.label}</span>
+        <strong>{persona.actor}</strong>
+        <em className={errorCount ? "error" : "ok"}>{errorCount ? `${errorCount} issue${errorCount === 1 ? "" : "s"}` : "OK"}</em>
+      </div>
+      <p>{persona.summary}</p>
+      <ul>
+        {(persona.screens || []).map((screen) => <li key={screen}>{screen}</li>)}
+      </ul>
+      <div className="qa-persona-checks">
+        {(persona.checks || []).map((check, index) => (
+          <span className={check.status} key={`${persona.role}-${index}`}>{check.detail}</span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function QaMessagePreview({ channel, to, subject, body }) {

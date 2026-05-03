@@ -822,10 +822,18 @@ const qaScenarios = {
     expected: ["work_order_created", "manager_review", "sms_attempted", "email_attempted", "vendor_call_attempted"]
   }
 };
+const qaPersonaRoles = [
+  { id: "tenant", label: "Tenant" },
+  { id: "manager", label: "Manager" },
+  { id: "owner", label: "Owner" },
+  { id: "vendor", label: "Vendor" }
+];
+const defaultQaPersonaRoles = ["tenant", "manager", "owner"];
 
 app.get("/api/site-admin/qa/scenarios", (req, res) => {
   res.json({
     callbacks: qaCallbackDiagnostics(req),
+    roles: qaPersonaRoles,
     scenarios: Object.entries(qaScenarios).map(([id, scenario]) => ({
       id,
       title: scenario.title,
@@ -851,8 +859,11 @@ app.post("/api/site-admin/qa/run", async (req, res) => {
     const callbacks = qaCallbackDiagnostics(req);
     const liveCallbackChannelsAllowed = !callbacks.mismatch;
     const realMessagesAllowed = liveCallbackChannelsAllowed || req.body.allowRealMessages === true;
+    const rolesToTest = normalizeQaRoles(req.body.rolesToTest);
     const property = properties.find((item) => item.id === "p-test") || properties[0];
     const tenant = people.find((person) => person.role === "Tenant" && person.propertyIds?.includes(property.id)) || people.find((person) => person.role === "Tenant");
+    const manager = people.find((person) => person.role === "Manager" && person.propertyIds?.includes(property.id)) || people.find((person) => person.role === "Manager");
+    const owner = people.find((person) => person.role === "Owner" && person.propertyIds?.includes(property.id)) || people.find((person) => person.role === "Owner");
     const vendor = vendors.find((item) => item.trade === scenario.trade) || vendors[0];
     const runId = `qa-${Date.now()}-${randomUUID().slice(0, 8)}`;
     const startedAt = new Date().toISOString();
@@ -973,10 +984,12 @@ app.post("/api/site-admin/qa/run", async (req, res) => {
         testOnly: true
       });
     const issues = qaIssuesForRun({ scenario, order, property, qaPhone, qaEmail, deliveries, callResult, callbacks });
+    const personas = buildQaPersonaExperiences({ rolesToTest, scenario, order, property, tenant, manager, owner, vendor, deliveries, callResult, callbacks });
     order.timeline.push(event("QA run completed", `${issues.length} issue${issues.length === 1 ? "" : "s"} found.`));
     const runSnapshot = {
       id: runId,
       environment: getRuntimeEnvironment(),
+      rolesToTest,
       startedAt,
       completedAt: new Date().toISOString(),
       scenarioId: req.body.scenarioId || "leak_owner_approval",
@@ -985,6 +998,7 @@ app.post("/api/site-admin/qa/run", async (req, res) => {
       workOrderId: order.id,
       status: issues.some((issue) => issue.severity === "error") ? "Issues found" : "Passed with warnings check",
       issues,
+      personas,
       deliveries,
       userUpdates,
       callbacks: { ...callbacks, realMessagesAllowed },
@@ -2647,6 +2661,124 @@ function qaIssuesForRun({ scenario, order, property, qaPhone, qaEmail, deliverie
   }
   if (!issues.length) add("ok", "QA", "No blocking issues found in this scenario.");
   return issues;
+}
+
+function normalizeQaRoles(roles = defaultQaPersonaRoles) {
+  const allowed = new Set(qaPersonaRoles.map((role) => role.id));
+  const selected = Array.isArray(roles) ? roles : defaultQaPersonaRoles;
+  return selected.filter((role) => allowed.has(role));
+}
+
+function buildQaPersonaExperiences({ rolesToTest, scenario, order, property, tenant, manager, owner, vendor, deliveries, callResult, callbacks }) {
+  const smsDelivery = deliveries.find((item) => item.channel === "sms");
+  const emailDelivery = deliveries.find((item) => item.channel === "email");
+  const needsOwnerApproval = order.ownerApproved === false;
+  const personaBuilders = {
+    tenant: () => ({
+      role: "tenant",
+      label: "Tenant",
+      actor: tenant?.name || "Test Tenant",
+      entry: "Tenant repair thread",
+      summary: `${scenario.issue} is acknowledged for ${order.unit}. Tenant sees status, access notes, and next-step updates.`,
+      notifications: [
+        smsDelivery?.sent ? "SMS update delivered to QA phone" : `SMS would show the QA update, but delivery is ${smsDelivery?.status || "not confirmed"}.`,
+        "In-app thread shows the original tenant issue and LivingRelay QA acknowledgement."
+      ],
+      screens: [
+        "Request thread with the reported issue",
+        `Status badge: ${order.status}`,
+        `Access and availability: ${order.access}`,
+        callbacks.mismatch ? "Reply notice: SMS replies route to the configured public callback environment." : "Reply box accepts STATUS-style SMS follow-up."
+      ],
+      checks: [
+        qaPersonaCheck(Boolean(order.messages?.length), "Thread contains tenant and relay messages", "Tenant thread has no messages."),
+        qaPersonaCheck(Boolean(order.tenantAvailability?.preferredWindows?.length), "Availability is parsed for scheduling", "Tenant availability was not parsed."),
+        qaPersonaCheck(Boolean(smsDelivery), "Tenant update was generated", "No SMS update was generated for tenant-facing QA.")
+      ]
+    }),
+    manager: () => ({
+      role: "manager",
+      label: "Manager",
+      actor: manager?.name || "Test Manager",
+      entry: "Manager operations console",
+      summary: `Manager sees ${order.id}, triage, tenant access notes, approval state, and vendor outreach status.`,
+      notifications: [
+        "Manager dashboard shows the QA work order in open support load.",
+        needsOwnerApproval ? "Owner approval is required before manager can treat this as approved." : "Manager can review and proceed without owner approval."
+      ],
+      screens: [
+        "Work order detail",
+        "Tenant intake and timeline",
+        "Vendor outreach controls",
+        "Completion and invoice placeholders"
+      ],
+      checks: [
+        qaPersonaCheck(Boolean(order.id), "Work order is visible", "Work order was not created."),
+        qaPersonaCheck(order.dispatchStage === "qa_review", "QA stage is explicit", "Dispatch stage is not marked for QA review."),
+        qaPersonaCheck(callResult?.skipped || callResult?.started !== false, "Vendor outreach state is explained", "Vendor outreach state is missing.")
+      ]
+    }),
+    owner: () => ({
+      role: "owner",
+      label: "Owner",
+      actor: owner?.name || "Test Owner",
+      entry: "Owner approvals view",
+      summary: needsOwnerApproval
+        ? `Owner sees an approval request because ${formatQaMoney(order.estimate)} exceeds the ${formatQaMoney(property.approvalThreshold || 250)} threshold.`
+        : `Owner sees the repair record, but no approval task because ${formatQaMoney(order.estimate)} is within threshold.`,
+      notifications: [
+        needsOwnerApproval ? "Approval prompt is expected for owner." : "Informational owner visibility only.",
+        emailDelivery?.sent ? "Email update delivered to QA address" : `Email preview is generated, but delivery is ${emailDelivery?.reason || "not confirmed"}.`
+      ],
+      screens: [
+        "Approval decision card",
+        `Estimate: ${formatQaMoney(order.estimate)}`,
+        `Threshold: ${formatQaMoney(property.approvalThreshold || 250)}`,
+        "Audit trail and work order context"
+      ],
+      checks: [
+        qaPersonaCheck(needsOwnerApproval ? order.ownerApproved === false : order.ownerApproved === true, "Approval state matches estimate threshold", "Approval state does not match estimate threshold."),
+        qaPersonaCheck(Boolean(order.timeline?.length), "Owner has timeline context", "Timeline context is missing."),
+        qaPersonaCheck(Boolean(emailDelivery), "Owner email preview was generated", "No email update was generated for owner-facing QA.")
+      ]
+    }),
+    vendor: () => ({
+      role: "vendor",
+      label: "Vendor",
+      actor: vendor?.name || "Test Vendor",
+      entry: "Vendor call / quote flow",
+      summary: callResult?.skipped
+        ? "Vendor experience is mocked because voice callbacks are protected in this environment."
+        : "Vendor receives a test-only call flow with the QA phone as the vendor target.",
+      notifications: [
+        callResult?.skipped ? callResult.reason : "Vendor call attempt is represented in the call results.",
+        "Quote questions include availability, fees, discount, warranty, photos, and invoice instructions."
+      ],
+      screens: [
+        "Call script prompt",
+        "Quote capture checklist",
+        "Invoice delivery instruction",
+        "Manager comparison summary"
+      ],
+      checks: [
+        qaPersonaCheck(Boolean(vendor?.name), "Matching trade vendor selected", "No matching vendor was selected."),
+        qaPersonaCheck(callResult?.skipped || (callResult?.calls || []).length > 0, "Call flow is either attempted or explicitly skipped", "Vendor call flow has no attempt or skip reason."),
+        qaPersonaCheck(Boolean(order.vendorOutreach), "Vendor outreach state exists", "Vendor outreach state is missing.")
+      ]
+    })
+  };
+  return rolesToTest.map((role) => personaBuilders[role]?.()).filter(Boolean);
+}
+
+function qaPersonaCheck(ok, pass, fail) {
+  return {
+    status: ok ? "ok" : "error",
+    detail: ok ? pass : fail
+  };
+}
+
+function formatQaMoney(value) {
+  return `$${Number(value || 0).toLocaleString("en-US")}`;
 }
 
 async function waitForSmsDeliveryStatus(messageSid) {

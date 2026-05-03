@@ -2301,6 +2301,28 @@ body:has(.login-card.admin-login-card) {
   grid-column: 1 / -1;
 }
 
+.qa-role-picker {
+  border: 1px solid #e5e5e2;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+}
+
+.qa-role-picker legend {
+  color: #4f5d59;
+  font-size: 12px;
+  font-weight: 850;
+  padding: 0 4px;
+}
+
+.qa-role-picker div {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .qa-progress-list {
   border: 1px solid #e5e5e2;
   border-radius: 8px;
@@ -2466,6 +2488,98 @@ body:has(.login-card.admin-login-card) {
   margin: 0;
   padding: 10px;
   white-space: pre-wrap;
+}
+
+.qa-persona-preview {
+  border-top: 1px solid #eeeeeb;
+  display: grid;
+  gap: 8px;
+  padding: 10px 0;
+}
+
+.qa-persona-preview:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.qa-persona-preview > div:first-child {
+  align-items: center;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.qa-persona-preview span {
+  color: #737373;
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.qa-persona-preview strong {
+  font-size: 13px;
+}
+
+.qa-persona-preview em {
+  border-radius: 999px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 850;
+  padding: 4px 7px;
+}
+
+.qa-persona-preview em.ok {
+  background: #edf8f4;
+  color: #176f4a;
+}
+
+.qa-persona-preview em.error {
+  background: #fae1d6;
+  color: #a83232;
+}
+
+.qa-persona-preview p {
+  color: #26312f;
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.qa-persona-preview ul {
+  color: #4f5d59;
+  display: grid;
+  font-size: 12px;
+  gap: 4px;
+  line-height: 1.35;
+  margin: 0;
+  padding-left: 16px;
+}
+
+.qa-persona-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.qa-persona-checks span {
+  border: 1px solid #e5e5e2;
+  border-radius: 999px;
+  color: #4f5d59;
+  font-size: 11px;
+  padding: 4px 7px;
+  text-transform: none;
+}
+
+.qa-persona-checks span.ok {
+  border-color: #cdded8;
+  background: #edf8f4;
+  color: #176f4a;
+}
+
+.qa-persona-checks span.error {
+  border-color: #f0c8bb;
+  background: #fae1d6;
+  color: #a83232;
 }
 
 .qa-run-log {
@@ -4545,6 +4659,10 @@ body:has(.login-card.admin-login-card) {
   .qa-view,
   .qa-result-grid {
     grid-template-columns: 1fr;
+  }
+
+  .qa-role-picker div {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .qa-run-log-item {
