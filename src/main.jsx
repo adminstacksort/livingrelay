@@ -74,7 +74,16 @@ const properties = [
     billingPayerRole: "Owner",
     billingPayerPersonId: "owner-1",
     billingSetupStatus: "Needs card",
-    rules: "Plumbing under $300 goes to Carlos first. Any repair above $150 needs owner approval. HVAC always requires manager review. Emergencies: active water, gas smell, sparking, no lock."
+    rules: "Plumbing under $300 goes to Carlos first. Any repair above $150 needs owner approval. HVAC always requires manager review. Emergencies: active water, gas smell, sparking, no lock.",
+    dispatchSettings: {
+      vendorPreferences: {
+        Plumbing: ["Carlos Plumbing"],
+        HVAC: ["Nova HVAC"],
+        Electrical: ["Spark Right Electric"],
+        Painting: [],
+        General: []
+      }
+    }
   },
   {
     id: "p-test",
@@ -2503,7 +2512,7 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
         <div className="landing-hero-grid">
           <div className="hero-copy">
             <span className="hero-kicker">AI vendor management for rental repairs</span>
-            <h1>LivingRelay calls vendors and gets repairs booked.</h1>
+            <h1>AI voice calls vendors and books the repair.</h1>
             <p>Tenant texts become repair scopes. AI voice agents call vendors, compare availability and pricing, coordinate access windows, and keep owners in the loop.</p>
             <div className="hero-proof" aria-label="What LivingRelay coordinates">
               <span><Phone size={16} /> AI vendor calls</span>
@@ -3579,6 +3588,150 @@ function inferAccounts(person, properties, accounts) {
   return Array.from(ids).map((id) => accounts.find((account) => account.id === id)?.name || id).join(", ");
 }
 
+const vendorOnboardingTrades = ["Plumbing", "HVAC", "Electrical", "Appliance", "Handyman", "Cleaning", "Painting", "Roofing", "Landscaping", "General"];
+
+function VendorTeamOnboarding({ property, account, people, vendors, reloadState }) {
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [status, setStatus] = useState({ state: "idle", message: "" });
+  const [form, setForm] = useState({
+    name: "",
+    trade: "Plumbing",
+    phone: "",
+    useFor: "First call for tenant maintenance",
+    notes: ""
+  });
+  const manager = people.find((person) => person.id === property.managerId || person.id === property.adminId);
+  const owner = people.find((person) => person.id === property.ownerId);
+  const team = preferredVendorTeam(property, vendors);
+  const assignedVendorCount = team.reduce((count, item) => count + item.names.length, 0);
+
+  useEffect(() => {
+    const preferences = property.dispatchSettings?.vendorPreferences || {};
+    setForm((current) => {
+      const next = { ...current };
+      vendorOnboardingTrades.forEach((trade) => {
+        next[trade] = (preferences[trade] || []).join(", ");
+      });
+      return next;
+    });
+  }, [property.id, property.dispatchSettings]);
+
+  async function saveVendor(event) {
+    event.preventDefault();
+    setStatus({ state: "saving", message: "Adding vendor to this property's team..." });
+    try {
+      const response = await fetch("/api/admin/vendors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, propertyId: property.id, accountId: account?.id, preferred: true })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not add vendor.");
+      setForm({ ...form, name: "", phone: "", useFor: "First call for tenant maintenance", notes: "" });
+      setStatus({ state: "ok", message: `${data.vendor.name} is now part of this property's team.` });
+      await reloadState?.();
+    } catch (error) {
+      setStatus({ state: "error", message: error.message });
+    }
+  }
+
+  async function saveTeamPlan(event) {
+    event.preventDefault();
+    setStatus({ state: "saving", message: "Saving vendor assignments..." });
+    const vendorPreferences = {};
+    vendorOnboardingTrades.forEach((trade) => {
+      vendorPreferences[trade] = String(form[trade] || "").split(",").map((item) => item.trim()).filter(Boolean);
+    });
+    try {
+      const response = await fetch(`/api/admin/properties/${property.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dispatchSettings: {
+            ...(property.dispatchSettings || {}),
+            vendorPreferences
+          }
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not save vendor assignments.");
+      setStatus({ state: "ok", message: "Team assignments saved." });
+      await reloadState?.();
+    } catch (error) {
+      setStatus({ state: "error", message: error.message });
+    }
+  }
+
+  return (
+    <section className="panel vendor-onboarding-panel">
+      <div className="vendor-onboarding-head">
+        <SectionTitle icon={<Users />} title="Their team" eyebrow="Optional vendor onboarding" />
+        <button className={wizardOpen ? "ghost" : "secondary"} type="button" onClick={() => setWizardOpen(!wizardOpen)}>
+          {wizardOpen ? <><Check size={15} /> Done</> : <><Plus size={15} /> Add vendor</>}
+        </button>
+      </div>
+      <div className="team-summary-grid">
+        <MiniRow icon={<UserRound />} label="Owner" value={owner ? `${owner.name} · ${owner.phone || "no phone"}` : "No owner assigned"} />
+        <MiniRow icon={<Users />} label="Manager" value={manager ? `${manager.name} · ${manager.phone || "no phone"}` : "No manager assigned"} />
+        <MiniRow icon={<Wrench />} label="Preferred vendors" value={assignedVendorCount ? `${assignedVendorCount} assigned` : "Optional"} />
+      </div>
+      <div className="vendor-team-list">
+        {team.length ? team.map((item) => (
+          <article key={item.trade}>
+            <span>{item.trade}</span>
+            <strong>{item.names.join(", ")}</strong>
+          </article>
+        )) : (
+          <p className="empty-copy">Add preferred vendors when an owner or property manager already knows who to use. LivingRelay will prioritize these names when dispatch starts.</p>
+        )}
+      </div>
+      {wizardOpen && (
+        <div className="vendor-wizard-grid">
+          <form className="vendor-wizard-card" onSubmit={saveVendor}>
+            <h3>Add a vendor</h3>
+            <label>Vendor<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Carlos Plumbing" /></label>
+            <label>Trade<select value={form.trade} onChange={(event) => setForm({ ...form, trade: event.target.value })}>{vendorOnboardingTrades.map((trade) => <option key={trade}>{trade}</option>)}</select></label>
+            <label>Phone<input required value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="(310) 555-0104" /></label>
+            <label>Use for<input value={form.useFor} onChange={(event) => setForm({ ...form, useFor: event.target.value })} placeholder="Water leaks under $500" /></label>
+            <label className="span-2">Notes<textarea rows="3" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Licensing, after-hours rules, invoice contact, or owner preference" /></label>
+            <button className="primary wide" type="submit"><Wrench size={16} /> Add to team</button>
+          </form>
+          <form className="vendor-wizard-card" onSubmit={saveTeamPlan}>
+            <h3>Designate who to use</h3>
+            {vendorOnboardingTrades.map((trade) => (
+              <label key={trade}>{trade}<input list={`team-vendors-${trade}`} value={form[trade] || ""} onChange={(event) => setForm({ ...form, [trade]: event.target.value })} placeholder={trade === "General" ? "Optional fallback" : "Vendor names, first choice first"} /></label>
+            ))}
+            {vendorOnboardingTrades.map((trade) => (
+              <datalist id={`team-vendors-${trade}`} key={`list-${trade}`}>
+                {vendors.filter((vendor) => vendor.trade === trade || vendor.trade === "General").map((vendor) => <option value={vendor.name} key={vendor.id} />)}
+              </datalist>
+            ))}
+            <button className="secondary wide" type="submit"><ClipboardList size={16} /> Save assignments</button>
+          </form>
+        </div>
+      )}
+      {status.message && <p className={`send-status ${status.state}`}>{status.message}</p>}
+    </section>
+  );
+}
+
+function preferredVendorTeam(property, vendors = []) {
+  const preferences = property?.dispatchSettings?.vendorPreferences || {};
+  return Object.entries(preferences)
+    .map(([trade, names]) => {
+      const directNames = Array.isArray(names) ? names : [];
+      const propertyVendors = vendors
+        .filter((vendor) => vendor.trade === trade && (vendor.propertyIds || []).includes(property.id))
+        .map((vendor) => vendor.name);
+      const merged = [...directNames, ...propertyVendors]
+        .map((name) => String(name || "").trim())
+        .filter(Boolean)
+        .filter((name, index, list) => list.findIndex((item) => item.toLowerCase() === name.toLowerCase()) === index);
+      return { trade, names: merged };
+    })
+    .filter((item) => item.names.length);
+}
+
 function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice, sendSms, sendStatus, people, vendors, auditLog, staleOrders, demoScenarios, demoStatus, demoExperienceAvailable, reloadState, runDemoOutreach, selectDemoQuote, runFullFlowDemo, createDemoScenario, nudgeOrder, nudgeStaleOrders, updateLiveCall, startVendorOutreach, selectVendorOutcome, recordCompletionPackage, bookVendor, setAdminSection }) {
   if (!activeOrder) {
     return (
@@ -4467,6 +4620,11 @@ function OwnerView({ property, account, orders, invoices, patchInvoice, reloadSt
     capitalImprovementCandidate: false,
     note: ""
   });
+  const [operatingForm, setOperatingForm] = useState({
+    text: "",
+    taxYear: "2026"
+  });
+  const [operatingStatus, setOperatingStatus] = useState({ state: "idle", message: "", result: null });
 
   useEffect(() => {
     loadTaxSummary();
@@ -4501,6 +4659,29 @@ function OwnerView({ property, account, orders, invoices, patchInvoice, reloadSt
     await reloadState?.();
   }
 
+  async function buildOperatingSystem(event) {
+    event.preventDefault();
+    setOperatingStatus({ state: "saving", message: "Reading invoices and building your vendor map...", result: null });
+    const response = await fetch(`/api/properties/${property.id}/owner-operating-system`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(operatingForm)
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      setOperatingStatus({ state: "error", message: data.error || "Could not build operating system.", result: null });
+      return;
+    }
+    if (data.summary) setTaxSummary(data.summary);
+    setOperatingForm({ text: "", taxYear });
+    setOperatingStatus({
+      state: "ok",
+      message: `${data.vendors.length} vendor${data.vendors.length === 1 ? "" : "s"} mapped and ${data.invoices.length} past record${data.invoices.length === 1 ? "" : "s"} added.`,
+      result: data
+    });
+    await reloadState?.();
+  }
+
   async function startOwnerSubscription() {
     const response = await fetch("/api/billing/owner-subscription-session", {
       method: "POST",
@@ -4531,6 +4712,12 @@ function OwnerView({ property, account, orders, invoices, patchInvoice, reloadSt
             </div>
           </article>
         ))}
+        <OwnerOperatingSystemBuilder
+          form={operatingForm}
+          setForm={setOperatingForm}
+          status={operatingStatus}
+          onSubmit={buildOperatingSystem}
+        />
       </div>
       <div className="panel">
         <SectionTitle icon={<ReceiptText />} title="Vendor invoices and tax bundle" eyebrow="Direct vendor payment" />
@@ -4549,6 +4736,41 @@ function OwnerView({ property, account, orders, invoices, patchInvoice, reloadSt
         ))}
       </div>
     </section>
+  );
+}
+
+function OwnerOperatingSystemBuilder({ form, setForm, status, onSubmit }) {
+  const mappedVendors = status.result?.vendors || [];
+  return (
+    <form className="tax-panel owner-operating-builder" onSubmit={onSubmit}>
+      <SectionTitle icon={<Database size={18} />} title="Build operating system" eyebrow="Past invoices and notes" />
+      <label>
+        Paste invoices, receipts, or vendor notes
+        <textarea
+          rows="7"
+          value={form.text}
+          onChange={(event) => setForm({ ...form, text: event.target.value })}
+          placeholder={"Carlos Plumbing - sink leak paid $325 Apr 2026\nNova HVAC spring service $210\nUse Spark Right Electric for outlets and panels"}
+          required
+        />
+      </label>
+      <div className="form-grid">
+        <label>Default tax year<select value={form.taxYear} onChange={(event) => setForm({ ...form, taxYear: event.target.value })}><option>2026</option><option>2025</option><option>2024</option></select></label>
+        <button className="primary" type="submit"><Sparkles size={16} /> Build team map</button>
+      </div>
+      {status.message && <p className={`send-status ${status.state}`}>{status.message}</p>}
+      {!!mappedVendors.length && (
+        <div className="operating-result-grid">
+          {mappedVendors.map((vendor) => (
+            <article key={`${vendor.trade}-${vendor.name}`}>
+              <span>{vendor.trade}</span>
+              <strong>{vendor.name}</strong>
+              <p>{vendor.useFor}{vendor.phone ? ` · ${vendor.phone}` : ""}</p>
+            </article>
+          ))}
+        </div>
+      )}
+    </form>
   );
 }
 

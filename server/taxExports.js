@@ -54,7 +54,7 @@ function isLiveWorkOrder(order = {}) {
 
 function isLiveInvoice(invoice = {}) {
   if (!invoice || hasDemoOrTestMarker(invoice)) return false;
-  if (invoice.source === "owner_upload") return true;
+  if (["owner_upload", "owner_text_import"].includes(invoice.source)) return true;
   return workOrders.some((order) => order.id === invoice.orderId && order.propertyId === invoice.propertyId && isLiveWorkOrder(order));
 }
 

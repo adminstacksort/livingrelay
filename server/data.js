@@ -91,7 +91,14 @@ const seedState = {
         requireTenantAvailabilityBeforeBooking: true,
         inboundInvoiceEmail: "invoices@livingrelay.com",
         invoiceRecipientPolicy: "manager_owner_system",
-        productionVendorCallsEnabled: true
+        productionVendorCallsEnabled: true,
+        vendorPreferences: {
+          Plumbing: ["Carlos Plumbing"],
+          HVAC: ["Nova HVAC"],
+          Electrical: ["Spark Right Electric"],
+          Painting: [],
+          General: []
+        }
       }
     },
     {

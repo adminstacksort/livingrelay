@@ -203,6 +203,74 @@ app.get("/api/places/autocomplete", async (req, res) => {
   }
 });
 
+app.get("/api/vendors/autocomplete", async (req, res) => {
+  const input = String(req.query.input || "").trim();
+  const trade = String(req.query.trade || "").trim();
+  const propertyId = String(req.query.propertyId || "").trim();
+  const property = properties.find((item) => item.id === propertyId);
+  if (input.length < 2) {
+    res.json({ predictions: [] });
+    return;
+  }
+
+  const query = input.toLowerCase();
+  const accountId = property?.accountId || "";
+  const localPredictions = vendors
+    .filter((vendor) => {
+      const text = `${vendor.name || ""} ${vendor.trade || ""} ${vendor.phone || ""}`.toLowerCase();
+      const scoped = !accountId || !vendor.accountId || vendor.accountId === accountId || vendor.propertyIds?.includes(propertyId);
+      return scoped && text.includes(query);
+    })
+    .slice(0, 6)
+    .map((vendor) => ({
+      source: "local",
+      id: vendor.id,
+      name: vendor.name,
+      trade: vendor.trade || trade || "General",
+      phone: vendor.phone || "",
+      description: [vendor.trade, vendor.phone].filter(Boolean).join(" · "),
+      placeId: ""
+    }));
+
+  const apiKey = getGooglePlacesApiKey();
+  if (!apiKey) {
+    res.json({ predictions: localPredictions, googleConfigured: false });
+    return;
+  }
+
+  try {
+    const response = await fetch("https://places.googleapis.com/v1/places:autocomplete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat"
+      },
+      body: JSON.stringify({
+        input: [input, trade, property?.address].filter(Boolean).join(" "),
+        includedRegionCodes: ["us"]
+      })
+    });
+    const data = await response.json();
+    const googlePredictions = response.ok
+      ? (data.suggestions || [])
+        .map((suggestion) => suggestion.placePrediction)
+        .filter(Boolean)
+        .map((prediction) => ({
+          source: "google",
+          placeId: prediction.placeId,
+          name: prediction.structuredFormat?.mainText?.text || prediction.text?.text || "",
+          trade: trade || "General",
+          phone: "",
+          description: prediction.structuredFormat?.secondaryText?.text || prediction.text?.text || ""
+        }))
+      : [];
+    res.json({ predictions: [...localPredictions, ...googlePredictions].slice(0, 10), googleConfigured: true });
+  } catch (error) {
+    res.json({ predictions: localPredictions, googleConfigured: true, error: error.message });
+  }
+});
+
 app.get("/api/places/:placeId", async (req, res) => {
   const apiKey = getGooglePlacesApiKey();
   const placeId = String(req.params.placeId || "").trim();
@@ -219,7 +287,7 @@ app.get("/api/places/:placeId", async (req, res) => {
     const response = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`, {
       headers: {
         "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": "id,displayName,formattedAddress,addressComponents,location"
+        "X-Goog-FieldMask": "id,displayName,formattedAddress,addressComponents,location,nationalPhoneNumber,internationalPhoneNumber,websiteUri,types,primaryType"
       }
     });
     const data = await response.json();
@@ -232,6 +300,11 @@ app.get("/api/places/:placeId", async (req, res) => {
       name: data.displayName?.text || "",
       formatted_address: data.formattedAddress || "",
       address_components: data.addressComponents || [],
+      nationalPhoneNumber: data.nationalPhoneNumber || "",
+      internationalPhoneNumber: data.internationalPhoneNumber || "",
+      websiteUri: data.websiteUri || "",
+      types: data.types || [],
+      primaryType: data.primaryType || "",
       geometry: data.location ? { location: data.location } : undefined
     });
   } catch (error) {
@@ -1164,7 +1237,7 @@ app.post("/api/admin/vendors", (req, res) => {
     id: `v-${vendors.length + 1}`,
     name,
     trade,
-    phone,
+    phone: normalizePhone(phone),
     preferred,
     propertyIds: propertyId ? [propertyId] : [],
     accountId: accountId || property?.accountId || undefined,
@@ -1318,6 +1391,20 @@ app.post("/api/properties/:id/owner-expenses", (req, res) => {
   saveState();
   recordAudit("owner", "Uploaded owner expense", `${invoice.vendor} ${formatMoney(invoice.amount)} for ${property.name}.`);
   res.json({ invoice, summary: buildTaxSummary(property.id, invoice.taxYear) });
+});
+
+app.post("/api/properties/:id/owner-operating-system", (req, res) => {
+  const property = properties.find((item) => item.id === req.params.id);
+  if (!property) {
+    res.status(404).json({ error: "property not found" });
+    return;
+  }
+  const result = buildOwnerOperatingSystemFromText(property, req.body.text || "", {
+    taxYear: req.body.taxYear || "2026"
+  });
+  saveState();
+  recordAudit("owner", "Built operating system", `${property.name}: ${result.vendors.length} vendors inferred and ${result.invoices.length} records added.`);
+  res.json({ ...result, property, summary: buildTaxSummary(property.id, req.body.taxYear || "2026") });
 });
 
 app.get("/api/properties/:id/stale-work-orders", (req, res) => {
@@ -1724,6 +1811,169 @@ function validateReferral(referral, { actor, legitimate, note }) {
   };
   recordAudit(actor, "Validated referral", `${referral.referredPropertyName || referral.referredEmail}: rewards granted.`);
   return { referral, referrerAccount, referredAccount };
+}
+
+function buildOwnerOperatingSystemFromText(property, rawText, { taxYear = "2026" } = {}) {
+  const lines = String(rawText || "")
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const settings = {
+    ...defaultDispatchSettings(),
+    ...(property.dispatchSettings || {}),
+    vendorPreferences: {
+      ...defaultDispatchSettings().vendorPreferences,
+      ...(property.dispatchSettings?.vendorPreferences || {})
+    }
+  };
+  const discoveredVendors = [];
+  const createdInvoices = [];
+  const accountId = property.accountId;
+
+  for (const line of lines) {
+    const parsed = parseOwnerOperatingLine(line, taxYear);
+    if (!parsed.vendor) continue;
+    const existingVendor = vendors.find((vendor) =>
+      vendor.accountId === accountId
+      && String(vendor.name || "").toLowerCase() === parsed.vendor.toLowerCase()
+    ) || vendors.find((vendor) => String(vendor.name || "").toLowerCase() === parsed.vendor.toLowerCase());
+    const vendor = existingVendor || {
+      id: `v-${vendors.length + 1}`,
+      name: parsed.vendor,
+      trade: parsed.trade,
+      phone: parsed.phone ? normalizePhone(parsed.phone) : "",
+      preferred: true,
+      propertyIds: [property.id],
+      accountId,
+      source: "Owner operating system import",
+      notes: parsed.note
+    };
+    if (!existingVendor) vendors.push(vendor);
+    if (!vendor.propertyIds?.includes(property.id)) vendor.propertyIds = [...(vendor.propertyIds || []), property.id];
+    if (!vendor.trade || vendor.trade === "General") vendor.trade = parsed.trade;
+    if (parsed.phone && !vendor.phone) vendor.phone = normalizePhone(parsed.phone);
+    const existingPreference = settings.vendorPreferences[parsed.trade] || [];
+    settings.vendorPreferences[parsed.trade] = [
+      vendor.name,
+      ...existingPreference.filter((item) => String(item).toLowerCase() !== vendor.name.toLowerCase())
+    ];
+    discoveredVendors.push({ name: vendor.name, trade: parsed.trade, phone: vendor.phone || "", useFor: parsed.useFor });
+    if (parsed.amount || parsed.invoiceLike) {
+      const invoice = {
+        id: `inv-${invoices.length + createdInvoices.length + 1}`,
+        propertyId: property.id,
+        orderId: "",
+        vendor: vendor.name,
+        amount: parsed.amount || 0,
+        status: "Owner uploaded",
+        paymentStatus: "Paid off platform",
+        paymentRail: "Owner direct",
+        source: "owner_text_import",
+        documentName: parsed.documentName,
+        taxYear: parsed.taxYear,
+        taxCategory: parsed.taxCategory,
+        capitalImprovementCandidate: parsed.capitalImprovementCandidate,
+        receivedAt: "Owner import",
+        note: parsed.note
+      };
+      invoices.unshift(invoice);
+      createdInvoices.push(invoice);
+    }
+  }
+  property.dispatchSettings = settings;
+  property.rules = buildOperatingRules(property.rules, settings.vendorPreferences);
+  return {
+    vendors: dedupeBy(discoveredVendors, (vendor) => `${vendor.trade}:${vendor.name}`),
+    invoices: createdInvoices,
+    vendorPreferences: settings.vendorPreferences,
+    rules: property.rules
+  };
+}
+
+function parseOwnerOperatingLine(line, taxYear) {
+  const amountText = (line.match(/\$\s*([0-9][0-9,]*(?:\.\d{2})?)/) || line.match(/\b(?:paid|total|amount|invoice)\D{0,12}([0-9][0-9,]*(?:\.\d{2})?)\b/i) || [])[1];
+  const amount = Number(amountText?.replace(/,/g, "") || 0);
+  const phone = (line.match(/(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/) || [])[0] || "";
+  const trade = inferTradeFromText(line);
+  const taxCategory = inferOwnerTaxCategory(line, trade);
+  const vendor = inferVendorNameFromText(line, trade);
+  const lower = line.toLowerCase();
+  return {
+    vendor,
+    trade,
+    phone,
+    amount,
+    taxYear: String((line.match(/\b(20\d{2})\b/) || [])[1] || taxYear),
+    taxCategory,
+    capitalImprovementCandidate: /replace|replacement|upgrade|new roof|roof|water heater|hvac system|remodel|renovation|flooring|windows/i.test(line),
+    invoiceLike: /\binvoice|receipt|bill|paid|service|repair|fixed|installed|replaced\b/i.test(line),
+    documentName: (line.match(/\b[\w.-]+\.(?:pdf|jpg|jpeg|png|heic)\b/i) || [])[0] || "",
+    useFor: lower.includes("emergency") ? "Emergency dispatch" : `${trade} work`,
+    note: line.slice(0, 500)
+  };
+}
+
+function inferTradeFromText(text) {
+  const lower = String(text || "").toLowerCase();
+  const trades = [
+    ["Plumbing", ["plumb", "leak", "drain", "toilet", "sink", "water heater", "pipe", "sewer"]],
+    ["HVAC", ["hvac", "heat", "furnace", "air conditioning", " ac ", "thermostat", "cooling"]],
+    ["Electrical", ["electric", "outlet", "breaker", "panel", "spark", "light fixture"]],
+    ["Appliance", ["appliance", "washer", "dryer", "fridge", "refrigerator", "dishwasher", "oven", "stove"]],
+    ["Cleaning", ["clean", "janitor", "maid", "turnover"]],
+    ["Painting", ["paint", "drywall", "patch"]],
+    ["Roofing", ["roof", "gutter"]],
+    ["Landscaping", ["landscape", "lawn", "yard", "tree"]],
+    ["Handyman", ["handyman", "general repair", "door", "lock", "cabinet"]]
+  ];
+  return trades.find(([, words]) => words.some((word) => lower.includes(word)))?.[0] || "General";
+}
+
+function inferOwnerTaxCategory(text, trade) {
+  const lower = String(text || "").toLowerCase();
+  if (lower.includes("insurance")) return "insurance";
+  if (lower.includes("property tax") || lower.includes("tax bill")) return "taxes";
+  if (lower.includes("management") || lower.includes("manager")) return "managementFees";
+  if (lower.includes("legal") || lower.includes("accountant") || lower.includes("bookkeep")) return "legalProfessional";
+  if (lower.includes("supplies") || lower.includes("materials")) return "supplies";
+  if (["Cleaning", "Landscaping"].includes(trade)) return "cleaningMaintenance";
+  return "repairs";
+}
+
+function inferVendorNameFromText(text, trade) {
+  const cleaned = String(text || "")
+    .replace(/\b(20\d{2})\b/g, "")
+    .replace(/\$?\s*[0-9][0-9,]*(?:\.\d{2})?/g, "")
+    .replace(/(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g, "")
+    .replace(/^\s*(?:use|call|preferred|first choice|vendor)\s+/i, "")
+    .trim();
+  const labeled = cleaned.match(/(?:vendor|contractor|plumber|hvac|electrician|roofer|handyman)\s*[:=-]\s*([^,;|]+)/i)?.[1];
+  const candidate = labeled || cleaned.split(/\s[-–—:|,]\s|,|\s+(?:for|to fix|fixed|repair|service|spring service|paid|invoice|receipt)\b/i)[0] || "";
+  return candidate
+    .replace(/\b(invoice|receipt|paid|bill|for|to|from|used|use|call|first|preferred|past|old)\b/gi, "")
+    .replace(/\b(spring|annual|service|repair|fixed|installed|replaced)\b.*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+}
+
+function buildOperatingRules(existingRules = "", vendorPreferences = {}) {
+  const baseRules = String(existingRules || "").replace(/\s*Owner vendor operating system:.*$/i, "").trim();
+  const teamRules = Object.entries(vendorPreferences)
+    .filter(([, names]) => names?.length)
+    .map(([trade, names]) => `${trade}: use ${names.join(", ")} in that order.`)
+    .join(" ");
+  return [baseRules, teamRules ? `Owner vendor operating system: ${teamRules}` : ""].filter(Boolean).join(" ");
+}
+
+function dedupeBy(items, keyFn) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = keyFn(item).toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function formatMoney(amount) {

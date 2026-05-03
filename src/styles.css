@@ -3194,6 +3194,130 @@ body:has(.login-card.admin-login-card) {
   grid-column: 1 / -1;
 }
 
+.vendor-onboarding-panel {
+  margin-bottom: 18px;
+}
+
+.vendor-onboarding-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.team-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.vendor-team-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.vendor-team-list article {
+  border: 1px solid #e8e0d4;
+  border-radius: 8px;
+  background: #fbf6ef;
+  padding: 12px;
+}
+
+.vendor-team-list span,
+.vendor-team-list strong {
+  display: block;
+}
+
+.vendor-team-list span {
+  color: #6b756f;
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.vendor-team-list strong {
+  margin-top: 5px;
+  color: #26312f;
+  font-size: 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.vendor-wizard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.vendor-wizard-card {
+  border: 1px solid #d8d0c3;
+  border-radius: 8px;
+  background: #fffdfa;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.vendor-wizard-card h3,
+.vendor-wizard-card .wide,
+.vendor-wizard-card .span-2 {
+  grid-column: 1 / -1;
+}
+
+.vendor-wizard-card h3 {
+  margin: 0 0 2px;
+  font-size: 17px;
+}
+
+.owner-operating-builder {
+  margin-top: 14px;
+}
+
+.owner-operating-builder > label,
+.owner-operating-builder textarea {
+  width: 100%;
+}
+
+.operating-result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.operating-result-grid article {
+  border: 1px solid #e8e0d4;
+  border-radius: 8px;
+  background: #fbf6ef;
+  padding: 10px;
+}
+
+.operating-result-grid span,
+.operating-result-grid strong {
+  display: block;
+}
+
+.operating-result-grid span {
+  color: #6b756f;
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.operating-result-grid strong {
+  margin-top: 4px;
+  color: #26312f;
+  overflow-wrap: anywhere;
+}
+
+.operating-result-grid p {
+  margin-top: 5px;
+  color: #5e6a66;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .troubleshooting-panel {
   border: 1px solid #d8d0c3;
   border-radius: 8px;
@@ -3535,13 +3659,19 @@ body:has(.login-card.admin-login-card) {
     grid-template-columns: 1fr;
   }
 
+  .vendor-ai-flow article {
+    min-height: auto;
+  }
+
   .split-view,
   .integration-strip,
   .owner-console-hero,
   .admin-grid,
   .tenant-welcome,
   .tenant-note-grid,
-  .issue-create-form {
+  .issue-create-form,
+  .team-summary-grid,
+  .vendor-wizard-grid {
     grid-template-columns: 1fr;
   }
 
@@ -3714,6 +3844,24 @@ body:has(.login-card.admin-login-card) {
 
   .admin-form {
     grid-template-columns: 1fr;
+  }
+
+  .vendor-onboarding-head {
+    flex-direction: column;
+  }
+
+  .vendor-onboarding-head button {
+    width: 100%;
+  }
+
+  .vendor-wizard-card {
+    grid-template-columns: 1fr;
+  }
+
+  .vendor-wizard-card h3,
+  .vendor-wizard-card .wide,
+  .vendor-wizard-card .span-2 {
+    grid-column: 1;
   }
 
   .diagnostic-grid {
