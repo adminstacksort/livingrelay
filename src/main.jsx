@@ -1884,6 +1884,13 @@ function buildRenterServiceMessage(request, templateId = request.templateId) {
   return `Hi, this is ${name} at ${address}. ${template.issue} ${template.access}`;
 }
 
+function parseSseEvent(chunk = "") {
+  const event = chunk.split("\n").find((line) => line.startsWith("event: "))?.slice(7).trim() || "message";
+  const data = chunk.split("\n").filter((line) => line.startsWith("data: ")).map((line) => line.slice(6)).join("\n");
+  if (!data) return null;
+  return { event, data: JSON.parse(data) };
+}
+
 const rememberedPhoneStorageKey = "livingrelay.rememberedPhone";
 const authTokenStorageKey = "livingrelay.authToken";
 const siteAdminTokenStorageKey = "livingrelay.siteAdminToken";
@@ -3453,14 +3460,48 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken }
   async function runProspectingRefresh() {
     setRefreshStatus({ state: "running", message: `Generating ${cityFilter === "All" ? "target-market" : cityFilter} leads...` });
     try {
-      const response = await fetch("/api/site-admin/prospecting-refresh", {
+      const response = await fetch("/api/site-admin/prospecting-refresh/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${siteAdminToken}` },
         body: JSON.stringify({ market: cityFilter, limit: cityFilter === "All" ? 18 : 12 })
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Prospecting refresh failed");
-      setRefreshStatus({ state: "ok", message: `${data.added || 0} added, ${data.updated || 0} updated for ${data.market}.` });
+      if (!response.ok || !response.body) {
+        const text = await response.text();
+        let data = {};
+        try {
+          data = text ? JSON.parse(text) : {};
+        } catch {
+          data = {};
+        }
+        throw new Error(data.error || `Prospecting refresh failed (${response.status})`);
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let totals = { added: 0, updated: 0, market: cityFilter };
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+        for (const part of parts) {
+          const event = parseSseEvent(part);
+          if (!event) continue;
+          if (event.event === "progress") {
+            setRefreshStatus({ state: "running", message: event.data.message || "Searching public sources..." });
+          } else if (event.event === "leads") {
+            totals = { added: event.data.added || 0, updated: event.data.updated || 0, market: event.data.market || cityFilter };
+            setRefreshStatus({ state: "running", message: `${totals.added} added, ${totals.updated} updated. Showing latest batch...` });
+            await reloadState?.();
+          } else if (event.event === "done") {
+            totals = { added: event.data.added || 0, updated: event.data.updated || 0, market: event.data.market || cityFilter };
+          } else if (event.event === "error") {
+            throw new Error(event.data.error || "Prospecting refresh failed");
+          }
+        }
+      }
+      setRefreshStatus({ state: "ok", message: `${totals.added} added, ${totals.updated} updated for ${totals.market}.` });
       await reloadState?.();
     } catch (error) {
       setRefreshStatus({ state: "error", message: error.message || "Prospecting refresh failed" });

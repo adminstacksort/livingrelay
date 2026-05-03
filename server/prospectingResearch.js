@@ -64,6 +64,39 @@ export async function generateProspectingLeads({
   };
 }
 
+export async function* generateProspectingLeadBatches({
+  market = "San Francisco",
+  limit = 12,
+  existingLeads = [],
+  batchSize = 4
+} = {}) {
+  const selectedMarket = normalizeMarket(market);
+  const safeLimit = Math.max(1, Math.min(Number(limit || 12), 25));
+  const batches = Math.ceil(safeLimit / batchSize);
+  const seen = [...existingLeads];
+  for (let index = 0; index < batches; index += 1) {
+    const remaining = safeLimit - index * batchSize;
+    const batchLimit = Math.min(batchSize, remaining);
+    yield { type: "progress", message: `Searching ${selectedMarket}, batch ${index + 1}/${batches}...`, batch: index + 1, batches };
+    const research = await generateProspectingLeads({
+      market: selectedMarket,
+      limit: batchLimit,
+      existingLeads: seen
+    });
+    seen.push(...research.leads);
+    yield {
+      type: "batch",
+      market: research.market,
+      searchedAt: research.searchedAt,
+      sourceCount: research.sourceCount,
+      leads: research.leads,
+      batch: index + 1,
+      batches
+    };
+    if (research.leads.length === 0) break;
+  }
+}
+
 function prospectingPrompt({ market, limit, existingLeads }) {
   const markets = market === "All" ? targetMarkets : [market];
   const existing = existingLeads.slice(0, 80).map((lead) => ({
@@ -119,7 +152,7 @@ Return strict JSON only:
   ]
 }
 
-Return at most ${limit} leads.`;
+Return exactly ${limit} leads if enough qualified leads are available.`;
 }
 
 function normalizeMarket(value = "San Francisco") {
