@@ -651,6 +651,7 @@ function isAuthorizedAppRequest(req, user) {
   if (path.startsWith("/api/admin/work-orders") && req.method === "POST") {
     return ["Tenant", "Manager", "Admin"].includes(role);
   }
+  if (path === "/api/admin/vendors" && req.method === "POST") return ownerManagerRoles.has(role);
   if (path.startsWith("/api/admin")) return managerRoles.has(role);
   if (path.startsWith("/api/billing")) return ownerManagerRoles.has(role);
   if (path.startsWith("/api/referrals")) return ownerManagerRoles.has(role);
@@ -888,6 +889,116 @@ app.patch("/api/admin/properties/:id", (req, res) => {
   saveState();
   recordAudit("admin", "Updated property", `${property.name} admin settings updated.`);
   res.json({ property });
+});
+
+app.post("/api/properties/:id/vendor-team/copy", (req, res) => {
+  const property = properties.find((item) => item.id === req.params.id);
+  const sourceProperty = properties.find((item) => item.id === req.body.sourcePropertyId);
+  if (!property || !sourceProperty) {
+    res.status(404).json({ error: "property not found" });
+    return;
+  }
+  if (property.accountId !== sourceProperty.accountId) {
+    res.status(400).json({ error: "vendor teams can only be reused within the same customer account" });
+    return;
+  }
+  const sourceSettings = {
+    ...defaultDispatchSettings(),
+    ...(sourceProperty.dispatchSettings || {}),
+    vendorPreferences: {
+      ...defaultDispatchSettings().vendorPreferences,
+      ...(sourceProperty.dispatchSettings?.vendorPreferences || {})
+    }
+  };
+  const nextSettings = {
+    ...defaultDispatchSettings(),
+    ...(property.dispatchSettings || {}),
+    vendorPreferences: {
+      ...defaultDispatchSettings().vendorPreferences,
+      ...sourceSettings.vendorPreferences
+    }
+  };
+  property.dispatchSettings = nextSettings;
+  const preferredNames = Object.values(nextSettings.vendorPreferences).flat().map((name) => String(name).toLowerCase());
+  for (const vendor of vendors) {
+    if (preferredNames.includes(String(vendor.name || "").toLowerCase()) && !vendor.propertyIds?.includes(property.id)) {
+      vendor.propertyIds = [...(vendor.propertyIds || []), property.id];
+      vendor.accountId = vendor.accountId || property.accountId;
+    }
+  }
+  saveState();
+  recordAudit(req.user?.name || "admin", "Copied vendor team", `${sourceProperty.name} team reused for ${property.name}.`);
+  res.json({ property, sourceProperty, vendorPreferences: nextSettings.vendorPreferences });
+});
+
+app.patch("/api/properties/:id/vendor-team", (req, res) => {
+  const property = properties.find((item) => item.id === req.params.id);
+  if (!property) {
+    res.status(404).json({ error: "property not found" });
+    return;
+  }
+  const settings = {
+    ...defaultDispatchSettings(),
+    ...(property.dispatchSettings || {}),
+    vendorPreferences: {
+      ...defaultDispatchSettings().vendorPreferences,
+      ...(req.body.vendorPreferences || {})
+    }
+  };
+  property.dispatchSettings = settings;
+  property.rules = buildOperatingRules(property.rules, settings.vendorPreferences);
+  saveState();
+  recordAudit(req.user?.name || "app", "Updated vendor team", `${property.name} vendor team updated.`);
+  res.json({ property, vendorPreferences: settings.vendorPreferences });
+});
+
+app.post("/api/properties/:id/vendors", (req, res) => {
+  const property = properties.find((item) => item.id === req.params.id);
+  if (!property) {
+    res.status(404).json({ error: "property not found" });
+    return;
+  }
+  const { name, trade = "General", phone = "", preferred = true, placement = "primary", useFor = "", notes = "" } = req.body;
+  if (!name || !trade) {
+    res.status(400).json({ error: "name and trade are required" });
+    return;
+  }
+  const existingVendor = vendors.find((vendor) =>
+    String(vendor.name || "").toLowerCase() === String(name).toLowerCase()
+    && (!vendor.accountId || vendor.accountId === property.accountId)
+  );
+  const vendor = existingVendor || {
+    id: `v-${vendors.length + 1}`,
+    name,
+    trade,
+    phone: phone ? normalizePhone(phone) : "",
+    preferred,
+    preApproved: placement === "backup",
+    propertyIds: [property.id],
+    accountId: property.accountId,
+    useFor: useFor || undefined,
+    notes: notes || undefined
+  };
+  if (!existingVendor) vendors.push(vendor);
+  if (!vendor.propertyIds?.includes(property.id)) vendor.propertyIds = [...(vendor.propertyIds || []), property.id];
+  vendor.accountId = vendor.accountId || property.accountId;
+  if (phone && !vendor.phone) vendor.phone = normalizePhone(phone);
+  const settings = {
+    ...defaultDispatchSettings(),
+    ...(property.dispatchSettings || {}),
+    vendorPreferences: {
+      ...defaultDispatchSettings().vendorPreferences,
+      ...(property.dispatchSettings?.vendorPreferences || {})
+    }
+  };
+  const existing = settings.vendorPreferences[trade] || [];
+  const withoutName = existing.filter((item) => String(item).toLowerCase() !== String(name).toLowerCase());
+  settings.vendorPreferences[trade] = placement === "backup" ? [...withoutName, name] : [name, ...withoutName];
+  property.dispatchSettings = settings;
+  property.rules = buildOperatingRules(property.rules, settings.vendorPreferences);
+  saveState();
+  recordAudit(req.user?.name || "app", placement === "backup" ? "Added backup vendor" : "Added primary vendor", `${name} added for ${trade} at ${property.name}.`);
+  res.json({ vendor, property, vendorPreferences: settings.vendorPreferences });
 });
 
 app.delete("/api/admin/properties/:id", (req, res) => {

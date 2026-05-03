@@ -1571,17 +1571,33 @@ select:focus {
   font-weight: 850;
 }
 
-.role-section-action .link-button,
-.role-section-action .ghost {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  white-space: nowrap;
+.role-section-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid #d8d0c3;
+  border-radius: 8px;
+  background: #fffdfa;
 }
 
-.role-section-action .link-button {
-  color: var(--brand-dark);
-  font-size: 13px;
+.role-section-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #53615d;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+.role-section-tabs button.active {
+  background: var(--brand-dark);
+  color: #fffaf2;
 }
 
 .role-section-action.billing-active {
@@ -3212,6 +3228,18 @@ body:has(.login-card.admin-login-card) {
   margin: 12px 0;
 }
 
+.team-reuse-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid #e8e0d4;
+  border-radius: 8px;
+  background: #fbf6ef;
+}
+
 .vendor-team-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -3242,6 +3270,13 @@ body:has(.login-card.admin-login-card) {
   font-size: 14px;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.vendor-team-list p {
+  margin-top: 6px;
+  color: #5e6a66;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .vendor-wizard-grid {
@@ -3671,7 +3706,8 @@ body:has(.login-card.admin-login-card) {
   .tenant-note-grid,
   .issue-create-form,
   .team-summary-grid,
-  .vendor-wizard-grid {
+  .vendor-wizard-grid,
+  .team-reuse-row {
     grid-template-columns: 1fr;
   }
 
@@ -3852,6 +3888,20 @@ body:has(.login-card.admin-login-card) {
 
   .vendor-onboarding-head button {
     width: 100%;
+  }
+
+  .role-section-action {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .role-section-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .role-section-tabs button {
+    justify-content: center;
   }
 
   .vendor-wizard-card {

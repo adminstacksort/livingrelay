@@ -715,7 +715,9 @@ function sectionFromRoutePage(role, page) {
     }[page] || "accounts";
   }
   if (["Manager", "Owner"].includes(role)) {
-    return page === "billing" ? "billing" : "operations";
+    if (page === "billing") return "billing";
+    if (["team", "vendors"].includes(page)) return "team";
+    return "operations";
   }
   return "dashboard";
 }
@@ -733,7 +735,9 @@ function pageFromSection(role, section) {
     }[section] || "dashboard";
   }
   if (["Manager", "Owner"].includes(role)) {
-    return section === "billing" ? "billing" : "dashboard";
+    if (section === "billing") return "billing";
+    if (section === "team") return "team";
+    return "dashboard";
   }
   return "dashboard";
 }
@@ -2382,7 +2386,7 @@ function App() {
         />
       )}
 
-      {["Manager", "Owner"].includes(user.role) && adminSection !== "billing" && (
+      {["Manager", "Owner"].includes(user.role) && adminSection === "operations" && (
         <IssueCreatePanel
           request={request}
           setRequest={setRequest}
@@ -2392,7 +2396,7 @@ function App() {
         />
       )}
 
-      {["Manager", "Owner"].includes(user.role) && adminSection !== "billing" && (
+      {["Manager", "Owner"].includes(user.role) && adminSection === "operations" && (
         <ReferralServicePanel
           user={user}
           property={activeProperty}
@@ -2402,17 +2406,18 @@ function App() {
         />
       )}
 
-      {["Manager", "Owner"].includes(user.role) && adminSection !== "billing" && (
+      {["Manager", "Owner"].includes(user.role) && adminSection === "team" && (
         <VendorTeamOnboarding
           property={activeProperty}
           account={accountsData.find((account) => account.id === activeProperty.accountId)}
           people={peopleData}
           vendors={vendorsData}
+          properties={propertiesData.filter((property) => user.propertyIds.includes(property.id))}
           reloadState={loadState}
         />
       )}
 
-      {user.role === "Manager" && adminSection !== "billing" && (
+      {user.role === "Manager" && adminSection === "operations" && (
         <AdminManagerView
           property={activeProperty}
           orders={visibleOrders}
@@ -2459,7 +2464,7 @@ function App() {
         />
       )}
 
-      {user.role === "Owner" && adminSection !== "billing" && (
+      {user.role === "Owner" && adminSection === "operations" && (
         <OwnerView
           property={activeProperty}
           account={accountsData.find((account) => account.id === activeProperty.accountId)}
@@ -3029,14 +3034,22 @@ function SiteOwnerHero({ accounts, people, properties, orders, billingEvents, ac
 }
 
 function RoleSectionAction({ active, setActive, role }) {
-  const billingActive = active === "billing";
   const operationsLabel = role === "Owner" ? "Approvals" : "Operations";
+  const items = [
+    ["operations", ClipboardList, operationsLabel],
+    ["team", Users, "Team"],
+    ["billing", CreditCard, "Billing"]
+  ];
   return (
-    <div className={`role-section-action ${billingActive ? "billing-active" : ""}`}>
-      <span>{billingActive ? "Billing settings" : operationsLabel}</span>
-      <button className={billingActive ? "ghost" : "link-button"} onClick={() => setActive(billingActive ? "operations" : "billing")}>
-        {billingActive ? <><ClipboardList size={16} /> Back to {operationsLabel.toLowerCase()}</> : <><CreditCard size={15} /> Billing settings</>}
-      </button>
+    <div className={`role-section-action ${active === "billing" ? "billing-active" : ""}`}>
+      <span>{items.find(([id]) => id === active)?.[2] || operationsLabel}</span>
+      <div className="role-section-tabs">
+        {items.map(([id, Icon, label]) => (
+          <button key={id} className={active === id ? "active" : ""} onClick={() => setActive(id)}>
+            <Icon size={15} /> {label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -3707,9 +3720,11 @@ function inferAccounts(person, properties, accounts) {
 
 const vendorOnboardingTrades = ["Plumbing", "HVAC", "Electrical", "Appliance", "Handyman", "Cleaning", "Painting", "Roofing", "Landscaping", "General"];
 
-function VendorTeamOnboarding({ property, account, people, vendors, reloadState }) {
+function VendorTeamOnboarding({ property, account, people, vendors, properties = [], reloadState }) {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [status, setStatus] = useState({ state: "idle", message: "" });
+  const [sourcePropertyId, setSourcePropertyId] = useState("");
+  const [backupForm, setBackupForm] = useState({ trade: "Plumbing", name: "", phone: "", notes: "" });
   const [form, setForm] = useState({
     name: "",
     trade: "Plumbing",
@@ -3721,6 +3736,7 @@ function VendorTeamOnboarding({ property, account, people, vendors, reloadState 
   const owner = people.find((person) => person.id === property.ownerId);
   const team = preferredVendorTeam(property, vendors);
   const assignedVendorCount = team.reduce((count, item) => count + item.names.length, 0);
+  const reusableProperties = properties.filter((item) => item.id !== property.id && preferredVendorTeam(item, vendors).length);
 
   useEffect(() => {
     const preferences = property.dispatchSettings?.vendorPreferences || {};
@@ -3737,10 +3753,10 @@ function VendorTeamOnboarding({ property, account, people, vendors, reloadState 
     event.preventDefault();
     setStatus({ state: "saving", message: "Adding vendor to this property's team..." });
     try {
-      const response = await fetch("/api/admin/vendors", {
+      const response = await fetch(`/api/properties/${property.id}/vendors`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, propertyId: property.id, accountId: account?.id, preferred: true })
+        body: JSON.stringify({ ...form, propertyId: property.id, accountId: account?.id, preferred: true, placement: "primary" })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not add vendor.");
@@ -3760,19 +3776,53 @@ function VendorTeamOnboarding({ property, account, people, vendors, reloadState 
       vendorPreferences[trade] = String(form[trade] || "").split(",").map((item) => item.trim()).filter(Boolean);
     });
     try {
-      const response = await fetch(`/api/admin/properties/${property.id}`, {
+      const response = await fetch(`/api/properties/${property.id}/vendor-team`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          dispatchSettings: {
-            ...(property.dispatchSettings || {}),
-            vendorPreferences
-          }
-        })
+        body: JSON.stringify({ vendorPreferences })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not save vendor assignments.");
       setStatus({ state: "ok", message: "Team assignments saved." });
+      await reloadState?.();
+    } catch (error) {
+      setStatus({ state: "error", message: error.message });
+    }
+  }
+
+  async function addBackupVendor(event) {
+    event.preventDefault();
+    if (!backupForm.name.trim()) return;
+    setStatus({ state: "saving", message: "Adding pre-approved backup..." });
+    try {
+      const response = await fetch(`/api/properties/${property.id}/vendors`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...backupForm, preferred: true, placement: "backup", useFor: `${backupForm.trade} backup` })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not add backup vendor.");
+      setBackupForm({ trade: backupForm.trade, name: "", phone: "", notes: "" });
+      setStatus({ state: "ok", message: `${data.vendor.name} is pre-approved as a ${backupForm.trade} backup.` });
+      await reloadState?.();
+    } catch (error) {
+      setStatus({ state: "error", message: error.message });
+    }
+  }
+
+  async function copyTeam(event) {
+    event.preventDefault();
+    if (!sourcePropertyId) return;
+    setStatus({ state: "saving", message: "Copying vendor team..." });
+    try {
+      const response = await fetch(`/api/properties/${property.id}/vendor-team/copy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourcePropertyId })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not copy vendor team.");
+      setStatus({ state: "ok", message: `Copied team from ${data.sourceProperty?.name || "that property"}.` });
       await reloadState?.();
     } catch (error) {
       setStatus({ state: "error", message: error.message });
@@ -3792,11 +3842,22 @@ function VendorTeamOnboarding({ property, account, people, vendors, reloadState 
         <MiniRow icon={<Users />} label="Manager" value={manager ? `${manager.name} · ${manager.phone || "no phone"}` : "No manager assigned"} />
         <MiniRow icon={<Wrench />} label="Preferred vendors" value={assignedVendorCount ? `${assignedVendorCount} assigned` : "Optional"} />
       </div>
+      <form className="team-reuse-row" onSubmit={copyTeam}>
+        <label>
+          Reuse a team from another property
+          <select value={sourcePropertyId} onChange={(event) => setSourcePropertyId(event.target.value)}>
+            <option value="">Choose property</option>
+            {reusableProperties.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+        </label>
+        <button className="secondary" type="submit" disabled={!sourcePropertyId}><ClipboardList size={15} /> Copy team</button>
+      </form>
       <div className="vendor-team-list">
         {team.length ? team.map((item) => (
           <article key={item.trade}>
             <span>{item.trade}</span>
-            <strong>{item.names.join(", ")}</strong>
+            <strong>{item.primary || "No main vendor"}</strong>
+            <p>{item.backups.length ? `Backups: ${item.backups.join(", ")}` : "No pre-approved backups yet"}</p>
           </article>
         )) : (
           <p className="empty-copy">Add preferred vendors when an owner or property manager already knows who to use. LivingRelay will prioritize these names when dispatch starts.</p>
@@ -3814,11 +3875,19 @@ function VendorTeamOnboarding({ property, account, people, vendors, reloadState 
             <button className="primary wide" type="submit"><Wrench size={16} /> Add to team</button>
           </form>
           <form className="vendor-wizard-card" onSubmit={saveTeamPlan}>
-            <h3>Designate who to use</h3>
+            <h3>Main and backup order</h3>
             {vendorOnboardingTrades.map((trade) => (
-              <label key={trade}>{trade}<VendorAutocompleteInput value={form[trade] || ""} trade={trade} propertyId={property.id} onChange={(value) => setForm({ ...form, [trade]: value })} onVendorSelect={(vendor) => setForm((current) => ({ ...current, [trade]: addVendorPreference(current[trade], vendor.name) }))} placeholder={trade === "General" ? "Optional fallback" : "Vendor names, first choice first"} /></label>
+              <label key={trade}>{trade}<VendorAutocompleteInput value={form[trade] || ""} trade={trade} propertyId={property.id} onChange={(value) => setForm({ ...form, [trade]: value })} onVendorSelect={(vendor) => setForm((current) => ({ ...current, [trade]: addVendorPreference(current[trade], vendor.name) }))} placeholder={trade === "General" ? "Optional fallback" : "Main vendor, then backups"} /></label>
             ))}
             <button className="secondary wide" type="submit"><ClipboardList size={16} /> Save assignments</button>
+          </form>
+          <form className="vendor-wizard-card" onSubmit={addBackupVendor}>
+            <h3>Pull in a local backup</h3>
+            <label>Trade<select value={backupForm.trade} onChange={(event) => setBackupForm({ ...backupForm, trade: event.target.value })}>{vendorOnboardingTrades.map((trade) => <option key={trade}>{trade}</option>)}</select></label>
+            <label>Vendor<VendorAutocompleteInput required value={backupForm.name} trade={backupForm.trade} propertyId={property.id} onChange={(value) => setBackupForm({ ...backupForm, name: value })} onVendorSelect={(vendor) => setBackupForm((current) => ({ ...current, name: vendor.name, phone: vendor.phone || current.phone, trade: vendor.trade || current.trade, notes: vendor.websiteUri ? `${current.notes ? `${current.notes}\n` : ""}${vendor.websiteUri}` : current.notes }))} placeholder="Search saved and local vendors" /></label>
+            <label>Phone<input value={backupForm.phone} onChange={(event) => setBackupForm({ ...backupForm, phone: event.target.value })} placeholder="Filled from Google when available" /></label>
+            <label>Notes<input value={backupForm.notes} onChange={(event) => setBackupForm({ ...backupForm, notes: event.target.value })} placeholder="Why this backup is approved" /></label>
+            <button className="secondary wide" type="submit"><Plus size={16} /> Add as backup</button>
           </form>
         </div>
       )}
@@ -3839,7 +3908,7 @@ function preferredVendorTeam(property, vendors = []) {
         .map((name) => String(name || "").trim())
         .filter(Boolean)
         .filter((name, index, list) => list.findIndex((item) => item.toLowerCase() === name.toLowerCase()) === index);
-      return { trade, names: merged };
+      return { trade, names: merged, primary: merged[0] || "", backups: merged.slice(1) };
     })
     .filter((item) => item.names.length);
 }
