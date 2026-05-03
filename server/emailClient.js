@@ -1,23 +1,73 @@
 const sendGridApiKeys = ["TWILIO_SENDGRID_API_KEY", "SENDGRID_API_KEY"];
 
 export function getEmailStatus() {
+  if (process.env.RESEND_API_KEY) {
+    return {
+      configured: true,
+      provider: "resend",
+      apiKey: "RESEND_API_KEY",
+      from: getFromEmail(),
+      missing: []
+    };
+  }
   const apiKeyName = sendGridApiKeys.find((key) => process.env[key]);
   return {
     configured: Boolean(apiKeyName),
-    provider: "twilio_sendgrid",
+    provider: apiKeyName ? "twilio_sendgrid" : "resend_or_twilio_sendgrid",
     apiKey: apiKeyName || null,
     from: getFromEmail(),
-    missing: apiKeyName ? [] : ["TWILIO_SENDGRID_API_KEY or SENDGRID_API_KEY"]
+    missing: apiKeyName ? [] : ["RESEND_API_KEY or TWILIO_SENDGRID_API_KEY or SENDGRID_API_KEY"]
   };
 }
 
 export async function sendEmail({ to, subject, text, from }) {
   const status = getEmailStatus();
   if (!status.configured) {
-    return { sent: false, reason: "email_not_configured:twilio_sendgrid" };
+    return { sent: false, reason: "email_not_configured:resend_or_twilio_sendgrid" };
+  }
+
+  if (status.provider === "resend") {
+    return sendResendEmail({ apiKey: process.env.RESEND_API_KEY, to, subject, text, from: from || status.from });
   }
 
   return sendSendGridEmail({ apiKey: process.env[status.apiKey], to, subject, text, from: from || status.from });
+}
+
+async function sendResendEmail({ apiKey, to, subject, text, from }) {
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from: from || getFromEmail(),
+      to: [to],
+      subject,
+      text
+    })
+  });
+
+  const responseText = await response.text();
+  let data = {};
+  if (responseText) {
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      data = { message: responseText.slice(0, 240) };
+    }
+  }
+  if (!response.ok) {
+    return {
+      sent: false,
+      reason: data.message || data.error || `email_failed_${response.status}`
+    };
+  }
+
+  return {
+    sent: true,
+    id: data.id || "sent"
+  };
 }
 
 async function sendSendGridEmail({ apiKey, to, subject, text, from }) {
@@ -48,7 +98,8 @@ async function sendSendGridEmail({ apiKey, to, subject, text, from }) {
 }
 
 function getFromEmail() {
-  return process.env.TWILIO_SENDGRID_FROM_EMAIL
+  return process.env.RESEND_FROM_EMAIL
+    || process.env.TWILIO_SENDGRID_FROM_EMAIL
     || process.env.SENDGRID_FROM_EMAIL
     || process.env.NOTIFICATIONS_FROM_EMAIL
     || "LivingRelay <support@livingrelay.com>";
