@@ -34,6 +34,18 @@ export async function sendEmail({ to, subject, text, from }) {
 }
 
 async function sendResendEmail({ apiKey, to, subject, text, from }) {
+  const result = await postResendEmail({ apiKey, to, subject, text, from });
+  if (
+    !result.sent
+    && from !== "onboarding@resend.dev"
+    && /domain is not verified/i.test(result.reason || "")
+  ) {
+    return postResendEmail({ apiKey, to, subject, text, from: "onboarding@resend.dev" });
+  }
+  return result;
+}
+
+async function postResendEmail({ apiKey, to, subject, text, from }) {
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
