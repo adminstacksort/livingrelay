@@ -3802,13 +3802,22 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
 
 function summarizeQaDeliveries(deliveries = []) {
   if (!deliveries.length) return "";
-  const parts = deliveries.map((delivery) => {
-    const channel = delivery.channel?.toUpperCase() || "DELIVERY";
-    if (delivery.skipped) return `${channel} skipped`;
-    if (delivery.sent) return `${channel} ${delivery.status ? `is ${delivery.status}` : "sent"}`;
-    return `${channel} failed${delivery.errorCode ? ` (${delivery.errorCode})` : ""}`;
-  });
-  return parts.join("; ");
+  const groups = deliveries.reduce((acc, delivery) => {
+    const channel = String(delivery.channel || "delivery").replace("lifecycle_", "");
+    acc[channel] ||= { sent: 0, failed: 0, skipped: 0, errors: new Set() };
+    if (delivery.skipped) acc[channel].skipped += 1;
+    else if (delivery.sent) acc[channel].sent += 1;
+    else {
+      acc[channel].failed += 1;
+      if (delivery.errorCode) acc[channel].errors.add(delivery.errorCode);
+    }
+    return acc;
+  }, {});
+  return Object.entries(groups).map(([channel, counts]) => {
+    const label = channel.toUpperCase();
+    const errorText = counts.errors.size ? ` (${Array.from(counts.errors).join(", ")})` : "";
+    return `${label}: ${counts.sent} sent, ${counts.failed} failed${errorText}, ${counts.skipped} skipped`;
+  }).join("; ");
 }
 
 function QaPersonaPreview({ persona }) {
