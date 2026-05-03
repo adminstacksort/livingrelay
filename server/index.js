@@ -1070,6 +1070,8 @@ app.post("/api/site-admin/prospecting-refresh/stream", async (req, res) => {
       }, "prospecting-refresh"));
       added += results.filter((result) => result.created).length;
       updated += results.filter((result) => !result.created).length;
+      await saveState();
+      await waitForStatePersistence();
       writeSse(res, "leads", {
         market: event.market,
         batch: event.batch,
@@ -1080,6 +1082,7 @@ app.post("/api/site-admin/prospecting-refresh/stream", async (req, res) => {
       });
     }
     recordAudit("prospecting-refresh", "Generated prospecting leads", `${added} added, ${updated} updated for ${market}.`);
+    await waitForStatePersistence();
     writeSse(res, "done", { market, added, updated, sourceCount });
   } catch (error) {
     writeSse(res, "error", { error: error.message });
