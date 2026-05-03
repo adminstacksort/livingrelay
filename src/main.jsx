@@ -483,6 +483,10 @@ function formatPlaceAddress(place) {
   return place?.formatted_address || place?.formattedAddress || place?.name || place?.displayName?.text || "";
 }
 
+function formatPlaceName(place, prediction) {
+  return place?.displayName?.text || place?.name || prediction?.mainText || prediction?.description || "";
+}
+
 function propertyLocationLabel(property) {
   return property?.address || property?.name || "Property address";
 }
@@ -1777,8 +1781,8 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
             ) : (
               <>
                 <form className="signup-form" onSubmit={createOnboardingProperty}>
-                  <label>Property name<GooglePlacesAddressInput required value={signupForm.propertyName} onChange={(value) => updateSignup("propertyName", value)} selectedValueForPrediction={(prediction) => prediction.mainText || prediction.description} onPlaceSelect={(place, prediction) => setSignupForm((current) => ({ ...current, propertyName: prediction?.mainText || place.name || current.propertyName, address: formatPlaceAddress(place) || prediction?.description || current.address }))} placeholder="Noe Valley Duplex" autoComplete="organization" /></label>
-                  <label>Address<GooglePlacesAddressInput value={signupForm.address} onChange={(value) => updateSignup("address", value)} placeholder="11820 Pacific Ave" /></label>
+                  <label>Property name<GooglePlacesAddressInput required value={signupForm.propertyName} onChange={(value) => updateSignup("propertyName", value)} selectedValueForPrediction={(prediction) => prediction.mainText || prediction.description} onPlaceSelect={(place, prediction) => setSignupForm((current) => ({ ...current, propertyName: formatPlaceName(place, prediction) || current.propertyName, address: formatPlaceAddress(place) || prediction?.description || current.address }))} placeholder="Noe Valley Duplex" autoComplete="organization" /></label>
+                  <label>Address<GooglePlacesAddressInput value={signupForm.address} onChange={(value) => updateSignup("address", value)} onPlaceSelect={(place, prediction) => setSignupForm((current) => ({ ...current, address: formatPlaceAddress(place) || prediction?.description || current.address, propertyName: current.propertyName || formatPlaceName(place, prediction) }))} placeholder="11820 Pacific Ave" /></label>
                   <label>Your name<input required value={signupForm.managerName} onChange={(event) => updateSignup("managerName", event.target.value)} placeholder="Jordan Lee" /></label>
                   <label>Your role<select value={signupForm.role} onChange={(event) => updateSignup("role", event.target.value)}><option>Property manager</option><option>Owner</option><option>Owner and property manager</option></select></label>
                   <label>Phone<input required value={signupForm.managerPhone} onChange={(event) => updateSignup("managerPhone", formatPhoneInput(event.target.value))} inputMode="tel" autoComplete="tel" placeholder="(310) 555-0100" /></label>
@@ -2434,7 +2438,7 @@ function AdminProperties({ properties, people, accounts, reloadState, setActiveP
         <form className="admin-form" onSubmit={createProperty}>
           <label>Name<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
           <label>Account<select value={form.accountId} onChange={(event) => setForm({ ...form, accountId: event.target.value })}>{accounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select></label>
-          <label>Address<GooglePlacesAddressInput value={form.address} onChange={(value) => setForm({ ...form, address: value })} /></label>
+          <label>Address<GooglePlacesAddressInput value={form.address} onChange={(value) => setForm((current) => ({ ...current, address: value }))} onPlaceSelect={(place, prediction) => setForm((current) => ({ ...current, address: formatPlaceAddress(place) || prediction?.description || current.address, name: current.name || formatPlaceName(place, prediction) }))} /></label>
           <label>Manager<select value={form.adminId} onChange={(event) => setForm({ ...form, adminId: event.target.value })}>{people.filter((person) => person.role === "Manager").map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}</select></label>
           <label>Owner<select value={form.ownerId} onChange={(event) => setForm({ ...form, ownerId: event.target.value })}>{people.filter((person) => person.role === "Owner").map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}</select></label>
           <label>Your role<select value={form.creatorRole} onChange={(event) => setForm({ ...form, creatorRole: event.target.value })}><option>Property manager</option><option>Owner</option><option>Owner and property manager</option></select></label>
