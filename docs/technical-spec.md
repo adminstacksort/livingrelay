@@ -286,8 +286,8 @@ Required production readiness variables:
 
 Email:
 
-- `RESEND_API_KEY`
-- `RESEND_FROM_EMAIL`
+- `TWILIO_SENDGRID_API_KEY`
+- `TWILIO_SENDGRID_FROM_EMAIL`
 
 Stripe:
 

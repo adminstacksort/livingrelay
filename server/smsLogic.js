@@ -1,6 +1,7 @@
 import { accounts, event, invoices, message, people, properties, recordAudit, saveState, vendors, workOrders } from "./data.js";
 import { findVendorOptions } from "./anthropicVendorSearch.js";
 import { buildInitialGuidance, handleTenantTroubleshootingReply, needsImmediateManagerNotice } from "./issueGuidance.js";
+import { defaultNotifyForRole } from "./notifications.js";
 import { buildInvoiceDeliveryInstructions } from "./vendorWorkflow.js";
 import { buildTenantAvailability, ensureWorkOrderDispatchFields, shouldAutoStartVendorOutreach } from "./vendorWorkflow.js";
 
@@ -48,10 +49,31 @@ export function getPrimaryContacts(property) {
 
 function wantsNotification(person, topic) {
   if (!person) return false;
+  const notify = defaultNotifyForRole(person.role, person.notify || {});
+  if (notify.channels?.sms === false) return false;
   if (topic === "tenant_report") return person.notify?.tenantReports !== false;
   if (topic === "every_update") return person.notify?.everyUpdate === true;
   if (topic === "key_update") return person.notify?.keyUpdates !== false;
   return true;
+}
+
+function wantsSmsAction(person, actionType) {
+  if (!person) return false;
+  const notify = defaultNotifyForRole(person.role, person.notify || {});
+  if (notify.channels?.sms === false) return false;
+  const eventKey = smsActionEventKey(actionType);
+  if (eventKey && notify.events?.[eventKey] === false) return false;
+  return true;
+}
+
+function smsActionEventKey(actionType) {
+  if (["notify_tenant_report", "notify_manager", "notify_owner_tenant_report", "notify_admin_tenant_report", "notify_manager_guidance_started"].includes(actionType)) return "tenant_report";
+  if (actionType === "notify_owner_approval") return "owner_approval";
+  if (actionType === "notify_billing_setup_required") return "billing_required";
+  if (actionType === "notify_vendor") return "vendor_booked";
+  if (["notify_manager_vendor_accepted", "notify_manager_vendor_declined", "notify_manager_vendor_issue", "notify_manager_owner_approved", "notify_manager_tenant_availability", "notify_manager_tenant_confirmed", "notify_manager_tenant_cancelled", "notify_tenant_cancelled_by_manager", "notify_manager_owner_denied", "notify_tenant_status"].includes(actionType)) return "vendor_contacted";
+  if (actionType === "notify_tenant_closed") return "issue_resolved";
+  return "";
 }
 
 function notificationActionsForProperty(property, topic, orderId) {
@@ -396,80 +418,101 @@ export function composeActionMessage(action) {
 
   const messages = {
     notify_manager: {
+      person: contacts.manager,
       to: contacts.manager.phone,
       body: `${order.id}: ${order.severity} ${order.trade} issue in Unit ${order.unit}. ${order.issue}\n\nVendor options:\n${formatVendorOptions(order)}\n\nReview: ${reviewLink(order)}\nReply APPROVE ${order.id} or VENDOR ${order.id} 1-5.`
     },
     notify_owner_tenant_report: {
+      person: contacts.owner,
       to: contacts.owner.phone,
       body: `${order.id}: tenant reported a ${order.severity.toLowerCase()} ${order.trade.toLowerCase()} issue at ${property.name}, Unit ${order.unit}. Estimate ${order.estimate}. No approval needed yet unless manager requests it.`
     },
     notify_admin_tenant_report: {
+      person: contacts.admin,
       to: contacts.admin.phone,
       body: `${order.id}: new tenant report at ${property.name}, Unit ${order.unit}. ${order.severity} ${order.trade}. Manager review started.`
     },
     notify_manager_guidance_started: {
+      person: contacts.manager,
       to: contacts.manager.phone,
       body: `${order.id}: ${order.severity} ${order.trade} issue in Unit ${order.unit}. LivingRelay is guiding the tenant through safe first steps before vendor outreach. Issue: ${order.issue}\n\nReview: ${reviewLink(order)}`
     },
     notify_billing_setup_required: {
+      person: contacts.admin,
       to: contacts.admin.phone,
       body: `${order.id}: tenant reported an issue at ${property.name}. LivingRelay started the normal intake flow, but billing still needs a card on file before vendor dispatch can be charged. Open Billing to save a payment method: ${billingLink(property)}`
     },
     notify_owner_approval: {
+      person: contacts.owner,
       to: contacts.owner.phone,
       body: `${order.id}: approve ${order.trade} repair for Unit ${order.unit}? Estimate $${order.estimate}. Reply APPROVE or DENY.`
     },
     notify_vendor: {
+      person: vendor?.personId ? people.find((person) => person.id === vendor.personId) : { id: vendor?.id || "vendor", role: "Vendor", notify: vendor?.notify || {} },
       to: vendor.phone,
       body: `${order.id}: ${order.trade} job at ${property.name}, Unit ${order.unit}. Issue: ${order.issue}. Reply ACCEPT or DECLINE.\n\nInvoice instructions: ${invoiceDelivery.instructions}`
     },
     notify_tenant_closed: {
+      person: tenant,
       to: tenant.phone,
       body: `${order.id} has been closed. Reply with any issue if this is not resolved.`
     },
     notify_manager_owner_approved: {
+      person: contacts.manager,
       to: contacts.manager.phone,
       body: `${order.id}: owner approved. Reply VENDOR to contact ${vendor.name}.`
     },
     notify_manager_tenant_availability: {
+      person: contacts.manager,
       to: contacts.manager.phone,
       body: `${order.id}: tenant availability updated. ${order.tenantAvailability?.serviceWindow || order.severity}: ${order.access || order.tenantAvailability?.accessNotes}`
     },
     notify_manager_tenant_confirmed: {
+      person: contacts.manager,
       to: contacts.manager.phone,
       body: `${order.id}: tenant confirmed service timing. Proceed with final vendor booking or monitor the scheduled visit.`
     },
     notify_manager_tenant_cancelled: {
+      person: contacts.manager,
       to: contacts.manager.phone,
       body: `${order.id}: tenant asked to cancel/reschedule. Pause vendor booking and coordinate a new window.`
     },
     notify_tenant_cancelled_by_manager: {
+      person: tenant,
       to: tenant.phone,
       body: `${order.id}: vendor dispatch is paused while the manager reviews next steps.`
     },
     notify_manager_owner_denied: {
+      person: contacts.manager,
       to: contacts.manager.phone,
       body: `${order.id}: owner denied the repair.`
     },
     notify_manager_vendor_accepted: {
+      person: contacts.manager,
       to: contacts.manager.phone,
       body: `${order.id}: ${vendor.name} accepted the job.`
     },
     notify_manager_vendor_declined: {
+      person: contacts.manager,
       to: contacts.manager.phone,
       body: `${order.id}: ${vendor.name} declined. Choose another vendor.`
     },
     notify_manager_vendor_issue: {
+      person: contacts.manager,
       to: contacts.manager.phone,
       body: `${order.id}: ${vendor.name} reported an issue with the booking. Check the work order and coordinate tenant/vendor updates.`
     },
     notify_tenant_status: {
+      person: tenant,
       to: tenant.phone,
       body: `${order.id}: vendor posted an update. Manager is reviewing.`
     }
   };
 
-  return messages[action.type] || null;
+  const message = messages[action.type] || null;
+  if (!message || !wantsSmsAction(message.person, action.type)) return null;
+  const { person, ...payload } = message;
+  return payload;
 }
 
 function formatVendorOptions(order) {

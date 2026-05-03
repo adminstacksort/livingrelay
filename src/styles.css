@@ -114,6 +114,18 @@ p {
   gap: 12px;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 label {
   display: flex;
   flex-direction: column;
@@ -141,6 +153,23 @@ textarea:focus,
 select:focus {
   border-color: #1c675b;
   box-shadow: 0 0 0 3px rgba(28, 103, 91, 0.12);
+}
+
+.checkbox-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  color: #26312f;
+  line-height: 1.3;
+}
+
+.checkbox-row input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: #1c675b;
 }
 
 .pin-code-field {
@@ -2156,6 +2185,63 @@ body:has(.login-card.admin-login-card) {
   gap: 12px;
 }
 
+.qa-view {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 12px;
+}
+
+.qa-results-panel {
+  grid-column: 1 / -1;
+}
+
+.qa-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.qa-form .span-2,
+.qa-form button {
+  grid-column: 1 / -1;
+}
+
+.qa-scenario-summary {
+  display: grid;
+  gap: 10px;
+}
+
+.qa-scenario-summary strong {
+  font-size: 18px;
+}
+
+.qa-scenario-summary p {
+  color: #4f5d59;
+  line-height: 1.45;
+}
+
+.qa-scenario-summary div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qa-scenario-summary span {
+  border: 1px solid #e1d9cd;
+  border-radius: 999px;
+  background: #fffdfa;
+  padding: 5px 9px;
+  color: #51443e;
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.qa-result-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .diagnostics-head,
 .attempt-card-head {
   display: flex;
@@ -3074,6 +3160,10 @@ body:has(.login-card.admin-login-card) {
 .notify-channel-grid,
 .notify-event-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.notify-channel-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .check-row {
@@ -4006,6 +4096,11 @@ body:has(.login-card.admin-login-card) {
     grid-template-columns: 1fr;
   }
 
+  .notify-channel-grid,
+  .notify-event-grid {
+    grid-template-columns: 1fr;
+  }
+
   .quote-grid {
     grid-template-columns: 1fr;
   }
@@ -4079,6 +4174,11 @@ body:has(.login-card.admin-login-card) {
   }
 
   .diagnostic-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .qa-view,
+  .qa-result-grid {
     grid-template-columns: 1fr;
   }
 

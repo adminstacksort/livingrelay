@@ -270,6 +270,7 @@ function defaultNotify(role, notify = {}) {
   };
   return {
     channels: {
+      sms: notify.channels?.sms ?? true,
       email: notify.channels?.email ?? true,
       push: notify.channels?.push ?? true
     },
@@ -902,8 +903,10 @@ function sectionFromRoutePage(role, page) {
       properties: "properties",
       support: "workOrders",
       "work-orders": "workOrders",
+      qa: "qa",
       billing: "billing",
       revenue: "billing",
+      diagnostics: "diagnostics",
       audit: "audit"
     }[page] || "accounts";
   }
@@ -923,7 +926,9 @@ function pageFromSection(role, section) {
       directory: "people",
       properties: "properties",
       workOrders: "support",
+      qa: "qa",
       billing: "revenue",
+      diagnostics: "diagnostics",
       audit: "audit"
     }[section] || "dashboard";
   }
@@ -1894,12 +1899,29 @@ function parseSseEvent(chunk = "") {
 const rememberedPhoneStorageKey = "livingrelay.rememberedPhone";
 const authTokenStorageKey = "livingrelay.authToken";
 const siteAdminTokenStorageKey = "livingrelay.siteAdminToken";
+const siteAdminRememberStorageKey = "livingrelay.siteAdminRemember";
 const sessionUserStorageKey = "livingrelay.sessionUserId";
 const prospectingTargetMarkets = ["San Francisco", "Oakland", "San Jose", "Los Angeles", "San Diego"];
 
+function storedSessionValue(key) {
+  return window.localStorage.getItem(key) || window.sessionStorage.getItem(key) || "";
+}
+
+function persistSessionValue(key, value, remember = true) {
+  const primaryStorage = remember ? window.localStorage : window.sessionStorage;
+  const secondaryStorage = remember ? window.sessionStorage : window.localStorage;
+  primaryStorage.setItem(key, value);
+  secondaryStorage.removeItem(key);
+}
+
+function clearStoredSessionValue(key) {
+  window.localStorage.removeItem(key);
+  window.sessionStorage.removeItem(key);
+}
+
 function App() {
   const [session, setSession] = useState(() => {
-    const userId = window.localStorage.getItem(sessionUserStorageKey);
+    const userId = storedSessionValue(sessionUserStorageKey);
     return userId ? { userId } : null;
   });
   const [phone, setPhone] = useState("");
@@ -1907,7 +1929,8 @@ function App() {
   const [rememberedPhone, setRememberedPhone] = useState("");
   const [editingRememberedPhone, setEditingRememberedPhone] = useState(false);
   const [sitePassword, setSitePassword] = useState("");
-  const [siteAdminToken, setSiteAdminToken] = useState(() => window.localStorage.getItem(siteAdminTokenStorageKey) || "");
+  const [siteAdminRemember, setSiteAdminRemember] = useState(() => window.localStorage.getItem(siteAdminRememberStorageKey) !== "false");
+  const [siteAdminToken, setSiteAdminToken] = useState(() => storedSessionValue(siteAdminTokenStorageKey));
   const [authToken, setAuthToken] = useState(() => window.localStorage.getItem(authTokenStorageKey) || "");
   const [loginError, setLoginError] = useState("");
   const [loginVerification, setLoginVerification] = useState({ challengeId: "", code: "", state: "idle", message: "" });
@@ -2007,9 +2030,9 @@ function App() {
     setSession(null);
     setSiteAdminToken("");
     setAuthToken("");
-    window.localStorage.removeItem(siteAdminTokenStorageKey);
+    clearStoredSessionValue(siteAdminTokenStorageKey);
     window.localStorage.removeItem(authTokenStorageKey);
-    window.localStorage.removeItem(sessionUserStorageKey);
+    clearStoredSessionValue(sessionUserStorageKey);
     window.history.replaceState({}, "", signedOutUrl());
   }
 
@@ -2113,7 +2136,7 @@ function App() {
       const response = await fetch("/api/site-admin/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: sitePassword })
+        body: JSON.stringify({ password: sitePassword, remember: siteAdminRemember })
       });
       const data = await response.json();
       if (!response.ok) {
@@ -2122,8 +2145,9 @@ function App() {
       }
       setSession({ userId: data.userId });
       setSiteAdminToken(data.token || "");
-      if (data.token) window.localStorage.setItem(siteAdminTokenStorageKey, data.token);
-      window.localStorage.setItem(sessionUserStorageKey, data.userId);
+      window.localStorage.setItem(siteAdminRememberStorageKey, siteAdminRemember ? "true" : "false");
+      if (data.token) persistSessionValue(siteAdminTokenStorageKey, data.token, siteAdminRemember);
+      persistSessionValue(sessionUserStorageKey, data.userId, siteAdminRemember);
       setActivePropertyId(propertiesData[0]?.id);
       setAdminSection("accounts");
       setSitePassword("");
@@ -2546,6 +2570,8 @@ function App() {
         setPin={setPin}
         sitePassword={sitePassword}
         setSitePassword={setSitePassword}
+        siteAdminRemember={siteAdminRemember}
+        setSiteAdminRemember={setSiteAdminRemember}
         siteAdminConsoleAvailable={siteAdminConsoleAvailable}
         login={login}
         loginCandidate={loginCandidate}
@@ -2810,7 +2836,7 @@ function App() {
   );
 }
 
-function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSitePassword, siteAdminConsoleAvailable, login, loginCandidate, loginError, loginVerification, setLoginVerification, loginPeople, setLoginError, landingMode, setLandingMode, signupForm, setSignupForm, signupStatus, signupVerification, setSignupVerification, createOnboardingProperty, rememberedPhone, editingRememberedPhone, setEditingRememberedPhone }) {
+function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSitePassword, siteAdminRemember, setSiteAdminRemember, siteAdminConsoleAvailable, login, loginCandidate, loginError, loginVerification, setLoginVerification, loginPeople, setLoginError, landingMode, setLandingMode, signupForm, setSignupForm, signupStatus, signupVerification, setSignupVerification, createOnboardingProperty, rememberedPhone, editingRememberedPhone, setEditingRememberedPhone }) {
   const updateSignup = (key, value) => setSignupForm((current) => ({ ...current, [key]: value }));
   const [showReferralCode, setShowReferralCode] = useState(Boolean(signupForm.referralToken));
   const [renterRequest, setRenterRequest] = useState(() => ({
@@ -2893,9 +2919,14 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
           <h1>Admin console for the LivingRelay platform.</h1>
           <p>This private console is for customer accounts, revenue, support load, usage, logins, and production operations.</p>
           <form className="stack" onSubmit={login}>
+            <input className="sr-only" name="username" autoComplete="username" value="LivingRelay admin" readOnly tabIndex={-1} aria-hidden="true" />
             <label>
               Password
-              <input type="password" value={sitePassword} onChange={(event) => setSitePassword(event.target.value)} autoComplete="current-password" autoFocus />
+              <input name="password" type="password" value={sitePassword} onChange={(event) => setSitePassword(event.target.value)} autoComplete="current-password" autoFocus />
+            </label>
+            <label className="checkbox-row">
+              <input type="checkbox" checked={siteAdminRemember} onChange={(event) => setSiteAdminRemember(event.target.checked)} />
+              <span>Keep me logged in on this device</span>
             </label>
             <button className="primary wide" type="submit"><LockKeyhole size={16} /> Enter admin console</button>
             {loginError && <p className="login-error">{loginError}</p>}
@@ -3277,6 +3308,7 @@ function AdminConsoleNav({ active, setActive }) {
     ["directory", Users, "People"],
     ["properties", Building2, "Properties"],
     ["workOrders", ClipboardList, "Support"],
+    ["qa", ShieldCheck, "QA"],
     ["billing", DollarSign, "Revenue"],
     ["diagnostics", Bot, "Diagnostics"],
     ["audit", Database, "Audit"]
@@ -3368,10 +3400,132 @@ function AdminConsole({ active, accounts, people, properties, vendors, orders, i
       {active === "directory" && <AdminDirectory people={people} properties={properties} accounts={accounts} reloadState={reloadState} />}
       {active === "properties" && <AdminProperties properties={properties} people={people} accounts={accounts} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setAdminSection={setAdminSection} />}
       {active === "workOrders" && <AdminWorkOrders orders={orders} properties={properties} people={people} vendors={vendors} accounts={accounts} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setActiveOrderId={setActiveOrderId} setAdminSection={setAdminSection} />}
+      {active === "qa" && <AdminQaPanel siteAdminToken={siteAdminToken} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setActiveOrderId={setActiveOrderId} setAdminSection={setAdminSection} />}
       {active === "billing" && <AdminBilling accounts={accounts} properties={properties} invoices={invoices} billingEvents={billingEvents} activeProperties={activeProperties} pendingInvoices={pendingInvoices} reloadState={reloadState} />}
       {active === "diagnostics" && <AdminDiagnostics siteAdminToken={siteAdminToken} platformSettings={platformSettings} />}
       {active === "audit" && <AdminAudit auditLog={auditLog} />}
     </section>
+  );
+}
+
+function AdminQaPanel({ siteAdminToken, reloadState, setActivePropertyId, setActiveOrderId, setAdminSection }) {
+  const defaultScenarios = [
+    { id: "leak_owner_approval", title: "Leak needs owner approval", trade: "Plumbing", severity: "Urgent", estimate: 325, issue: "Kitchen sink leak with active water under cabinet." },
+    { id: "hvac_no_heat", title: "No heat urgent HVAC", trade: "HVAC", severity: "Urgent", estimate: 425, issue: "Heat is not turning on and thermostat is blank." },
+    { id: "electrical_spark", title: "Electrical spark", trade: "Electrical", severity: "Urgent", estimate: 185, issue: "Bedroom outlet sparked and lights are out." }
+  ];
+  const [scenarios, setScenarios] = useState(defaultScenarios);
+  const [form, setForm] = useState({ scenarioId: defaultScenarios[0].id, phone: "", email: "", demoFallback: true });
+  const [status, setStatus] = useState({ state: "idle", message: "" });
+  const [run, setRun] = useState(null);
+
+  useEffect(() => {
+    loadScenarios();
+  }, [siteAdminToken]);
+
+  async function loadScenarios() {
+    try {
+      const response = await fetch("/api/site-admin/qa/scenarios", {
+        headers: { Authorization: `Bearer ${siteAdminToken}` }
+      });
+      const data = await response.json();
+      if (response.ok && data.scenarios?.length) setScenarios(data.scenarios);
+    } catch {
+      setScenarios(defaultScenarios);
+    }
+  }
+
+  async function runQa(event) {
+    event.preventDefault();
+    setStatus({ state: "saving", message: "Running QA scenario..." });
+    setRun(null);
+    try {
+      const response = await fetch("/api/site-admin/qa/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${siteAdminToken}` },
+        body: JSON.stringify(form)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "QA run failed");
+      setRun(data.run);
+      setStatus({ state: data.run.issues?.some((issue) => issue.severity === "error") ? "error" : "ok", message: `${data.run.scenarioTitle} finished with ${data.run.issues?.length || 0} finding${data.run.issues?.length === 1 ? "" : "s"}.` });
+      await reloadState();
+    } catch (error) {
+      setStatus({ state: "error", message: error.message });
+    }
+  }
+
+  function openWorkOrder() {
+    if (!run?.workOrderId) return;
+    setActivePropertyId(run.property?.id);
+    setActiveOrderId(run.workOrderId);
+    setAdminSection("workOrders");
+  }
+
+  const selectedScenario = scenarios.find((scenario) => scenario.id === form.scenarioId) || scenarios[0];
+  return (
+    <div className="qa-view">
+      <section className="panel qa-runner-panel">
+        <div className="diagnostics-head">
+          <SectionTitle icon={<ShieldCheck />} title="QA runner" eyebrow="Admin smoke tests" />
+          {run?.workOrderId && <button className="secondary" type="button" onClick={openWorkOrder}><ClipboardList size={15} /> Open work order</button>}
+        </div>
+        <form className="qa-form" onSubmit={runQa}>
+          <label className="span-2">Scenario
+            <select value={form.scenarioId} onChange={(event) => setForm({ ...form, scenarioId: event.target.value })}>
+              {scenarios.map((scenario) => <option value={scenario.id} key={scenario.id}>{scenario.title}</option>)}
+            </select>
+          </label>
+          <label>QA phone<input value={form.phone} onChange={(event) => setForm({ ...form, phone: formatPhoneInput(event.target.value) })} inputMode="tel" placeholder="Real phone for SMS/test call" /></label>
+          <label>QA email<input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} inputMode="email" placeholder="Real email for delivery" /></label>
+          <label className="check-row span-2"><input type="checkbox" checked={form.demoFallback} onChange={(event) => setForm({ ...form, demoFallback: event.target.checked })} /> Generate demo vendor outcomes when live calls are disabled</label>
+          <button className="primary wide" type="submit" disabled={status.state === "saving"}><Radio size={16} /> {status.state === "saving" ? "Running" : "Run QA"}</button>
+        </form>
+        {status.message && <p className={`form-status ${status.state}`}>{status.message}</p>}
+      </section>
+      <section className="panel qa-scenario-panel">
+        <SectionTitle icon={<ClipboardList />} title="Scenario scope" eyebrow={selectedScenario?.trade || "Scenario"} />
+        <div className="qa-scenario-summary">
+          <strong>{selectedScenario?.title}</strong>
+          <p>{selectedScenario?.issue}</p>
+          <div>
+            <span>{selectedScenario?.severity}</span>
+            <span>{formatMoney(selectedScenario?.estimate || 0)}</span>
+            <span>{selectedScenario?.trade}</span>
+          </div>
+        </div>
+      </section>
+      {run && (
+        <section className="panel qa-results-panel">
+          <SectionTitle icon={<Database />} title="QA results" eyebrow={run.status} />
+          <div className="qa-result-grid">
+            <DiagnosticBlock title="Findings">
+              {run.issues.map((issue, index) => (
+                <DiagnosticRow key={`${issue.area}-${index}`} label={issue.area} value={issue.detail} tone={issue.severity === "error" ? "error" : issue.severity === "warn" ? "warn" : "ok"} />
+              ))}
+            </DiagnosticBlock>
+            <DiagnosticBlock title="Messages">
+              {run.deliveries.length === 0 && <DiagnosticRow label="Delivery" value="No phone or email entered." tone="warn" />}
+              {run.deliveries.map((delivery, index) => (
+                <DiagnosticRow key={`${delivery.channel}-${index}`} label={delivery.channel} value={[delivery.to, delivery.providerId || delivery.status || delivery.reason].filter(Boolean).join(" · ")} tone={delivery.sent ? "ok" : "error"} />
+              ))}
+            </DiagnosticBlock>
+            <DiagnosticBlock title="Calls">
+              <DiagnosticRow label="Call flow" value={run.callResult.reason || (run.callResult.demo ? "Demo fallback generated" : run.callResult.started ? "Started" : "Not started")} tone={run.callResult.started ? "ok" : "error"} />
+              {run.calls.map((call, index) => (
+                <DiagnosticRow key={`${call.vendor}-${index}`} label={call.vendor || "Vendor"} value={[call.to, call.callSid || call.conversationId || call.status, call.reason].filter(Boolean).join(" · ")} tone={call.success ? "ok" : "error"} />
+              ))}
+            </DiagnosticBlock>
+            <DiagnosticBlock title="Artifacts">
+              <DiagnosticRow label="Run" value={run.id} />
+              <DiagnosticRow label="Work order" value={run.workOrderId} tone="ok" />
+              <DiagnosticRow label="Property" value={run.property?.name || "Unknown"} />
+              <DiagnosticRow label="Completed" value={new Date(run.completedAt).toLocaleString()} />
+            </DiagnosticBlock>
+          </div>
+        </section>
+      )}
+    </div>
   );
 }
 
@@ -4758,8 +4912,9 @@ function AdminTools({ property, people, vendors, auditLog, reloadState }) {
           />
           <div className="notify-channel-grid">
             {[
+              ["sms", "Text"],
               ["email", "Email"],
-              ["push", "iOS push"]
+              ["push", "App"]
             ].map(([key, label]) => {
               const notify = defaultNotify(person.role, person.notify);
               return (

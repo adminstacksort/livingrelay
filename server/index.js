@@ -3,7 +3,7 @@ import express from "express";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { accessRequests, accounts, auditLog, billingEvents, invoices, notifications, people, platformSettings, properties, prospectingLeads, recordAudit, referrals, saveState, vendors, waitForStatePersistence, workOrders } from "./data.js";
+import { accessRequests, accounts, auditLog, billingEvents, event, invoices, message, notifications, people, platformSettings, properties, prospectingLeads, recordAudit, referrals, saveState, vendors, waitForStatePersistence, workOrders } from "./data.js";
 import { composeActionMessage, handleInboundCommand, normalizePhone } from "./smsLogic.js";
 import { getTwilioStatus, sendSms } from "./twilioClient.js";
 import { sendEmail } from "./emailClient.js";
@@ -44,6 +44,8 @@ const siteAdminHosts = new Set([
   ...(getRuntimeEnvironment() === "staging" ? ["staging.livingrelay.com"] : [])
 ].map((host) => host.toLowerCase()));
 const demoHost = process.env.DEMO_HOST || "demo.livingrelay.com";
+const siteAdminSessionCookieName = "lr_site_admin";
+const siteAdminSessionMaxAgeMs = 1000 * 60 * 60 * 24 * 30;
 const siteAdminSessions = new Set();
 const appSessions = new Map();
 const publicInviteTemplates = {
@@ -413,7 +415,10 @@ app.post("/api/auth/login/verify", (req, res) => {
 app.post("/api/auth/logout", (req, res) => {
   const token = bearerToken(req) || cookieValue(req, "lr_session");
   if (token) appSessions.delete(token);
+  const siteAdminToken = bearerToken(req) || cookieValue(req, siteAdminSessionCookieName);
+  if (siteAdminToken) siteAdminSessions.delete(siteAdminToken);
   res.clearCookie("lr_session");
+  res.clearCookie(siteAdminSessionCookieName);
   res.json({ ok: true });
 });
 
@@ -525,14 +530,15 @@ app.post("/api/onboarding/property", (req, res) => {
 app.use("/api/site-admin", requireSiteAdminHost);
 
 app.post("/api/site-admin/login", (req, res) => {
-  const { password } = req.body;
+  const { password, remember = true } = req.body;
   const siteAdmin = people.find((person) => person.role === "Site Admin");
   if (!siteAdmin || password !== (process.env.SITE_ADMIN_PASSWORD || "owner-console")) {
     res.status(401).json({ error: "Invalid admin console password" });
     return;
   }
-  const token = randomUUID();
+  const token = createSiteAdminSession(siteAdmin, { remember });
   siteAdminSessions.add(token);
+  setSiteAdminSessionCookie(res, token, { remember });
   recordAudit(siteAdmin.name, "Admin console login", "Platform admin console session started.");
   res.json({ userId: siteAdmin.id, token });
 });
@@ -562,8 +568,34 @@ function isDemoExperienceHost(req) {
 }
 
 function hasSiteAdminSession(req) {
-  const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
-  return Boolean(token && siteAdminSessions.has(token));
+  const token = bearerToken(req) || cookieValue(req, siteAdminSessionCookieName);
+  return Boolean(token && (token.includes(".") ? verifySiteAdminSession(token) : siteAdminSessions.has(token)));
+}
+
+function createSiteAdminSession(person, { remember = true } = {}) {
+  const expiresAt = Date.now() + (remember ? siteAdminSessionMaxAgeMs : 1000 * 60 * 60 * 12);
+  const payload = `v1.${person.id}.${expiresAt}.${randomUUID()}`;
+  const signature = signSiteAdminSession(payload);
+  return `${payload}.${signature}`;
+}
+
+function verifySiteAdminSession(token) {
+  const parts = String(token || "").split(".");
+  if (parts.length !== 5 || parts[0] !== "v1") return false;
+  const [, userId, expiresAt] = parts;
+  const expiresAtMs = Number(expiresAt);
+  if (!people.some((person) => person.id === userId && person.role === "Site Admin")) return false;
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs < Date.now()) return false;
+  const payload = parts.slice(0, 4).join(".");
+  return safeEqualHex(signSiteAdminSession(payload), parts[4]);
+}
+
+function signSiteAdminSession(payload) {
+  return createHmac("sha256", siteAdminSessionSecret()).update(payload).digest("hex");
+}
+
+function siteAdminSessionSecret() {
+  return process.env.SESSION_SECRET || process.env.SITE_ADMIN_PASSWORD || "owner-console";
 }
 
 function createAppSession(person) {
@@ -597,6 +629,15 @@ function setAppSessionCookie(res, token) {
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     maxAge: 1000 * 60 * 60 * 24 * 30
+  });
+}
+
+function setSiteAdminSessionCookie(res, token, { remember = true } = {}) {
+  res.cookie(siteAdminSessionCookieName, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    ...(remember ? { maxAge: siteAdminSessionMaxAgeMs } : {})
   });
 }
 
@@ -750,6 +791,190 @@ app.patch("/api/site-admin/platform-settings", (req, res) => {
   saveState();
   recordAudit("site-admin", "Updated platform vendor call settings", `Production calls ${platformSettings.productionVendorCallsEnabled ? "enabled" : "disabled"}; test mode ${platformSettings.vendorCallTestMode ? "enabled" : "disabled"}.`);
   res.json({ platformSettings });
+});
+
+const qaScenarios = {
+  leak_owner_approval: {
+    title: "Leak needs owner approval",
+    trade: "Plumbing",
+    severity: "Urgent",
+    estimate: 325,
+    issue: "Kitchen sink is leaking and water is pooling under the cabinet. Please send someone today if possible.",
+    access: "Tenant is home after 1 PM. Text before entering.",
+    expected: ["work_order_created", "owner_approval_required", "sms_attempted", "email_attempted", "vendor_call_attempted"]
+  },
+  hvac_no_heat: {
+    title: "No heat urgent HVAC",
+    trade: "HVAC",
+    severity: "Urgent",
+    estimate: 425,
+    issue: "The heat is not turning on and the garden flat is cold. Thermostat is blank.",
+    access: "Tenant can do today between 3 PM and 7 PM.",
+    expected: ["work_order_created", "owner_approval_required", "sms_attempted", "email_attempted", "vendor_call_attempted"]
+  },
+  electrical_spark: {
+    title: "Electrical spark",
+    trade: "Electrical",
+    severity: "Urgent",
+    estimate: 185,
+    issue: "Bedroom outlet sparked once and the lights in the room are out.",
+    access: "Tenant is available all afternoon.",
+    expected: ["work_order_created", "manager_review", "sms_attempted", "email_attempted", "vendor_call_attempted"]
+  }
+};
+
+app.get("/api/site-admin/qa/scenarios", (req, res) => {
+  res.json({
+    scenarios: Object.entries(qaScenarios).map(([id, scenario]) => ({
+      id,
+      title: scenario.title,
+      trade: scenario.trade,
+      severity: scenario.severity,
+      estimate: scenario.estimate,
+      issue: scenario.issue,
+      expected: scenario.expected
+    }))
+  });
+});
+
+app.post("/api/site-admin/qa/run", async (req, res) => {
+  try {
+    const scenario = qaScenarios[req.body.scenarioId] || qaScenarios.leak_owner_approval;
+    const qaPhone = normalizePhone(req.body.phone || platformSettings.vendorCallTestNumber || process.env.VENDOR_CALL_TEST_NUMBER || "");
+    const qaEmail = String(req.body.email || "").trim().toLowerCase();
+    const property = properties.find((item) => item.id === "p-test") || properties[0];
+    const tenant = people.find((person) => person.role === "Tenant" && person.propertyIds?.includes(property.id)) || people.find((person) => person.role === "Tenant");
+    const vendor = vendors.find((item) => item.trade === scenario.trade) || vendors[0];
+    const runId = `qa-${Date.now()}-${randomUUID().slice(0, 8)}`;
+    const startedAt = new Date().toISOString();
+    const order = {
+      id: `QA-${Math.floor(3000 + Math.random() * 6000)}`,
+      qaRunId: runId,
+      propertyId: property.id,
+      unit: tenant?.unit || property.units?.[0] || "QA unit",
+      tenantId: tenant?.id || null,
+      trade: scenario.trade,
+      severity: scenario.severity,
+      status: scenario.estimate > Number(property.approvalThreshold || 250) ? "Needs owner approval" : "Manager review",
+      estimate: scenario.estimate,
+      vendorId: vendor?.id || null,
+      issue: scenario.issue,
+      access: scenario.access,
+      serviceWindow: scenario.severity === "Urgent" ? "ASAP / emergency" : "Next available",
+      tenantAvailability: buildTenantAvailability({ access: scenario.access, severity: scenario.severity, issue: scenario.issue }),
+      dispatchStage: "qa_review",
+      vendorOutreach: {
+        status: "Not started",
+        mode: "QA test call",
+        outcomes: []
+      },
+      completionPackage: {
+        status: "Not requested",
+        photos: [],
+        notes: "",
+        invoiceDelivery: "Not received"
+      },
+      managerApproved: false,
+      ownerApproved: scenario.estimate <= Number(property.approvalThreshold || 250),
+      dispatchFee: {
+        status: "Not charged",
+        amount: dispatchFeeCents / 100,
+        reason: "QA run only. Charged only when a vendor is booked."
+      },
+      invoiceId: null,
+      timeline: [
+        event("QA scenario started", `${scenario.title}: ${scenario.issue}`),
+        event("QA tenant intake", scenario.access)
+      ],
+      messages: [
+        message("tenant", scenario.issue),
+        message("relay", `QA opened ${runId}. Manager and owner routing will be checked.`)
+      ],
+      createdAt: startedAt
+    };
+    workOrders.unshift(order);
+
+    const deliveries = [];
+    if (qaPhone) {
+      try {
+        const sms = await sendSms({
+          to: qaPhone,
+          body: `[LivingRelay QA] ${scenario.title}: ${order.id} opened for ${property.name}. ${scenario.issue}`
+        });
+        deliveries.push({
+          channel: "sms",
+          to: maskPhone(qaPhone),
+          sent: sms.sent,
+          providerId: sms.sid || "",
+          status: sms.status || "",
+          reason: sms.error || sms.status || "sent"
+        });
+      } catch (error) {
+        deliveries.push({ channel: "sms", to: maskPhone(qaPhone), sent: false, reason: error.message });
+      }
+    }
+    if (qaEmail) {
+      try {
+        const email = await sendEmail({
+          to: qaEmail,
+          subject: `[LivingRelay QA] ${scenario.title}`,
+          text: `QA run ${runId}\nWork order ${order.id}\n${scenario.issue}\nAccess: ${scenario.access}`
+        });
+        deliveries.push({
+          channel: "email",
+          to: maskEmail(qaEmail),
+          sent: email.sent,
+          providerId: email.id || "",
+          reason: email.reason || email.id || "sent"
+        });
+      } catch (error) {
+        deliveries.push({ channel: "email", to: maskEmail(qaEmail), sent: false, reason: error.message });
+      }
+    }
+
+    const callResult = await startVendorQuoteCalls(order.id, {
+      actor: "QA panel",
+      demoFallback: req.body.demoFallback !== false,
+      testVendorPhone: qaPhone,
+      testOnly: true
+    });
+    const issues = qaIssuesForRun({ scenario, order, property, qaPhone, qaEmail, deliveries, callResult });
+    order.timeline.push(event("QA run completed", `${issues.length} issue${issues.length === 1 ? "" : "s"} found.`));
+    saveState();
+    recordAudit("site-admin", "Ran QA scenario", `${scenario.title} created ${order.id}; ${issues.length} issue${issues.length === 1 ? "" : "s"} found.`);
+    res.json({
+      run: {
+        id: runId,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        scenarioId: req.body.scenarioId || "leak_owner_approval",
+        scenarioTitle: scenario.title,
+        property: { id: property.id, name: property.name },
+        workOrderId: order.id,
+        status: issues.some((issue) => issue.severity === "error") ? "Issues found" : "Passed with warnings check",
+        issues,
+        deliveries,
+        calls: (callResult.calls || []).map((call) => ({
+          vendor: call.vendor,
+          to: maskPhone(call.phone),
+          success: call.success !== false,
+          provider: call.provider || (call.conversation_id ? "elevenlabs_native" : call.demo ? "demo" : "unknown"),
+          callSid: call.callSid || call.call_sid || "",
+          conversationId: call.conversation_id || call.conversationId || "",
+          status: call.twilioStatus || call.status || "",
+          reason: call.error || call.reason || call.summary || ""
+        })),
+        callResult: {
+          started: callResult.started !== false,
+          demo: Boolean(callResult.demo),
+          testMode: Boolean(callResult.testMode),
+          reason: callResult.reason || callResult.error || ""
+        }
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.post("/api/site-admin/prospecting-leads", (req, res) => {
@@ -1720,13 +1945,17 @@ app.post("/api/work-orders/:id/live-calls/:callId/join", async (req, res) => {
   }
 });
 
-app.post("/api/work-orders/:id/live-calls/:callId/takeover", (req, res) => {
-  const result = takeOverCall(req.params.id, req.params.callId, req.body.actorId);
-  if (result.error) {
-    res.status(404).json(result);
-    return;
+app.post("/api/work-orders/:id/live-calls/:callId/takeover", async (req, res) => {
+  try {
+    const result = await takeOverCall(req.params.id, req.params.callId, req.body.actorId);
+    if (result.error) {
+      res.status(result.error.includes("requires") || result.error.includes("phone") ? 400 : 404).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  res.json(result);
 });
 
 app.post("/api/work-orders/:id/full-flow-demo", (req, res) => {
@@ -2301,6 +2530,41 @@ function envPresence(keys) {
   }));
 }
 
+function qaIssuesForRun({ scenario, order, property, qaPhone, qaEmail, deliveries, callResult }) {
+  const issues = [];
+  const add = (severity, area, detail) => issues.push({ severity, area, detail });
+  if (!order?.id) add("error", "Work order", "QA scenario did not create a work order.");
+  if (scenario.estimate > Number(property?.approvalThreshold || 250) && order.ownerApproved !== false) {
+    add("error", "Approvals", "Scenario should require owner approval, but ownerApproved was not false.");
+  }
+  if (!order.tenantAvailability?.preferredWindows?.length) {
+    add("warn", "Tenant intake", "Tenant availability was not parsed into preferred windows.");
+  }
+  if (!qaPhone) {
+    add("warn", "SMS and calls", "No QA phone was provided, so real SMS and test vendor call delivery were skipped or could not start.");
+  }
+  if (!qaEmail) {
+    add("warn", "Email", "No QA email was provided, so real email delivery was skipped.");
+  }
+  const smsDelivery = deliveries.find((item) => item.channel === "sms");
+  if (qaPhone && !smsDelivery) add("error", "SMS", "SMS delivery was requested but no SMS attempt was recorded.");
+  if (smsDelivery && !smsDelivery.sent) add("error", "SMS", smsDelivery.reason || "SMS provider reported failure.");
+  const emailDelivery = deliveries.find((item) => item.channel === "email");
+  if (qaEmail && !emailDelivery) add("error", "Email", "Email delivery was requested but no email attempt was recorded.");
+  if (emailDelivery && !emailDelivery.sent) add("warn", "Email", emailDelivery.reason || "Email provider reported failure.");
+  if (callResult?.started === false) {
+    add("error", "Vendor calls", callResult.reason || callResult.error || "Vendor call flow did not start.");
+  }
+  if (callResult?.started !== false && !(callResult?.calls || []).length) {
+    add("warn", "Vendor calls", "Vendor call flow started but no call attempts were returned.");
+  }
+  for (const call of callResult?.calls || []) {
+    if (call.success === false) add("error", "Vendor calls", `${call.vendor || "Vendor"} failed: ${call.error || "unknown provider failure"}`);
+  }
+  if (!issues.length) add("ok", "QA", "No blocking issues found in this scenario.");
+  return issues;
+}
+
 function safeEnvValue(key) {
   if (!process.env[key]) return "";
   if (/KEY|SECRET|TOKEN|PASSWORD|AUTH|_ID$/i.test(key)) return "configured";
@@ -2702,12 +2966,12 @@ app.post("/api/twilio/inbound", async (req, res) => {
         if (!quoteResult.started && quoteResult.reason) {
           console.log(`[Vendor quote calls skipped] ${quoteResult.reason}`);
         }
-        await dispatchNotification("vendor_contacted", { orderId: action.orderId });
+        await dispatchNotification("vendor_contacted", { orderId: action.orderId, skipSms: true });
         continue;
       }
       const notificationEvent = notificationEventForAction(action);
       if (notificationEvent) {
-        await dispatchNotification(notificationEvent, { orderId: action.orderId });
+        await dispatchNotification(notificationEvent, { orderId: action.orderId, skipSms: true });
       }
       const outbound = composeActionMessage(action);
       if (outbound) {
@@ -2828,6 +3092,49 @@ app.post("/api/twilio/manager-listen", (req, res) => {
   `.trim());
 });
 
+app.post("/api/twilio/takeover-conference", (req, res) => {
+  const order = workOrders.find((item) => item.id === req.query.orderId);
+  const call = order?.vendorCalls?.find((item) => item.id === req.query.callId);
+  const role = req.query.role === "manager" ? "manager" : "vendor";
+  const conferenceName = sanitizeConferenceName(req.query.conference || `livingrelay-${req.query.orderId}-${req.query.callId}`);
+  if (order && call) {
+    call.status = "Manager takeover";
+    call.mode = role === "manager" ? "Manager connected to takeover" : "Vendor transferred to manager";
+    call.takeover = {
+      ...(call.takeover || {}),
+      conferenceName,
+      [`${role}JoinedAt`]: new Date().toISOString()
+    };
+    call.transcript = [
+      ...(call.transcript || []),
+      {
+        speaker: "LivingRelay",
+        text: role === "manager"
+          ? "The manager joined the live vendor takeover conference."
+          : "The vendor was moved into the manager takeover conference.",
+        stamp: new Date().toISOString()
+      }
+    ];
+    order.timeline.push({
+      label: role === "manager" ? "Manager joined takeover" : "Vendor moved to takeover",
+      detail: `${role === "manager" ? call.takeover?.name || "Manager" : call.vendorName} joined ${conferenceName}.`,
+      stamp: new Date().toISOString()
+    });
+    saveState();
+  }
+  const intro = role === "manager"
+    ? "You are now taking over the LivingRelay vendor call."
+    : "Please hold while LivingRelay connects you to the property manager.";
+  res.type("text/xml").send(`
+    <Response>
+      <Say>${escapeTwimlText(intro)}</Say>
+      <Dial>
+        <Conference beep="false" startConferenceOnEnter="true" endConferenceOnExit="${role === "manager" ? "true" : "false"}">${escapeTwimlText(conferenceName)}</Conference>
+      </Dial>
+    </Response>
+  `.trim());
+});
+
 app.post("/api/twilio/voice-status", (req, res) => {
   const order = workOrders.find((item) => item.id === req.query.orderId);
   if (order) {
@@ -2837,21 +3144,23 @@ app.post("/api/twilio/voice-status", (req, res) => {
       call.lastTwilioStatusAt = new Date().toISOString();
       if (req.body.CallStatus === "completed") call.status = "Completed";
     }
-    const attempt = upsertCallAttempt(order, {
-      callSid: req.body.CallSid,
-      callKey: req.query.callKey,
-      phone: req.body.To
-    }, {
-      status: req.body.CallStatus || "status_update",
-      callSid: req.body.CallSid,
-      completedAt: req.body.CallStatus === "completed" ? new Date().toISOString() : undefined
-    });
-    if (attempt.retry?.needed) {
-      order.timeline.push({
-        label: "Vendor call retry queued",
-        detail: `${attempt.vendorName} ${attempt.status}; retry after ${attempt.retry.retryAfter}.`,
-        stamp: new Date().toISOString()
+    if (req.query.manager !== "1") {
+      const attempt = upsertCallAttempt(order, {
+        callSid: req.body.CallSid,
+        callKey: req.query.callKey,
+        phone: req.body.To
+      }, {
+        status: req.body.CallStatus || "status_update",
+        callSid: req.body.CallSid,
+        completedAt: req.body.CallStatus === "completed" ? new Date().toISOString() : undefined
       });
+      if (attempt.retry?.needed) {
+        order.timeline.push({
+          label: "Vendor call retry queued",
+          detail: `${attempt.vendorName} ${attempt.status}; retry after ${attempt.retry.retryAfter}.`,
+          stamp: new Date().toISOString()
+        });
+      }
     }
     saveState();
   }

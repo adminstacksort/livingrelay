@@ -2,6 +2,7 @@ import http2 from "node:http2";
 import { createSign, randomUUID } from "node:crypto";
 import { notifications, people, properties, recordAudit, saveState, vendors, workOrders } from "./data.js";
 import { sendEmail } from "./emailClient.js";
+import { sendSms } from "./twilioClient.js";
 
 const notificationEvents = {
   tenant_report: {
@@ -115,6 +116,7 @@ export function defaultNotifyForRole(role, existing = {}) {
   }
   return {
     channels: {
+      sms: existing.channels?.sms ?? existing.sms ?? existing.text ?? true,
       email: existing.channels?.email ?? existing.email ?? true,
       push: existing.channels?.push ?? existing.push ?? true
     },
@@ -141,6 +143,8 @@ export function mergeNotifySettings(person, patch = {}) {
   next.channels = {
     ...base.channels,
     ...(patch.channels || patch.notify?.channels || {}),
+    ...(patch.smsNotifications !== undefined ? { sms: patch.smsNotifications === true } : {}),
+    ...(patch.textNotifications !== undefined ? { sms: patch.textNotifications === true } : {}),
     ...(patch.emailNotifications !== undefined ? { email: patch.emailNotifications === true } : {}),
     ...(patch.pushNotifications !== undefined ? { push: patch.pushNotifications === true } : {})
   };
@@ -171,6 +175,9 @@ export async function dispatchNotification(eventKey, context = {}) {
   for (const person of recipients) {
     const notify = defaultNotifyForRole(person.role, person.notify || {});
     if (notify.events?.[eventKey] === false || !event.roles.includes(person.role)) continue;
+    if (context.skipSms !== true && notify.channels.sms !== false && person.phone) {
+      results.push(await sendSmsNotification({ person, eventKey, title, body, order }));
+    }
     if (notify.channels.email !== false && person.email) {
       results.push(await sendEmailNotification({ person, eventKey, title, body, order }));
     }
@@ -234,6 +241,24 @@ function recipientsForEvent({ event, order, property, tenant, vendor }) {
   return Array.from(ids)
     .map((id) => peopleById.get(id))
     .filter((person) => person && event.roles.includes(person.role));
+}
+
+async function sendSmsNotification({ person, eventKey, title, body, order }) {
+  try {
+    const result = await sendSms({
+      to: person.phone,
+      body: `${title}\n${body}${order?.id ? `\n${order.id}` : ""}`
+    });
+    return deliveryResult({
+      person,
+      channel: "sms",
+      eventKey,
+      sent: result.sent,
+      reason: result.error || result.sid || result.status || "sent"
+    });
+  } catch (error) {
+    return deliveryResult({ person, channel: "sms", eventKey, sent: false, reason: error.message });
+  }
 }
 
 async function sendEmailNotification({ person, eventKey, title, body, order }) {

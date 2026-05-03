@@ -79,3 +79,16 @@ export async function callManagerForListenIn({ to, twimlUrl, statusCallback }) {
     url: twimlUrl
   };
 }
+
+export async function redirectLiveCall({ callSid, twimlUrl }) {
+  const client = getTwilioClient();
+  const call = await client.calls(callSid).update({
+    url: twimlUrl,
+    method: "POST"
+  });
+  return {
+    sid: call.sid,
+    status: call.status,
+    url: twimlUrl
+  };
+}

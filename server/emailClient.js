@@ -1,21 +1,10 @@
-const resendApiKeys = ["RESEND_API_KEY"];
 const sendGridApiKeys = ["TWILIO_SENDGRID_API_KEY", "SENDGRID_API_KEY"];
 
 export function getEmailStatus() {
-  const resendKeyName = resendApiKeys.find((key) => process.env[key]);
-  if (resendKeyName) {
-    return {
-      configured: true,
-      provider: "resend",
-      apiKey: resendKeyName,
-      from: getFromEmail()
-    };
-  }
-
   const apiKeyName = sendGridApiKeys.find((key) => process.env[key]);
   return {
     configured: Boolean(apiKeyName),
-    provider: apiKeyName ? "twilio_sendgrid" : "none",
+    provider: "twilio_sendgrid",
     apiKey: apiKeyName || null,
     from: getFromEmail()
   };
@@ -24,40 +13,10 @@ export function getEmailStatus() {
 export async function sendEmail({ to, subject, text, from }) {
   const status = getEmailStatus();
   if (!status.configured) {
-    return { sent: false, reason: "email_not_configured" };
-  }
-
-  if (status.provider === "resend") {
-    return sendResendEmail({ apiKey: process.env[status.apiKey], to, subject, text, from: from || status.from });
+    return { sent: false, reason: "email_not_configured:twilio_sendgrid" };
   }
 
   return sendSendGridEmail({ apiKey: process.env[status.apiKey], to, subject, text, from: from || status.from });
-}
-
-async function sendResendEmail({ apiKey, to, subject, text, from }) {
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from,
-      to,
-      subject,
-      text
-    })
-  });
-
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    return { sent: false, reason: data.message || data.error || `email_failed_${response.status}` };
-  }
-
-  return {
-    sent: true,
-    id: data.id || "sent"
-  };
 }
 
 async function sendSendGridEmail({ apiKey, to, subject, text, from }) {
@@ -88,8 +47,7 @@ async function sendSendGridEmail({ apiKey, to, subject, text, from }) {
 }
 
 function getFromEmail() {
-  return process.env.RESEND_FROM_EMAIL
-    || process.env.TWILIO_SENDGRID_FROM_EMAIL
+  return process.env.TWILIO_SENDGRID_FROM_EMAIL
     || process.env.SENDGRID_FROM_EMAIL
     || process.env.NOTIFICATIONS_FROM_EMAIL
     || "LivingRelay <support@livingrelay.com>";
