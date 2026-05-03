@@ -2036,6 +2036,17 @@ function App() {
     window.history.replaceState({}, "", signedOutUrl());
   }
 
+  function expireSiteAdminSession(message = "Admin session expired. Please log in again.") {
+    setSession(null);
+    setSiteAdminToken("");
+    setAuthToken("");
+    setLoginError(message);
+    clearStoredSessionValue(siteAdminTokenStorageKey);
+    window.localStorage.removeItem(authTokenStorageKey);
+    clearStoredSessionValue(sessionUserStorageKey);
+    window.history.replaceState({}, "", signedOutUrl());
+  }
+
   useEffect(() => {
     loadState();
     confirmBillingReturn();
@@ -2697,6 +2708,7 @@ function App() {
           platformSettings={platformSettings}
           reloadState={loadState}
           siteAdminToken={siteAdminToken}
+          onSiteAdminAuthExpired={expireSiteAdminSession}
           setActivePropertyId={setActivePropertyId}
           setActiveOrderId={setActiveOrderId}
           setAdminSection={setAdminSection}
@@ -3379,7 +3391,7 @@ function RoleSectionAction({ active, setActive, role }) {
   );
 }
 
-function AdminConsole({ active, accounts, people, properties, vendors, orders, invoices, billingEvents, referrals = [], prospectingLeads = [], accessRequests = [], auditLog, platformSettings, reloadState, siteAdminToken, setActivePropertyId, setActiveOrderId, setAdminSection }) {
+function AdminConsole({ active, accounts, people, properties, vendors, orders, invoices, billingEvents, referrals = [], prospectingLeads = [], accessRequests = [], auditLog, platformSettings, reloadState, siteAdminToken, onSiteAdminAuthExpired, setActivePropertyId, setActiveOrderId, setAdminSection }) {
   const activeProperties = properties.length;
   const pendingInvoices = invoices.filter((invoice) => !String(invoice.status).toLowerCase().includes("paid")).length;
   const openOrders = orders.filter((order) => order.status !== "Closed").length;
@@ -3402,7 +3414,7 @@ function AdminConsole({ active, accounts, people, properties, vendors, orders, i
       {active === "directory" && <AdminDirectory people={people} properties={properties} accounts={accounts} reloadState={reloadState} />}
       {active === "properties" && <AdminProperties properties={properties} people={people} accounts={accounts} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setAdminSection={setAdminSection} />}
       {active === "workOrders" && <AdminWorkOrders orders={orders} properties={properties} people={people} vendors={vendors} accounts={accounts} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setActiveOrderId={setActiveOrderId} setAdminSection={setAdminSection} />}
-      {active === "qa" && <AdminQaPanel siteAdminToken={siteAdminToken} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setActiveOrderId={setActiveOrderId} setAdminSection={setAdminSection} />}
+      {active === "qa" && <AdminQaPanel siteAdminToken={siteAdminToken} onSiteAdminAuthExpired={onSiteAdminAuthExpired} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setActiveOrderId={setActiveOrderId} setAdminSection={setAdminSection} />}
       {active === "billing" && <AdminBilling accounts={accounts} properties={properties} invoices={invoices} billingEvents={billingEvents} activeProperties={activeProperties} pendingInvoices={pendingInvoices} reloadState={reloadState} />}
       {active === "diagnostics" && <AdminDiagnostics siteAdminToken={siteAdminToken} platformSettings={platformSettings} />}
       {active === "audit" && <AdminAudit auditLog={auditLog} />}
@@ -3410,16 +3422,18 @@ function AdminConsole({ active, accounts, people, properties, vendors, orders, i
   );
 }
 
-function AdminQaPanel({ siteAdminToken, reloadState, setActivePropertyId, setActiveOrderId, setAdminSection }) {
+function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, setActivePropertyId, setActiveOrderId, setAdminSection }) {
   const defaultScenarios = [
     { id: "leak_owner_approval", title: "Leak needs owner approval", trade: "Plumbing", severity: "Urgent", estimate: 325, issue: "Kitchen sink leak with active water under cabinet." },
     { id: "hvac_no_heat", title: "No heat urgent HVAC", trade: "HVAC", severity: "Urgent", estimate: 425, issue: "Heat is not turning on and thermostat is blank." },
     { id: "electrical_spark", title: "Electrical spark", trade: "Electrical", severity: "Urgent", estimate: 185, issue: "Bedroom outlet sparked and lights are out." }
   ];
   const [scenarios, setScenarios] = useState(defaultScenarios);
-  const [form, setForm] = useState({ scenarioId: defaultScenarios[0].id, phone: "", email: "", demoFallback: true });
+  const [form, setForm] = useState({ scenarioId: defaultScenarios[0].id, phone: "(386) 453-6280", email: "admin@stacksortenterprises.com", demoFallback: true, allowRealMessages: true });
   const [status, setStatus] = useState({ state: "idle", message: "" });
   const [run, setRun] = useState(null);
+  const [progress, setProgress] = useState([]);
+  const [callbackInfo, setCallbackInfo] = useState(null);
 
   useEffect(() => {
     loadScenarios();
@@ -3432,6 +3446,11 @@ function AdminQaPanel({ siteAdminToken, reloadState, setActivePropertyId, setAct
       });
       const text = await response.text();
       const data = text ? JSON.parse(text) : {};
+      if (response.status === 401) {
+        onSiteAdminAuthExpired?.(data.error || "Admin session expired. Please log in again.");
+        return;
+      }
+      if (data.callbacks) setCallbackInfo(data.callbacks);
       if (response.ok && data.scenarios?.length) setScenarios(data.scenarios);
     } catch {
       setScenarios(defaultScenarios);
@@ -3441,20 +3460,45 @@ function AdminQaPanel({ siteAdminToken, reloadState, setActivePropertyId, setAct
   async function runQa(event) {
     event.preventDefault();
     setStatus({ state: "saving", message: "Running QA scenario..." });
-    setRun(null);
+    const nextProgress = [
+      { id: "prepare", label: "Preparing scenario", state: "active" },
+      { id: "environment", label: "Checking callback environment", state: "pending" },
+      { id: "delivery", label: "Running message and call checks", state: "pending" },
+      { id: "results", label: "Rendering findings", state: "pending" }
+    ];
+    setProgress(nextProgress);
+    const updateProgress = (id, state) => {
+      setProgress((items) => {
+        const next = items.map((item) => item.id === id ? { ...item, state } : item);
+        const activeIndex = next.findIndex((item) => item.id === id);
+        if (state === "done" && activeIndex >= 0 && next[activeIndex + 1]?.state === "pending") {
+          next[activeIndex + 1] = { ...next[activeIndex + 1], state: "active" };
+        }
+        return next;
+      });
+    };
     try {
+      updateProgress("prepare", "done");
       const response = await fetch("/api/site-admin/qa/run", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${siteAdminToken}` },
         body: JSON.stringify(form)
       });
+      updateProgress("environment", "done");
+      updateProgress("delivery", "done");
       const text = await response.text();
       const data = text ? JSON.parse(text) : {};
+      if (response.status === 401) {
+        onSiteAdminAuthExpired?.(data.error || "Admin session expired. Please log in again.");
+        return;
+      }
       if (!response.ok) throw new Error(data.error || "QA run failed");
       setRun(data.run);
+      if (data.run?.callbacks) setCallbackInfo(data.run.callbacks);
+      updateProgress("results", "done");
       setStatus({ state: data.run.issues?.some((issue) => issue.severity === "error") ? "error" : "ok", message: `${data.run.scenarioTitle} finished with ${data.run.issues?.length || 0} finding${data.run.issues?.length === 1 ? "" : "s"}.` });
-      await reloadState();
     } catch (error) {
+      setProgress((items) => items.map((item) => item.state === "active" ? { ...item, state: "error" } : item));
       setStatus({ state: "error", message: error.message });
     }
   }
@@ -3482,9 +3526,30 @@ function AdminQaPanel({ siteAdminToken, reloadState, setActivePropertyId, setAct
           </label>
           <label>QA phone<input value={form.phone} onChange={(event) => setForm({ ...form, phone: formatPhoneInput(event.target.value) })} inputMode="tel" placeholder="Real phone for SMS/test call" /></label>
           <label>QA email<input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} inputMode="email" placeholder="Real email for delivery" /></label>
+          <label className="check-row span-2"><input type="checkbox" checked={form.allowRealMessages} onChange={(event) => setForm({ ...form, allowRealMessages: event.target.checked })} /> Send real SMS/email to the QA contacts</label>
           <label className="check-row span-2"><input type="checkbox" checked={form.demoFallback} onChange={(event) => setForm({ ...form, demoFallback: event.target.checked })} /> Generate demo vendor outcomes when live calls are disabled</label>
           <button className="primary wide" type="submit" disabled={status.state === "saving"}><Radio size={16} /> {status.state === "saving" ? "Running" : "Run QA"}</button>
         </form>
+        <div className={`qa-delivery-mode ${callbackInfo?.mismatch ? "warn" : "ok"}`}>
+          <strong>{callbackInfo?.mismatch ? form.allowRealMessages ? "Real SMS/email, protected voice callbacks" : "Preview-only on this local page" : "Live delivery environment"}</strong>
+          <p>
+            {callbackInfo?.mismatch
+              ? form.allowRealMessages
+                ? `This page is running on ${callbackInfo.requestUrl}. QA will send real SMS/email to the test contacts, but replies and voice callbacks go to ${callbackInfo.appPublicUrl}; voice calls stay skipped here.`
+                : `This page is running on ${callbackInfo.requestUrl}, but SMS replies and voice callbacks go to ${callbackInfo.appPublicUrl}. Local QA shows the exact SMS/email updates and skips callback-bound sends.`
+              : "SMS, email, and voice checks use this same environment, so live delivery can be tested here."}
+          </p>
+        </div>
+        {progress.length > 0 && (
+          <div className="qa-progress-list" aria-live="polite">
+            {progress.map((item) => (
+              <div className={`qa-progress-step ${item.state}`} key={item.id}>
+                <span>{item.state === "done" ? "OK" : item.state === "error" ? "!" : ""}</span>
+                <strong>{item.label}</strong>
+              </div>
+            ))}
+          </div>
+        )}
         {status.message && <p className={`form-status ${status.state}`}>{status.message}</p>}
       </section>
       <section className="panel qa-scenario-panel">
@@ -3499,10 +3564,10 @@ function AdminQaPanel({ siteAdminToken, reloadState, setActivePropertyId, setAct
           </div>
         </div>
       </section>
-      {run && (
+      {(run || status.state === "saving") && (
         <section className="panel qa-results-panel">
-          <SectionTitle icon={<Database />} title="QA results" eyebrow={run.status} />
-          <div className="qa-result-grid">
+          <SectionTitle icon={<Database />} title="QA results" eyebrow={run?.status || "Running"} />
+          {run ? <div className="qa-result-grid">
             <DiagnosticBlock title="Findings">
               {run.issues.map((issue, index) => (
                 <DiagnosticRow key={`${issue.area}-${index}`} label={issue.area} value={issue.detail} tone={issue.severity === "error" ? "error" : issue.severity === "warn" ? "warn" : "ok"} />
@@ -3511,14 +3576,28 @@ function AdminQaPanel({ siteAdminToken, reloadState, setActivePropertyId, setAct
             <DiagnosticBlock title="Messages">
               {run.deliveries.length === 0 && <DiagnosticRow label="Delivery" value="No phone or email entered." tone="warn" />}
               {run.deliveries.map((delivery, index) => (
-                <DiagnosticRow key={`${delivery.channel}-${index}`} label={delivery.channel} value={[delivery.to, delivery.providerId || delivery.status || delivery.reason].filter(Boolean).join(" · ")} tone={delivery.sent ? "ok" : "error"} />
+                <DiagnosticRow key={`${delivery.channel}-${index}`} label={delivery.channel} value={[delivery.to, delivery.providerId || delivery.status || delivery.reason].filter(Boolean).join(" · ")} tone={delivery.skipped ? "warn" : delivery.sent ? "ok" : "error"} />
               ))}
             </DiagnosticBlock>
+            <DiagnosticBlock title="User Updates">
+              {run.userUpdates?.sms?.body && (
+                <QaMessagePreview channel="SMS" to={run.userUpdates.sms.to} body={run.userUpdates.sms.body} />
+              )}
+              {run.userUpdates?.email?.body && (
+                <QaMessagePreview channel="Email" to={run.userUpdates.email.to} subject={run.userUpdates.email.subject} body={run.userUpdates.email.body} />
+              )}
+            </DiagnosticBlock>
             <DiagnosticBlock title="Calls">
-              <DiagnosticRow label="Call flow" value={run.callResult.reason || (run.callResult.demo ? "Demo fallback generated" : run.callResult.started ? "Started" : "Not started")} tone={run.callResult.started ? "ok" : "error"} />
+              <DiagnosticRow label="Call flow" value={run.callResult.reason || (run.callResult.demo ? "Demo fallback generated" : run.callResult.started ? "Started" : "Not started")} tone={run.callResult.skipped ? "warn" : run.callResult.started ? "ok" : "error"} />
               {run.calls.map((call, index) => (
                 <DiagnosticRow key={`${call.vendor}-${index}`} label={call.vendor || "Vendor"} value={[call.to, call.callSid || call.conversationId || call.status, call.reason].filter(Boolean).join(" · ")} tone={call.success ? "ok" : "error"} />
               ))}
+            </DiagnosticBlock>
+            <DiagnosticBlock title="Callbacks">
+              <DiagnosticRow label="Current app" value={run.callbacks?.requestUrl || "Unknown"} />
+              <DiagnosticRow label="Twilio target" value={run.callbacks?.appPublicUrl || "Unknown"} tone={run.callbacks?.mismatch ? "warn" : "ok"} />
+              <DiagnosticRow label="SMS replies" value={run.callbacks?.smsInboundUrl || "Unknown"} tone={run.callbacks?.mismatch ? "warn" : "ok"} />
+              <DiagnosticRow label="Voice webhooks" value={run.callbacks?.voiceOutboundUrl || "Unknown"} tone={run.callbacks?.mismatch ? "warn" : "ok"} />
             </DiagnosticBlock>
             <DiagnosticBlock title="Artifacts">
               <DiagnosticRow label="Run" value={run.id} />
@@ -3526,9 +3605,19 @@ function AdminQaPanel({ siteAdminToken, reloadState, setActivePropertyId, setAct
               <DiagnosticRow label="Property" value={run.property?.name || "Unknown"} />
               <DiagnosticRow label="Completed" value={new Date(run.completedAt).toLocaleString()} />
             </DiagnosticBlock>
-          </div>
+          </div> : <p className="form-note">QA is running. Results will appear here without leaving this tab.</p>}
         </section>
       )}
+    </div>
+  );
+}
+
+function QaMessagePreview({ channel, to, subject, body }) {
+  return (
+    <div className="qa-message-preview">
+      <span>{channel} to {to || "not set"}</span>
+      {subject && <strong>{subject}</strong>}
+      <p>{body}</p>
     </div>
   );
 }

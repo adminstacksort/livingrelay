@@ -825,6 +825,7 @@ const qaScenarios = {
 
 app.get("/api/site-admin/qa/scenarios", (req, res) => {
   res.json({
+    callbacks: qaCallbackDiagnostics(req),
     scenarios: Object.entries(qaScenarios).map(([id, scenario]) => ({
       id,
       title: scenario.title,
@@ -842,6 +843,9 @@ app.post("/api/site-admin/qa/run", async (req, res) => {
     const scenario = qaScenarios[req.body.scenarioId] || qaScenarios.leak_owner_approval;
     const qaPhone = normalizeOptionalPhone(req.body.phone || platformSettings.vendorCallTestNumber || process.env.VENDOR_CALL_TEST_NUMBER || "");
     const qaEmail = String(req.body.email || "").trim().toLowerCase();
+    const callbacks = qaCallbackDiagnostics(req);
+    const liveCallbackChannelsAllowed = !callbacks.mismatch;
+    const realMessagesAllowed = liveCallbackChannelsAllowed || req.body.allowRealMessages === true;
     const property = properties.find((item) => item.id === "p-test") || properties[0];
     const tenant = people.find((person) => person.role === "Tenant" && person.propertyIds?.includes(property.id)) || people.find((person) => person.role === "Tenant");
     const vendor = vendors.find((item) => item.trade === scenario.trade) || vendors[0];
@@ -895,50 +899,72 @@ app.post("/api/site-admin/qa/run", async (req, res) => {
     workOrders.unshift(order);
 
     const deliveries = [];
+    const userUpdates = buildQaUserUpdates({ scenario, order, property, callbacks, qaPhone, qaEmail, realMessagesAllowed });
     if (qaPhone) {
-      try {
-        const sms = await sendSms({
-          to: qaPhone,
-          body: `[LivingRelay QA] ${scenario.title}: ${order.id} opened for ${property.name}. ${scenario.issue}`
-        });
+      if (!realMessagesAllowed) {
         deliveries.push({
           channel: "sms",
           to: maskPhone(qaPhone),
-          sent: sms.sent,
-          providerId: sms.sid || "",
-          status: sms.status || "",
-          reason: sms.error || sms.status || "sent"
+          sent: false,
+          skipped: true,
+          preview: userUpdates.sms.body,
+          reason: `Skipped. SMS replies route to ${callbacks.smsInboundUrl}, but this QA run is on ${callbacks.requestUrl}.`
         });
-      } catch (error) {
-        deliveries.push({ channel: "sms", to: maskPhone(qaPhone), sent: false, reason: error.message });
+      } else {
+        try {
+          const sms = await sendSms({
+            to: qaPhone,
+            body: userUpdates.sms.body
+          });
+          deliveries.push({
+            channel: "sms",
+            to: maskPhone(qaPhone),
+            sent: sms.sent,
+            providerId: sms.sid || "",
+            status: sms.status || "",
+            preview: userUpdates.sms.body,
+            reason: sms.error || sms.status || "sent"
+          });
+        } catch (error) {
+          deliveries.push({ channel: "sms", to: maskPhone(qaPhone), sent: false, preview: userUpdates.sms.body, reason: error.message });
+        }
       }
     }
     if (qaEmail) {
       try {
         const email = await sendEmail({
           to: qaEmail,
-          subject: `[LivingRelay QA] ${scenario.title}`,
-          text: `QA run ${runId}\nWork order ${order.id}\n${scenario.issue}\nAccess: ${scenario.access}`
+          subject: userUpdates.email.subject,
+          text: userUpdates.email.body
         });
         deliveries.push({
           channel: "email",
           to: maskEmail(qaEmail),
           sent: email.sent,
           providerId: email.id || "",
+          subject: userUpdates.email.subject,
+          preview: userUpdates.email.body,
           reason: email.reason || email.id || "sent"
         });
       } catch (error) {
-        deliveries.push({ channel: "email", to: maskEmail(qaEmail), sent: false, reason: error.message });
+        deliveries.push({ channel: "email", to: maskEmail(qaEmail), sent: false, subject: userUpdates.email.subject, preview: userUpdates.email.body, reason: error.message });
       }
     }
 
-    const callResult = await startVendorQuoteCalls(order.id, {
-      actor: "QA panel",
-      demoFallback: req.body.demoFallback !== false,
-      testVendorPhone: qaPhone,
-      testOnly: true
-    });
-    const issues = qaIssuesForRun({ scenario, order, property, qaPhone, qaEmail, deliveries, callResult });
+    const callResult = !liveCallbackChannelsAllowed
+      ? {
+        started: false,
+        skipped: true,
+        calls: [],
+        reason: `Skipped. Voice webhooks route to ${callbacks.voiceOutboundUrl}, but this QA run is on ${callbacks.requestUrl}.`
+      }
+      : await startVendorQuoteCalls(order.id, {
+        actor: "QA panel",
+        demoFallback: req.body.demoFallback !== false,
+        testVendorPhone: qaPhone,
+        testOnly: true
+      });
+    const issues = qaIssuesForRun({ scenario, order, property, qaPhone, qaEmail, deliveries, callResult, callbacks });
     order.timeline.push(event("QA run completed", `${issues.length} issue${issues.length === 1 ? "" : "s"} found.`));
     saveState();
     recordAudit("site-admin", "Ran QA scenario", `${scenario.title} created ${order.id}; ${issues.length} issue${issues.length === 1 ? "" : "s"} found.`);
@@ -954,6 +980,8 @@ app.post("/api/site-admin/qa/run", async (req, res) => {
         status: issues.some((issue) => issue.severity === "error") ? "Issues found" : "Passed with warnings check",
         issues,
         deliveries,
+        userUpdates,
+        callbacks: { ...callbacks, realMessagesAllowed },
         calls: (callResult.calls || []).map((call) => ({
           vendor: call.vendor,
           to: maskPhone(call.phone),
@@ -966,6 +994,7 @@ app.post("/api/site-admin/qa/run", async (req, res) => {
         })),
         callResult: {
           started: callResult.started !== false,
+          skipped: Boolean(callResult.skipped),
           demo: Boolean(callResult.demo),
           testMode: Boolean(callResult.testMode),
           reason: callResult.reason || callResult.error || ""
@@ -2530,7 +2559,7 @@ function envPresence(keys) {
   }));
 }
 
-function qaIssuesForRun({ scenario, order, property, qaPhone, qaEmail, deliveries, callResult }) {
+function qaIssuesForRun({ scenario, order, property, qaPhone, qaEmail, deliveries, callResult, callbacks }) {
   const issues = [];
   const add = (severity, area, detail) => issues.push({ severity, area, detail });
   if (!order?.id) add("error", "Work order", "QA scenario did not create a work order.");
@@ -2546,13 +2575,19 @@ function qaIssuesForRun({ scenario, order, property, qaPhone, qaEmail, deliverie
   if (!qaEmail) {
     add("warn", "Email", "No QA email was provided, so real email delivery was skipped.");
   }
+  if (callbacks?.mismatch) {
+    add("warn", "Callbacks", `This local QA run is using ${callbacks.appPublicUrl} for Twilio callbacks. Replies and answered calls will not hit this local work order.`);
+  }
   const smsDelivery = deliveries.find((item) => item.channel === "sms");
   if (qaPhone && !smsDelivery) add("error", "SMS", "SMS delivery was requested but no SMS attempt was recorded.");
-  if (smsDelivery && !smsDelivery.sent) add("error", "SMS", smsDelivery.reason || "SMS provider reported failure.");
+  if (smsDelivery?.skipped) add("warn", "SMS", smsDelivery.reason || "SMS skipped for environment consistency.");
+  else if (smsDelivery && !smsDelivery.sent) add("error", "SMS", smsDelivery.reason || "SMS provider reported failure.");
   const emailDelivery = deliveries.find((item) => item.channel === "email");
   if (qaEmail && !emailDelivery) add("error", "Email", "Email delivery was requested but no email attempt was recorded.");
   if (emailDelivery && !emailDelivery.sent) add("warn", "Email", emailDelivery.reason || "Email provider reported failure.");
-  if (callResult?.started === false) {
+  if (callResult?.skipped) {
+    add("warn", "Vendor calls", callResult.reason || "Vendor call skipped for environment consistency.");
+  } else if (callResult?.started === false) {
     add("error", "Vendor calls", callResult.reason || callResult.error || "Vendor call flow did not start.");
   }
   if (callResult?.started !== false && !(callResult?.calls || []).length) {
@@ -2569,6 +2604,75 @@ function normalizeOptionalPhone(phone = "") {
   const digits = String(phone || "").replace(/\D/g, "");
   if (!digits) return "";
   return normalizePhone(phone);
+}
+
+function qaCallbackDiagnostics(req) {
+  const requestUrl = `${req.protocol}://${req.get("host")}`;
+  const appPublicUrl = process.env.APP_PUBLIC_URL || requestUrl;
+  const requestHost = urlHost(requestUrl);
+  const appPublicHost = urlHost(appPublicUrl);
+  const localHosts = new Set(["localhost", "127.0.0.1", "::1"]);
+  const localRequest = localHosts.has(requestHost);
+  const mismatch = Boolean(localRequest && appPublicHost && appPublicHost !== requestHost);
+  return {
+    requestUrl,
+    appPublicUrl,
+    smsInboundUrl: `${appPublicUrl}/api/twilio/inbound`,
+    voiceOutboundUrl: `${appPublicUrl}/api/twilio/elevenlabs/outbound`,
+    mismatch
+  };
+}
+
+function buildQaUserUpdates({ scenario, order, property, callbacks, qaPhone, qaEmail, realMessagesAllowed }) {
+  const smsBody = [
+    `[LivingRelay QA] ${order.id}: ${scenario.title} at ${property.name}.`,
+    `${scenario.issue}`,
+    `Status: ${order.status}.`,
+    callbacks.mismatch
+      ? realMessagesAllowed
+        ? `Environment note: this message was sent from local QA; replies route to ${callbacks.appPublicUrl}.`
+        : "Local preview only: replies are not enabled from this environment."
+      : "Reply STATUS for the latest update."
+  ].join(" ");
+  const emailSubject = `[LivingRelay QA] ${order.id} ${scenario.title}`;
+  const emailBody = [
+    `LivingRelay QA update`,
+    ``,
+    `Work order: ${order.id}`,
+    `Property: ${property.name}`,
+    `Scenario: ${scenario.title}`,
+    `Status: ${order.status}`,
+    `Issue: ${scenario.issue}`,
+    `Access: ${scenario.access}`,
+    `Estimate: $${order.estimate}`,
+    ``,
+    callbacks.mismatch
+      ? realMessagesAllowed
+        ? `Environment note: this real QA message was sent from local QA. SMS replies and voice callbacks are configured for ${callbacks.appPublicUrl}.`
+        : `Environment note: this is a local preview. SMS replies and voice callbacks are configured for ${callbacks.appPublicUrl}.`
+      : `Reply or use the admin console for follow-up.`
+  ].join("\n");
+  return {
+    sms: {
+      channel: "sms",
+      to: maskPhone(qaPhone),
+      body: smsBody
+    },
+    email: {
+      channel: "email",
+      to: maskEmail(qaEmail),
+      subject: emailSubject,
+      body: emailBody
+    }
+  };
+}
+
+function urlHost(value = "") {
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
 }
 
 function safeEnvValue(key) {
