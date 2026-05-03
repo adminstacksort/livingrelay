@@ -3,7 +3,7 @@ import express from "express";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { accessRequests, accounts, auditLog, billingEvents, event, invoices, message, notifications, people, platformSettings, properties, prospectingLeads, recordAudit, referrals, saveState, vendors, waitForStatePersistence, workOrders } from "./data.js";
+import { accessRequests, accounts, auditLog, billingEvents, event, invoices, message, notifications, people, platformSettings, properties, prospectingLeads, qaRuns, recordAudit, referrals, saveState, vendors, waitForStatePersistence, workOrders } from "./data.js";
 import { composeActionMessage, handleInboundCommand, normalizePhone } from "./smsLogic.js";
 import { getSmsMessageStatus, getTwilioStatus, sendSms } from "./twilioClient.js";
 import { sendEmail } from "./emailClient.js";
@@ -838,6 +838,11 @@ app.get("/api/site-admin/qa/scenarios", (req, res) => {
   });
 });
 
+app.get("/api/site-admin/qa/runs", (req, res) => {
+  const limit = Math.max(1, Math.min(Number(req.query.limit || 30), 100));
+  res.json({ runs: qaRuns.slice(0, limit) });
+});
+
 app.post("/api/site-admin/qa/run", async (req, res) => {
   try {
     const scenario = qaScenarios[req.body.scenarioId] || qaScenarios.leak_owner_approval;
@@ -969,41 +974,43 @@ app.post("/api/site-admin/qa/run", async (req, res) => {
       });
     const issues = qaIssuesForRun({ scenario, order, property, qaPhone, qaEmail, deliveries, callResult, callbacks });
     order.timeline.push(event("QA run completed", `${issues.length} issue${issues.length === 1 ? "" : "s"} found.`));
+    const runSnapshot = {
+      id: runId,
+      environment: getRuntimeEnvironment(),
+      startedAt,
+      completedAt: new Date().toISOString(),
+      scenarioId: req.body.scenarioId || "leak_owner_approval",
+      scenarioTitle: scenario.title,
+      property: { id: property.id, name: property.name },
+      workOrderId: order.id,
+      status: issues.some((issue) => issue.severity === "error") ? "Issues found" : "Passed with warnings check",
+      issues,
+      deliveries,
+      userUpdates,
+      callbacks: { ...callbacks, realMessagesAllowed },
+      calls: (callResult.calls || []).map((call) => ({
+        vendor: call.vendor,
+        to: maskPhone(call.phone),
+        success: call.success !== false,
+        provider: call.provider || (call.conversation_id ? "elevenlabs_native" : call.demo ? "demo" : "unknown"),
+        callSid: call.callSid || call.call_sid || "",
+        conversationId: call.conversation_id || call.conversationId || "",
+        status: call.twilioStatus || call.status || "",
+        reason: call.error || call.reason || call.summary || ""
+      })),
+      callResult: {
+        started: callResult.started !== false,
+        skipped: Boolean(callResult.skipped),
+        demo: Boolean(callResult.demo),
+        testMode: Boolean(callResult.testMode),
+        reason: callResult.reason || callResult.error || ""
+      }
+    };
+    qaRuns.unshift(runSnapshot);
+    qaRuns.splice(100);
     saveState();
     recordAudit("site-admin", "Ran QA scenario", `${scenario.title} created ${order.id}; ${issues.length} issue${issues.length === 1 ? "" : "s"} found.`);
-    res.json({
-      run: {
-        id: runId,
-        startedAt,
-        completedAt: new Date().toISOString(),
-        scenarioId: req.body.scenarioId || "leak_owner_approval",
-        scenarioTitle: scenario.title,
-        property: { id: property.id, name: property.name },
-        workOrderId: order.id,
-        status: issues.some((issue) => issue.severity === "error") ? "Issues found" : "Passed with warnings check",
-        issues,
-        deliveries,
-        userUpdates,
-        callbacks: { ...callbacks, realMessagesAllowed },
-        calls: (callResult.calls || []).map((call) => ({
-          vendor: call.vendor,
-          to: maskPhone(call.phone),
-          success: call.success !== false,
-          provider: call.provider || (call.conversation_id ? "elevenlabs_native" : call.demo ? "demo" : "unknown"),
-          callSid: call.callSid || call.call_sid || "",
-          conversationId: call.conversation_id || call.conversationId || "",
-          status: call.twilioStatus || call.status || "",
-          reason: call.error || call.reason || call.summary || ""
-        })),
-        callResult: {
-          started: callResult.started !== false,
-          skipped: Boolean(callResult.skipped),
-          demo: Boolean(callResult.demo),
-          testMode: Boolean(callResult.testMode),
-          reason: callResult.reason || callResult.error || ""
-        }
-      }
-    });
+    res.json({ run: runSnapshot, history: qaRuns.slice(0, 30) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1417,6 +1424,14 @@ app.post("/api/admin/work-orders", async (req, res) => {
     res.status(400).json({ error: "propertyId, unit, and issue are required" });
     return;
   }
+  const notifyManager = req.body.notifyManager !== false;
+  const requestVendorOutreach = req.body.requestVendorOutreach === true;
+  const effectiveStatus = notifyManager ? status : "Tenant troubleshooting";
+  const tenant = people.find((person) => person.id === tenantId);
+  const tenantDefaultAvailability = String(req.body.tenantDefaultAvailability || "").trim();
+  if (tenant && tenantDefaultAvailability) {
+    tenant.defaultAvailability = tenantDefaultAvailability;
+  }
   const order = {
     id: `WO-${Math.floor(3000 + Math.random() * 6000)}`,
     propertyId,
@@ -1424,14 +1439,14 @@ app.post("/api/admin/work-orders", async (req, res) => {
     tenantId: tenantId || null,
     trade,
     severity,
-    status,
+    status: effectiveStatus,
     estimate: Number(estimate || 0),
     vendorId: vendorId || null,
     issue,
     access,
-    serviceWindow: severity === "Urgent" ? "ASAP / emergency" : "Next available",
+    serviceWindow: buildTenantAvailability({ access, severity, issue }).serviceWindow,
     tenantAvailability: buildTenantAvailability({ access, severity, issue }),
-    dispatchStage: "manager_approval",
+    dispatchStage: notifyManager ? "manager_approval" : "tenant_self_fix_check",
     vendorOutreach: {
       status: "Not started",
       mode: "Manual",
@@ -1460,14 +1475,29 @@ app.post("/api/admin/work-orders", async (req, res) => {
     ],
     messages: []
   };
+  if (!notifyManager) {
+    order.troubleshooting = {
+      status: "Active",
+      startedAt: new Date().toISOString(),
+      source: "tenant_web"
+    };
+  }
+  if (requestVendorOutreach) {
+    order.timeline.push(event("Tenant requested vendor outreach", `${order.tenantAvailability.preferredWindows.join("; ") || order.access || "Availability needs confirmation"} shared for vendor calls.`));
+  }
   workOrders.unshift(order);
   saveState();
   recordAudit(actorName, "Created work order", `${order.id} created by ${actorRole}.`);
-  await dispatchNotification("tenant_report", { order });
-  if (order.ownerApproved === false || order.status.toLowerCase().includes("owner")) {
+  if (notifyManager) await dispatchNotification("tenant_report", { order });
+  if (notifyManager && (order.ownerApproved === false || order.status.toLowerCase().includes("owner"))) {
     await dispatchNotification("owner_approval", { order });
   }
-  res.json({ order });
+  let vendorOutreach = null;
+  if (requestVendorOutreach) {
+    vendorOutreach = await startVendorQuoteCalls(order.id, { actor: actorName || "tenant", demoFallback: true });
+    await dispatchNotification("vendor_contacted", { order });
+  }
+  res.json({ order, vendorOutreach });
 });
 
 app.post("/api/billing/setup-session", async (req, res) => {
@@ -1756,6 +1786,19 @@ app.patch("/api/people/:id/notify", (req, res) => {
   person.notify = mergeNotifySettings(person, req.body);
   saveState();
   recordAudit(person.name, "Updated notification settings", JSON.stringify(person.notify));
+  res.json({ person: safePerson(person) });
+});
+
+app.patch("/api/people/:id/availability", (req, res) => {
+  const person = people.find((item) => item.id === req.params.id);
+  if (!person) {
+    res.status(404).json({ error: "person not found" });
+    return;
+  }
+  const defaultAvailability = String(req.body.defaultAvailability || "").trim();
+  person.defaultAvailability = defaultAvailability || undefined;
+  saveState();
+  recordAudit(person.name, "Updated default availability", defaultAvailability || "Cleared default availability.");
   res.json({ person: safePerson(person) });
 });
 

@@ -270,18 +270,20 @@ function normalizePhone(phone = "") {
 
 function demoCallResult(vendor, order, index) {
   const emergency = order.serviceWindow === "ASAP / emergency";
+  const tenantWindows = order.tenantAvailability?.preferredWindows || [];
+  const tenantWindow = tenantWindows[index % tenantWindows.length];
   return {
     vendor: vendor.name,
     phone: vendor.phone,
     success: true,
     quote: index === 0 ? (emergency ? "$425 emergency rate + parts" : "$285 callout + parts") : "$225-$375",
-    availability: emergency && index === 0 ? "Emergency slot in 90 minutes" : index === 1 ? "Tomorrow 9-11 AM" : "Can review photos first",
+    availability: tenantWindow || (emergency && index === 0 ? "Emergency slot in 90 minutes" : index === 1 ? "Tomorrow 9-11 AM" : "Can review photos first"),
     discount: index === 1 ? "10% labor discount for recurring property-manager work" : "No discount confirmed",
     warranty: "30-day labor warranty; manufacturer warranty on parts",
     invoiceEmail: order.vendorOutreach?.invoiceDeliveryInstructions || process.env.INBOUND_EMAIL_ADDRESS || "invoices@livingrelay.com",
     invoiceRecipients: order.vendorOutreach?.invoiceRecipients || [],
     needsPhotos: index > 1,
     status: index > 1 ? "Needs photos" : "Available",
-    summary: "Demo outcome generated because live ElevenLabs calls are disabled."
+    summary: `Demo outcome generated because live ElevenLabs calls are disabled. Tenant availability shared: ${tenantWindows.join("; ") || order.access || "Needs confirmation"}.`
   };
 }

@@ -50,7 +50,7 @@ const people = [
   { id: "site-admin-1", name: "Avery Stone", role: "Site Admin", phone: "(310) 555-0199", pin: "9999", propertyIds: [], accountIds: ["acct-1"] },
   { id: "admin-1", name: "Jordan Lee", role: "Manager", phone: "(310) 555-0100", pin: "1111", propertyIds: ["p-1", "p-2"], managesPropertyIds: ["p-1"] },
   { id: "owner-1", name: "Priya Shah", role: "Owner", phone: "(310) 555-0102", pin: "3333", propertyIds: ["p-1"] },
-  { id: "tenant-1", name: "Maya Chen", role: "Tenant", phone: "(310) 555-0103", pin: "4444", propertyIds: ["p-1"], unit: "Garden flat" },
+  { id: "tenant-1", name: "Maya Chen", role: "Tenant", phone: "(310) 555-0103", pin: "4444", propertyIds: ["p-1"], unit: "Garden flat", defaultAvailability: "Any time with text before entry." },
   { id: "vendor-1", name: "Carlos Plumbing", role: "Vendor", phone: "(310) 555-0104", pin: "5555", propertyIds: ["p-1"], trade: "Plumbing" },
   { id: "test-manager", name: "Test Manager", role: "Manager", phone: "+15555555551", pin: "1111", propertyIds: ["p-test"], managesPropertyIds: ["p-test"], accountIds: ["acct-test"] },
   { id: "test-owner", name: "Test Owner", role: "Owner", phone: "+15555555552", pin: "3333", propertyIds: ["p-test"], accountIds: ["acct-test"] },
@@ -250,7 +250,11 @@ const defaultRequest = {
   unit: "Garden flat",
   issue: "",
   access: "",
-  photos: ""
+  photos: "",
+  escalationChoice: "self_solve",
+  useDefaultAvailability: true,
+  saveDefaultAvailability: false,
+  defaultAvailability: ""
 };
 
 const notificationEvents = [
@@ -897,6 +901,8 @@ function sectionFromRoutePage(role, page) {
       dashboard: "accounts",
       accounts: "accounts",
       customers: "accounts",
+      prospecting: "prospecting",
+      prospects: "prospecting",
       access: "accessRequests",
       referrals: "accessRequests",
       "access-requests": "accessRequests",
@@ -924,6 +930,7 @@ function pageFromSection(role, section) {
   if (role === "Site Admin") {
     return {
       accounts: "dashboard",
+      prospecting: "prospecting",
       accessRequests: "access",
       directory: "people",
       properties: "properties",
@@ -1368,6 +1375,44 @@ function maintenanceNotesForProperty(property) {
 
   notes.push(`For ${property?.name || "this property"}, include the best entry window, pets or gate notes, and whether the issue is still happening.`);
   return notes.slice(0, 3);
+}
+
+function tenantSelfSolveGuidance(issue = "", property) {
+  const triage = classifyIssue(issue);
+  const body = issue.toLowerCase();
+  const propertyRules = String(property?.rules || "");
+  const propertyNote = propertyRules
+    ? `Property note: ${propertyRules}`
+    : maintenanceNotesForProperty(property)[0];
+
+  if (triage.trade === "Plumbing") {
+    return {
+      title: body.includes("toilet") ? "Stop water and avoid more use" : "Contain the leak safely",
+      steps: body.includes("toilet")
+        ? ["Stop using that toilet for now.", "If water is rising, turn the small valve behind the toilet clockwise.", "Take one close photo and one wider photo if safe."]
+        : ["If water is active, turn the closest small shutoff valve clockwise.", "Put a towel or bowl under the leak and avoid using that fixture.", "Note whether the water is from a pipe joint, faucet, drain, disposal, wall, or ceiling."],
+      propertyNote
+    };
+  }
+  if (triage.trade === "HVAC") {
+    return {
+      title: "Check simple controls once",
+      steps: ["Confirm the thermostat mode and set point.", "Replace batteries if the thermostat uses them.", "Check the breaker once only if it is safe and accessible."],
+      propertyNote
+    };
+  }
+  if (triage.trade === "Electrical") {
+    return {
+      title: "Keep it safe and hands off",
+      steps: ["Stop using the outlet, switch, appliance, or fixture involved.", "Do not reset a breaker if there was heat, smoke, sparking, or a burning smell.", "Send a photo from a safe distance and say whether power is out in one room or everywhere."],
+      propertyNote
+    };
+  }
+  return {
+    title: "Capture the details that avoid a second call",
+    steps: ["Take one close photo and one wider photo.", "Write when it started and whether it is getting worse.", "Try only an obvious reset or switch once if it is safe."],
+    propertyNote
+  };
 }
 
 function PublicSiteRouter() {
@@ -2303,6 +2348,10 @@ function App() {
         || peopleData.find((person) => person.role === "Tenant" && person.propertyIds?.includes(activeProperty.id));
     const vendor = vendorsData.find((item) => item.trade === triage.trade) || vendorsData[0];
     const needsOwner = triage.estimate > 150;
+    const tenantDefaultAvailability = request.defaultAvailability || tenant?.defaultAvailability || "";
+    const access = request.useDefaultAvailability && tenantDefaultAvailability ? tenantDefaultAvailability : request.access;
+    const notifyManager = request.escalationChoice !== "self_solve";
+    const requestVendorOutreach = request.escalationChoice === "vendor_outreach";
     if (appData) {
       const data = await apiRequest("/api/admin/work-orders", {
         method: "POST",
@@ -2317,13 +2366,23 @@ function App() {
           estimate: triage.estimate,
           vendorId: vendor?.id || "",
           issue: request.issue,
-          access: request.access,
+          access,
+          notifyManager,
+          requestVendorOutreach,
+          tenantDefaultAvailability: request.saveDefaultAvailability ? tenantDefaultAvailability || access : undefined,
           actorName: user?.name || "Logged-in user",
           actorRole: user?.role || "User"
         })
       });
+      if (request.saveDefaultAvailability && tenant?.id && (tenantDefaultAvailability || access)) {
+        await apiRequest(`/api/people/${tenant.id}/availability`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ defaultAvailability: tenantDefaultAvailability || access })
+        });
+      }
       if (data.order?.id) setActiveOrderId(data.order.id);
-      setRequest({ ...defaultRequest, unit: propertyLocationLabel(activeProperty) });
+      setRequest({ ...defaultRequest, unit: propertyLocationLabel(activeProperty), defaultAvailability: tenantDefaultAvailability || access });
       await loadState();
       return;
     }
@@ -2335,26 +2394,27 @@ function App() {
       tenantId: tenant?.id || null,
       trade: triage.trade,
       severity: triage.severity,
-      status: "Manager review",
+      status: notifyManager ? "Manager review" : "Tenant troubleshooting",
       estimate: triage.estimate,
       vendorId: vendor.id,
       issue: request.issue,
-      access: request.access,
+      access,
       managerApproved: false,
       ownerApproved: !needsOwner,
       invoiceId: null,
       timeline: [
         event(`${user?.role || "User"} request created`, `${unit} request submitted from logged-in dashboard.`),
-        event("AI triaged request", `${triage.severity} ${triage.trade}; suggested ${vendor.name}.`)
+        event("AI triaged request", `${triage.severity} ${triage.trade}; ${notifyManager ? `suggested ${vendor.name}` : "tenant self-solve guidance started"}.`),
+        ...(requestVendorOutreach ? [event("Tenant requested vendor outreach", `${access || "Availability needs confirmation"} shared for vendor calls.`)] : [])
       ],
       messages: [
         sms(user?.role === "Tenant" ? "tenant" : "relay", request.issue),
-        sms("relay", `Thanks. LivingRelay classified this as ${triage.trade}. Manager review is next.`)
+        sms("relay", `Thanks. LivingRelay classified this as ${triage.trade}. ${notifyManager ? "Manager review is next." : "Try the self-solve steps first; escalate if it still needs help."}`)
       ]
     };
     setOrders((current) => [order, ...current]);
     setActiveOrderId(id);
-    setRequest({ ...defaultRequest, unit: propertyLocationLabel(activeProperty) });
+    setRequest({ ...defaultRequest, unit: propertyLocationLabel(activeProperty), defaultAvailability: tenantDefaultAvailability || access });
   }
 
   function patchOrder(patch, label, detail) {
@@ -3474,11 +3534,13 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
   const [form, setForm] = useState({ scenarioId: defaultScenarios[0].id, phone: "(386) 453-6280", email: "admin@stacksortenterprises.com", demoFallback: true, allowRealMessages: true });
   const [status, setStatus] = useState({ state: "idle", message: "" });
   const [run, setRun] = useState(null);
+  const [runLog, setRunLog] = useState([]);
   const [progress, setProgress] = useState([]);
   const [callbackInfo, setCallbackInfo] = useState(null);
 
   useEffect(() => {
     loadScenarios();
+    loadRunLog();
   }, [siteAdminToken]);
 
   async function loadScenarios() {
@@ -3496,6 +3558,26 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
       if (response.ok && data.scenarios?.length) setScenarios(data.scenarios);
     } catch {
       setScenarios(defaultScenarios);
+    }
+  }
+
+  async function loadRunLog() {
+    try {
+      const response = await fetch("/api/site-admin/qa/runs?limit=30", {
+        headers: { Authorization: `Bearer ${siteAdminToken}` }
+      });
+      const text = await response.text();
+      const data = text ? JSON.parse(text) : {};
+      if (response.status === 401) {
+        onSiteAdminAuthExpired?.(data.error || "Admin session expired. Please log in again.");
+        return;
+      }
+      if (response.ok) {
+        setRunLog(data.runs || []);
+        if (!run && data.runs?.[0]) setRun(data.runs[0]);
+      }
+    } catch {
+      setRunLog([]);
     }
   }
 
@@ -3536,6 +3618,7 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
       }
       if (!response.ok) throw new Error(data.error || "QA run failed");
       setRun(data.run);
+      setRunLog(data.history || [data.run, ...runLog.filter((item) => item.id !== data.run.id)]);
       if (data.run?.callbacks) setCallbackInfo(data.run.callbacks);
       updateProgress("results", "done");
       const deliverySummary = summarizeQaDeliveries(data.run.deliveries || []);
@@ -3654,6 +3737,25 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
           </div> : <p className="form-note">QA is running. Results will appear here without leaving this tab.</p>}
         </section>
       )}
+      <section className="panel qa-log-panel">
+        <SectionTitle icon={<Database />} title="QA run log" eyebrow={`${runLog.length} saved`} />
+        <div className="qa-run-log">
+          {runLog.length === 0 && <p className="form-note">No saved QA runs yet. Production runs will appear here after each QA execution.</p>}
+          {runLog.map((item) => {
+            const errorCount = item.issues?.filter((issue) => issue.severity === "error").length || 0;
+            const warnCount = item.issues?.filter((issue) => issue.severity === "warn").length || 0;
+            const selected = run?.id === item.id;
+            return (
+              <button className={`qa-run-log-item ${selected ? "selected" : ""}`} type="button" key={item.id} onClick={() => setRun(item)}>
+                <span>{item.environment || "local"}</span>
+                <strong>{item.scenarioTitle}</strong>
+                <small>{item.workOrderId} · {new Date(item.completedAt || item.startedAt).toLocaleString()}</small>
+                <em>{errorCount ? `${errorCount} errors` : `${warnCount} warnings`}</em>
+              </button>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }
@@ -3679,9 +3781,20 @@ function QaMessagePreview({ channel, to, subject, body }) {
   );
 }
 
+function ProspectingDetail({ label, value }) {
+  if (!value) return null;
+  return (
+    <div className="prospecting-detail">
+      <span>{label}</span>
+      <p>{value}</p>
+    </div>
+  );
+}
+
 function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, onSiteAdminAuthExpired }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [segmentFilter, setSegmentFilter] = useState("All");
   const [cityFilter, setCityFilter] = useState("San Francisco");
   const [refreshStatus, setRefreshStatus] = useState({ state: "idle", message: "" });
   const [form, setForm] = useState({
@@ -3728,6 +3841,7 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
   ]));
   const filteredLeads = prospectingLeads
     .filter((lead) => statusFilter === "All" || (lead.status || "New") === statusFilter)
+    .filter((lead) => segmentFilter === "All" || (lead.segment || "Property manager") === segmentFilter)
     .filter((lead) => cityFilter === "All" || leadCity(lead).toLowerCase() === cityFilter.toLowerCase())
     .filter((lead) => searchable(lead).includes(query.toLowerCase()))
     .sort((left, right) => {
@@ -3850,6 +3964,11 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
           <button key={status} className={statusFilter === status ? "active" : ""} onClick={() => setStatusFilter(status)}>{status}</button>
         ))}
       </div>
+      <div className="role-section-tabs prospecting-filters">
+        {["All", "Small owner", "Small landlord", "Apartment rental", "Property manager"].map((segment) => (
+          <button key={segment} className={segmentFilter === segment ? "active" : ""} onClick={() => setSegmentFilter(segment)}>{segment}</button>
+        ))}
+      </div>
       <div className="admin-card-list">
         {filteredLeads.length === 0 && <p className="form-note">No prospecting leads match this view yet.</p>}
         {filteredLeads.map((lead) => (
@@ -3857,11 +3976,13 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
             <div>
               <span>{lead.segment || "Property manager"} · {lead.priority || "Medium"} priority · {lead.status || "New"}</span>
               <strong>{lead.name}</strong>
-              <p>{[lead.market, lead.rentalAddress, lead.unitCount].filter(Boolean).join(" · ") || "Market and portfolio details pending"}</p>
-              <p>{[lead.contactName, lead.contactRole, lead.email, lead.phone].filter(Boolean).join(" · ") || "Public contact details pending"}</p>
-              {lead.fit && <p>{lead.fit}</p>}
-              {lead.notes && <p>{lead.notes}</p>}
-              <p>{[lead.sourceName, lead.website, lead.listingUrl].filter(Boolean).join(" · ")}</p>
+              <div className="prospecting-summary">
+                <ProspectingDetail label="Found via" value={[lead.sourceName, lead.website || lead.listingUrl].filter(Boolean).join(" · ")} />
+                <ProspectingDetail label="Portfolio / properties" value={[lead.market, lead.rentalAddress, lead.unitCount].filter(Boolean).join(" · ") || "Portfolio details pending"} />
+                <ProspectingDetail label="Public contact" value={[lead.contactName, lead.contactRole, lead.email, lead.phone].filter(Boolean).join(" · ") || "Public contact details pending"} />
+                <ProspectingDetail label="Why LivingRelay may help" value={lead.fit} />
+                <ProspectingDetail label="Source notes" value={lead.notes} />
+              </div>
             </div>
             <div className="record-actions">
               <select value={lead.status || "New"} onChange={(event) => updateLead(lead, { status: event.target.value })}>
@@ -5904,6 +6025,10 @@ function TenantView({ request, setRequest, createOrder, orders, property, user }
   const hasOpenIssues = orders.some(isActiveWorkOrder);
   const maintenanceNotes = maintenanceNotesForProperty(property);
   const sortedOrders = [...orders].sort((a, b) => (a.status === "Closed") - (b.status === "Closed"));
+  const defaultAvailability = request.defaultAvailability || user?.defaultAvailability || "";
+  const selectedAccess = request.useDefaultAvailability && defaultAvailability ? defaultAvailability : request.access;
+  const tenantGuidance = tenantSelfSolveGuidance(request.issue, property);
+  const availabilityRequired = request.escalationChoice !== "self_solve";
 
   return (
     <section className="tenant-dashboard">
@@ -5948,15 +6073,60 @@ function TenantView({ request, setRequest, createOrder, orders, property, user }
             What is happening?
             <textarea rows="5" value={request.issue} onChange={(event) => setRequest({ ...request, issue: event.target.value })} placeholder="Example: water is leaking under the kitchen sink" required />
           </label>
+          {request.issue && (
+            <div className="tenant-guidance-box">
+              <span className="eyebrow"><Sparkles size={13} /> Self-solve first</span>
+              <h3>{tenantGuidance.title}</h3>
+              <ul>
+                {tenantGuidance.steps.map((step) => <li key={step}>{step}</li>)}
+              </ul>
+              {tenantGuidance.propertyNote && <p>{tenantGuidance.propertyNote}</p>}
+            </div>
+          )}
+          <fieldset className="tenant-choice-group">
+            <legend>What should happen next?</legend>
+            <label>
+              <input type="radio" name="tenant-escalation" checked={request.escalationChoice === "self_solve"} onChange={() => setRequest({ ...request, escalationChoice: "self_solve" })} />
+              <span><strong>I will try this first</strong><small>No manager notification yet. You can still escalate from the repair thread.</small></span>
+            </label>
+            <label>
+              <input type="radio" name="tenant-escalation" checked={request.escalationChoice === "notify_manager"} onChange={() => setRequest({ ...request, escalationChoice: "notify_manager" })} />
+              <span><strong>Notify the property manager</strong><small>Send the issue, advice tried, photos, and availability.</small></span>
+            </label>
+            <label>
+              <input type="radio" name="tenant-escalation" checked={request.escalationChoice === "vendor_outreach"} onChange={() => setRequest({ ...request, escalationChoice: "vendor_outreach" })} />
+              <span><strong>Ask to start vendor outreach</strong><small>LivingRelay shares your availability with vendors when calling for openings.</small></span>
+            </label>
+          </fieldset>
           <label>
-            Access notes
-            <textarea rows="3" value={request.access} onChange={(event) => setRequest({ ...request, access: event.target.value })} placeholder="When can a vendor enter?" />
+            Default availability
+            <textarea rows="2" value={defaultAvailability} onChange={(event) => setRequest({ ...request, defaultAvailability: event.target.value, useDefaultAvailability: Boolean(event.target.value) })} placeholder="Example: Any time with text before entry" />
+          </label>
+          {defaultAvailability && (
+            <label className="check-row">
+              <input type="checkbox" checked={request.useDefaultAvailability} onChange={(event) => setRequest({ ...request, useDefaultAvailability: event.target.checked })} />
+              Use my default availability for this issue
+            </label>
+          )}
+          <label>
+            Availability and access for this issue
+            <textarea
+              rows="3"
+              value={request.useDefaultAvailability && defaultAvailability ? selectedAccess : request.access}
+              onChange={(event) => setRequest({ ...request, access: event.target.value, useDefaultAvailability: false })}
+              placeholder="Example: ASAP, tonight 8-10 PM, or tomorrow 7-10 AM. Add pets, gate codes, parking, or permission to enter."
+              required={availabilityRequired && !defaultAvailability}
+            />
+          </label>
+          <label className="check-row">
+            <input type="checkbox" checked={request.saveDefaultAvailability} onChange={(event) => setRequest({ ...request, saveDefaultAvailability: event.target.checked })} />
+            Save this as my default availability
           </label>
           <label>
             Photos/videos
             <input value={request.photos} onChange={(event) => setRequest({ ...request, photos: event.target.value })} placeholder="Attach later by SMS in v1" />
           </label>
-          <button className="primary wide" type="submit"><Send size={16} /> Send to manager</button>
+          <button className="primary wide" type="submit"><Send size={16} /> {request.escalationChoice === "self_solve" ? "Start self-solve thread" : request.escalationChoice === "vendor_outreach" ? "Send and request vendor outreach" : "Send to manager"}</button>
         </form>
       </div>
       <div className="panel">

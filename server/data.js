@@ -60,7 +60,7 @@ const seedState = {
     { id: "site-admin-1", name: "Avery Stone", role: "Site Admin", phone: "+13105550199", pin: "9999", propertyIds: [], accountIds: ["acct-1"], notify: { platformAlerts: true } },
     { id: "admin-1", name: "Jordan Lee", role: "Manager", phone: "+13105550100", email: "jordan@shahproperty.example", pin: "1111", propertyIds: ["p-1", "p-2"], managesPropertyIds: ["p-1"], notify: { tenantReports: true, everyUpdate: true, keyUpdates: true } },
     { id: "owner-1", name: "Priya Shah", role: "Owner", phone: "+13105550102", email: "priya@shahproperty.example", pin: "3333", propertyIds: ["p-1"], notify: { tenantReports: true, everyUpdate: false, keyUpdates: true } },
-    { id: "tenant-1", name: "Maya Chen", role: "Tenant", phone: "+13105550103", pin: "4444", propertyIds: ["p-1"], unit: "Garden flat" },
+    { id: "tenant-1", name: "Maya Chen", role: "Tenant", phone: "+13105550103", pin: "4444", propertyIds: ["p-1"], unit: "Garden flat", defaultAvailability: "Any time with text before entry." },
     { id: "vendor-1", name: "Carlos Plumbing", role: "Vendor", phone: "+13105550104", pin: "5555", propertyIds: ["p-1"], trade: "Plumbing" },
     { id: "test-manager", name: "Test Manager", role: "Manager", phone: "+15555555551", email: "manager@test.livingrelay.com", pin: "1111", propertyIds: ["p-test"], managesPropertyIds: ["p-test"], accountIds: ["acct-test"], notify: { tenantReports: true, everyUpdate: true, keyUpdates: true } },
     { id: "test-owner", name: "Test Owner", role: "Owner", phone: "+15555555552", email: "owner@test.livingrelay.com", pin: "3333", propertyIds: ["p-test"], accountIds: ["acct-test"], notify: { tenantReports: true, everyUpdate: false, keyUpdates: true } },
@@ -252,6 +252,7 @@ const seedState = {
   prospectingLeads: [],
   accessRequests: [],
   notifications: [],
+  qaRuns: [],
   auditLog: [
     audit("system", "Seeded local state", "Initial demo data loaded.")
   ]
@@ -270,6 +271,7 @@ export const referrals = state.referrals || (state.referrals = []);
 export const prospectingLeads = state.prospectingLeads || (state.prospectingLeads = []);
 export const accessRequests = state.accessRequests;
 export const notifications = state.notifications || (state.notifications = []);
+export const qaRuns = state.qaRuns || (state.qaRuns = []);
 export const auditLog = state.auditLog;
 
 export function saveState() {
@@ -405,6 +407,7 @@ function mergeLoadedState(loaded) {
     prospectingLeads: loaded.prospectingLeads || seedState.prospectingLeads,
     accessRequests: loaded.accessRequests || seedState.accessRequests,
     notifications: loaded.notifications || seedState.notifications,
+    qaRuns: loaded.qaRuns || seedState.qaRuns,
     auditLog: loaded.auditLog || []
   };
 }

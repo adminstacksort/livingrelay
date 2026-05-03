@@ -115,11 +115,26 @@ LivingRelay helps small rental owners, property managers, and apartment operator
 Target markets:
 ${markets.map((item) => `- ${item}`).join("\n")}
 
-Prioritize San Francisco if it is in the target list. Otherwise focus on the requested city. Look for public rental-business contacts from apartment rental sites, property management directories, leasing pages, and small multifamily or single-family rental operators.
+Prioritize San Francisco if it is in the target list. Otherwise focus on the requested city. Look beyond property management company directories: include small/solo operators, owner-managed rentals, by-owner rental listings, small multifamily owners, ADU/in-law unit operators, duplex/triplex/fourplex owners, and independent landlords when their rental-operation contact details are intentionally public.
+
+Batch mix:
+- Do not return only property management companies unless no other qualified public leads are available.
+- Aim for at least half the batch to be "Small owner" or "Small landlord" leads when public sources support it.
+- Favor solo/by-owner situations with clear maintenance coordination pain: direct owner phone/email, multiple units, small apartment building, duplex/triplex/fourplex, out-of-area owner context, recurring tenant contact point, or public listing language about repairs/maintenance.
+- Use "Apartment rental" for building/leasing-office leads that are not clearly third-party management companies.
+- Use "Property manager" only for firms or teams primarily advertising third-party management services.
+
+Lead context requirements:
+- sourceName must name the exact site, directory, company page, or listing where the lead was found.
+- rentalAddress and unitCount should capture any public portfolio detail: building address, neighborhood, property type, managed units, managed buildings, or portfolio size.
+- fit must explain the likely LivingRelay use case, such as tenant maintenance intake, vendor coordination, owner approvals, repair records, invoice routing, or multi-property support.
+- notes must include short provenance: what the public source said about the properties they manage, maintenance/vendor responsibilities, and why the lead looks useful.
+- Do not leave fit or notes generic. If public portfolio details are missing, say what was publicly confirmed instead.
 
 Compliance rules:
 - Only collect intentionally public business/rental-operation contact info.
 - Do not collect private homeowner details unless clearly published as part of a rental/business listing.
+- For small owner/by-owner leads, only use contact info published on a rental listing, leasing page, apartment site, business profile, or rental-operation directory. Do not infer or scrape personal residential contact details.
 - Skip tenant-only contacts, no-solicitation pages, do-not-contact listings, and leads without a public source URL.
 - Every lead must include website or listingUrl.
 - Prefer quality over volume.

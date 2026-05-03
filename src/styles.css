@@ -1998,6 +1998,30 @@ select:focus {
   align-items: start;
 }
 
+.prospecting-summary {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.prospecting-detail {
+  border-left: 3px solid #d7e9e4;
+  padding-left: 10px;
+}
+
+.prospecting-detail span {
+  display: block;
+  color: #0f5c53;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.prospecting-detail p {
+  margin-top: 2px;
+}
+
 .prospecting-filters {
   justify-content: flex-start;
   margin-bottom: 12px;
@@ -2262,6 +2286,10 @@ body:has(.login-card.admin-login-card) {
   grid-column: 1 / -1;
 }
 
+.qa-log-panel {
+  grid-column: 1 / -1;
+}
+
 .qa-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2438,6 +2466,61 @@ body:has(.login-card.admin-login-card) {
   margin: 0;
   padding: 10px;
   white-space: pre-wrap;
+}
+
+.qa-run-log {
+  display: grid;
+  gap: 8px;
+}
+
+.qa-run-log-item {
+  align-items: center;
+  background: #fafafa;
+  border: 1px solid #e5e5e2;
+  border-radius: 8px;
+  color: #0a0a0a;
+  display: grid;
+  gap: 4px 10px;
+  grid-template-columns: 90px minmax(0, 1fr) auto;
+  margin: 0;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.qa-run-log-item:hover,
+.qa-run-log-item.selected {
+  border-color: #cdded8;
+  background: #f1faf7;
+}
+
+.qa-run-log-item span {
+  border: 1px solid #e1d9cd;
+  border-radius: 999px;
+  color: #51443e;
+  font-size: 11px;
+  font-weight: 850;
+  padding: 4px 7px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.qa-run-log-item strong {
+  font-size: 13px;
+}
+
+.qa-run-log-item small {
+  color: #737373;
+  font-size: 12px;
+  grid-column: 2 / 3;
+}
+
+.qa-run-log-item em {
+  color: #7a4d00;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 850;
+  grid-column: 3 / 4;
+  grid-row: 1 / 3;
 }
 
 .diagnostics-head,
@@ -2844,6 +2927,81 @@ body:has(.login-card.admin-login-card) {
 .starter-grid button:hover {
   border-color: #1c675b;
   color: #164c44;
+}
+
+.tenant-guidance-box {
+  border: 1px solid #d8d0c3;
+  border-radius: 8px;
+  background: #fffdfa;
+  padding: 12px;
+}
+
+.tenant-guidance-box .eyebrow {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+}
+
+.tenant-guidance-box h3 {
+  font-size: 15px;
+  margin-top: 6px;
+}
+
+.tenant-guidance-box ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.tenant-guidance-box li,
+.tenant-guidance-box p {
+  color: #4f5d59;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.tenant-guidance-box p {
+  border-top: 1px solid #eee5d8;
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.tenant-choice-group {
+  border: 1px solid #dce7e2;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 12px;
+}
+
+.tenant-choice-group legend {
+  color: #52605c;
+  font-size: 12px;
+  font-weight: 850;
+  padding: 0 5px;
+}
+
+.tenant-choice-group label {
+  align-items: start;
+  display: grid;
+  gap: 9px;
+  grid-template-columns: 18px minmax(0, 1fr);
+}
+
+.tenant-choice-group input {
+  margin-top: 3px;
+}
+
+.tenant-choice-group strong,
+.tenant-choice-group small {
+  display: block;
+}
+
+.tenant-choice-group small {
+  color: #6c7774;
+  font-size: 12px;
+  line-height: 1.35;
+  margin-top: 2px;
 }
 
 .tenant-empty-state {
@@ -4387,6 +4545,20 @@ body:has(.login-card.admin-login-card) {
   .qa-view,
   .qa-result-grid {
     grid-template-columns: 1fr;
+  }
+
+  .qa-run-log-item {
+    grid-template-columns: 1fr;
+  }
+
+  .qa-run-log-item small,
+  .qa-run-log-item em {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .qa-run-log-item span {
+    width: fit-content;
   }
 
   .diagnostic-row {
