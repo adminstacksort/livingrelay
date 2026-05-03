@@ -3784,13 +3784,21 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
           {runLog.map((item) => {
             const errorCount = item.issues?.filter((issue) => issue.severity === "error").length || 0;
             const warnCount = item.issues?.filter((issue) => issue.severity === "warn").length || 0;
+            const deliveries = qaDeliveryCounts(item.deliveries || []);
             const selected = run?.id === item.id;
             return (
               <button className={`qa-run-log-item ${selected ? "selected" : ""}`} type="button" key={item.id} onClick={() => setRun(item)}>
                 <span>{item.environment || "local"}</span>
-                <strong>{item.scenarioTitle}</strong>
-                <small>{item.workOrderId} · {new Date(item.completedAt || item.startedAt).toLocaleString()}</small>
-                <em>{errorCount ? `${errorCount} errors` : `${warnCount} warnings`}</em>
+                <div>
+                  <strong>{item.scenarioTitle}</strong>
+                  <small>{item.workOrderId} · {new Date(item.completedAt || item.startedAt).toLocaleString()}</small>
+                  <small>{item.workflow?.length || 0} lifecycle steps · {(item.personas || []).map((persona) => persona.label).join(", ") || "No roles"}</small>
+                </div>
+                <div className="qa-run-log-badges">
+                  <em className={errorCount ? "error" : warnCount ? "warn" : "ok"}>{errorCount ? `${errorCount} errors` : warnCount ? `${warnCount} warnings` : "OK"}</em>
+                  <em className={deliveries.sms.failed ? "error" : deliveries.sms.sent ? "ok" : "warn"}>SMS {deliveries.sms.sent}/{deliveries.sms.total}</em>
+                  <em className={deliveries.email.failed ? "error" : deliveries.email.sent ? "ok" : "warn"}>Email {deliveries.email.sent}/{deliveries.email.total}</em>
+                </div>
               </button>
             );
           })}
@@ -3818,6 +3826,23 @@ function summarizeQaDeliveries(deliveries = []) {
     const errorText = counts.errors.size ? ` (${Array.from(counts.errors).join(", ")})` : "";
     return `${label}: ${counts.sent} sent, ${counts.failed} failed${errorText}, ${counts.skipped} skipped`;
   }).join("; ");
+}
+
+function qaDeliveryCounts(deliveries = []) {
+  const counts = {
+    sms: { total: 0, sent: 0, failed: 0, skipped: 0 },
+    email: { total: 0, sent: 0, failed: 0, skipped: 0 }
+  };
+  deliveries.forEach((delivery) => {
+    const raw = String(delivery.channel || "");
+    const channel = raw.includes("sms") ? "sms" : raw.includes("email") ? "email" : "";
+    if (!channel) return;
+    counts[channel].total += 1;
+    if (delivery.skipped) counts[channel].skipped += 1;
+    else if (delivery.sent) counts[channel].sent += 1;
+    else counts[channel].failed += 1;
+  });
+  return counts;
 }
 
 function QaPersonaPreview({ persona }) {
