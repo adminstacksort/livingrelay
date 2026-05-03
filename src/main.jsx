@@ -2036,6 +2036,18 @@ function App() {
     window.history.replaceState({}, "", signedOutUrl());
   }
 
+  async function expireSiteAdminSession(message = "Admin session expired. Please log in again.") {
+    await fetch("/api/auth/logout", { method: "POST", headers: authHeaders() }).catch(() => {});
+    setSession(null);
+    setSiteAdminToken("");
+    setAuthToken("");
+    setLoginError(message);
+    clearStoredSessionValue(siteAdminTokenStorageKey);
+    window.localStorage.removeItem(authTokenStorageKey);
+    clearStoredSessionValue(sessionUserStorageKey);
+    window.history.replaceState({}, "", signedOutUrl());
+  }
+
   useEffect(() => {
     loadState();
     confirmBillingReturn();
@@ -2697,6 +2709,7 @@ function App() {
           platformSettings={platformSettings}
           reloadState={loadState}
           siteAdminToken={siteAdminToken}
+          onSiteAdminExpired={expireSiteAdminSession}
           setActivePropertyId={setActivePropertyId}
           setActiveOrderId={setActiveOrderId}
           setAdminSection={setAdminSection}
@@ -3379,7 +3392,7 @@ function RoleSectionAction({ active, setActive, role }) {
   );
 }
 
-function AdminConsole({ active, accounts, people, properties, vendors, orders, invoices, billingEvents, referrals = [], prospectingLeads = [], accessRequests = [], auditLog, platformSettings, reloadState, siteAdminToken, setActivePropertyId, setActiveOrderId, setAdminSection }) {
+function AdminConsole({ active, accounts, people, properties, vendors, orders, invoices, billingEvents, referrals = [], prospectingLeads = [], accessRequests = [], auditLog, platformSettings, reloadState, siteAdminToken, onSiteAdminExpired, setActivePropertyId, setActiveOrderId, setAdminSection }) {
   const activeProperties = properties.length;
   const pendingInvoices = invoices.filter((invoice) => !String(invoice.status).toLowerCase().includes("paid")).length;
   const openOrders = orders.filter((order) => order.status !== "Closed").length;
@@ -3397,7 +3410,7 @@ function AdminConsole({ active, accounts, people, properties, vendors, orders, i
         <PlatformVendorCallSettings platformSettings={platformSettings} reloadState={reloadState} siteAdminToken={siteAdminToken} />
         <SiteAccounts accounts={accounts} properties={properties} people={people} orders={orders} invoices={invoices} reloadState={reloadState} siteAdminToken={siteAdminToken} />
       </>}
-      {active === "prospecting" && <AdminProspecting prospectingLeads={prospectingLeads} reloadState={reloadState} siteAdminToken={siteAdminToken} />}
+      {active === "prospecting" && <AdminProspecting prospectingLeads={prospectingLeads} reloadState={reloadState} siteAdminToken={siteAdminToken} onSiteAdminExpired={onSiteAdminExpired} />}
       {active === "accessRequests" && <AdminAccessRequests accessRequests={accessRequests} referrals={referrals} reloadState={reloadState} siteAdminToken={siteAdminToken} />}
       {active === "directory" && <AdminDirectory people={people} properties={properties} accounts={accounts} reloadState={reloadState} />}
       {active === "properties" && <AdminProperties properties={properties} people={people} accounts={accounts} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setAdminSection={setAdminSection} />}
@@ -3533,7 +3546,7 @@ function AdminQaPanel({ siteAdminToken, reloadState, setActivePropertyId, setAct
   );
 }
 
-function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken }) {
+function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, onSiteAdminExpired }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [cityFilter, setCityFilter] = useState("San Francisco");
@@ -3623,6 +3636,10 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken }
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${siteAdminToken}` },
         body: JSON.stringify({ market: cityFilter, limit: cityFilter === "All" ? 18 : 12 })
       });
+      if (response.status === 401) {
+        await onSiteAdminExpired?.();
+        throw new Error("Admin session expired. Please log in again.");
+      }
       if (!response.ok || !response.body) {
         const text = await response.text();
         let data = {};
