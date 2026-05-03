@@ -1886,7 +1886,9 @@ function buildRenterServiceMessage(request, templateId = request.templateId) {
 
 const rememberedPhoneStorageKey = "livingrelay.rememberedPhone";
 const authTokenStorageKey = "livingrelay.authToken";
+const siteAdminTokenStorageKey = "livingrelay.siteAdminToken";
 const sessionUserStorageKey = "livingrelay.sessionUserId";
+const prospectingTargetMarkets = ["San Francisco", "Oakland", "San Jose", "Los Angeles", "San Diego"];
 
 function App() {
   const [session, setSession] = useState(() => {
@@ -1898,7 +1900,7 @@ function App() {
   const [rememberedPhone, setRememberedPhone] = useState("");
   const [editingRememberedPhone, setEditingRememberedPhone] = useState(false);
   const [sitePassword, setSitePassword] = useState("");
-  const [siteAdminToken, setSiteAdminToken] = useState("");
+  const [siteAdminToken, setSiteAdminToken] = useState(() => window.localStorage.getItem(siteAdminTokenStorageKey) || "");
   const [authToken, setAuthToken] = useState(() => window.localStorage.getItem(authTokenStorageKey) || "");
   const [loginError, setLoginError] = useState("");
   const [loginVerification, setLoginVerification] = useState({ challengeId: "", code: "", state: "idle", message: "" });
@@ -1998,6 +2000,7 @@ function App() {
     setSession(null);
     setSiteAdminToken("");
     setAuthToken("");
+    window.localStorage.removeItem(siteAdminTokenStorageKey);
     window.localStorage.removeItem(authTokenStorageKey);
     window.localStorage.removeItem(sessionUserStorageKey);
     window.history.replaceState({}, "", signedOutUrl());
@@ -2112,6 +2115,8 @@ function App() {
       }
       setSession({ userId: data.userId });
       setSiteAdminToken(data.token || "");
+      if (data.token) window.localStorage.setItem(siteAdminTokenStorageKey, data.token);
+      window.localStorage.setItem(sessionUserStorageKey, data.userId);
       setActivePropertyId(propertiesData[0]?.id);
       setAdminSection("accounts");
       setSitePassword("");
@@ -3366,6 +3371,7 @@ function AdminConsole({ active, accounts, people, properties, vendors, orders, i
 function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [cityFilter, setCityFilter] = useState("San Francisco");
   const [form, setForm] = useState({
     name: "",
     segment: "Property manager",
@@ -3403,8 +3409,14 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken }
     lead.sourceName,
     lead.notes
   ].join(" ").toLowerCase();
+  const leadCity = (lead) => String(lead.market || lead.city || "").trim();
+  const cityOptions = Array.from(new Set([
+    ...prospectingTargetMarkets,
+    ...prospectingLeads.map(leadCity).filter(Boolean)
+  ]));
   const filteredLeads = prospectingLeads
     .filter((lead) => statusFilter === "All" || (lead.status || "New") === statusFilter)
+    .filter((lead) => cityFilter === "All" || leadCity(lead).toLowerCase() === cityFilter.toLowerCase())
     .filter((lead) => searchable(lead).includes(query.toLowerCase()))
     .sort((left, right) => {
       const priorityOrder = { High: 0, Medium: 1, Low: 2 };
@@ -3449,6 +3461,17 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken }
         <Search size={16} />
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, market, source, contact, notes, or listing URL" />
       </div>
+      <div className="prospecting-market-bar">
+        <label>City<select value={cityFilter} onChange={(event) => setCityFilter(event.target.value)}>
+          <option>All</option>
+          {cityOptions.map((city) => <option key={city}>{city}</option>)}
+        </select></label>
+        <div className="market-chip-list">
+          {prospectingTargetMarkets.map((city) => (
+            <button key={city} type="button" className={cityFilter === city ? "active" : ""} onClick={() => setCityFilter(city)}>{city}</button>
+          ))}
+        </div>
+      </div>
       <div className="role-section-tabs prospecting-filters">
         {["All", "New", "Ready to contact", "Contacted", "Replied", "Not a fit", "Do not contact"].map((status) => (
           <button key={status} className={statusFilter === status ? "active" : ""} onClick={() => setStatusFilter(status)}>{status}</button>
@@ -3492,7 +3515,8 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken }
         <label>Phone<input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label>
         <label>Website<input value={form.website} onChange={(event) => setForm({ ...form, website: event.target.value })} /></label>
         <label>Listing URL<input value={form.listingUrl} onChange={(event) => setForm({ ...form, listingUrl: event.target.value })} /></label>
-        <label>Market<input value={form.market} onChange={(event) => setForm({ ...form, market: event.target.value })} /></label>
+        <label>Market<input list="prospecting-target-markets" value={form.market} onChange={(event) => setForm({ ...form, market: event.target.value })} /></label>
+        <datalist id="prospecting-target-markets">{prospectingTargetMarkets.map((city) => <option value={city} key={city} />)}</datalist>
         <label>Rental address<input value={form.rentalAddress} onChange={(event) => setForm({ ...form, rentalAddress: event.target.value })} /></label>
         <label>Unit count<input value={form.unitCount} onChange={(event) => setForm({ ...form, unitCount: event.target.value })} /></label>
         <label>Source<input value={form.sourceName} onChange={(event) => setForm({ ...form, sourceName: event.target.value })} /></label>

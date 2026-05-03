@@ -3,7 +3,7 @@ import express from "express";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { accessRequests, accounts, auditLog, billingEvents, invoices, notifications, people, platformSettings, properties, recordAudit, referrals, saveState, vendors, waitForStatePersistence, workOrders } from "./data.js";
+import { accessRequests, accounts, auditLog, billingEvents, invoices, notifications, people, platformSettings, properties, prospectingLeads, recordAudit, referrals, saveState, vendors, waitForStatePersistence, workOrders } from "./data.js";
 import { composeActionMessage, handleInboundCommand, normalizePhone } from "./smsLogic.js";
 import { getTwilioStatus, sendSms } from "./twilioClient.js";
 import { sendEmail } from "./emailClient.js";
@@ -153,6 +153,7 @@ app.get("/api/state", (req, res) => {
     notifications: includeSiteAdmin ? notifications : notifications.slice(0, 20),
     notificationCatalog: notificationCatalog(),
     referrals: includeSiteAdmin ? referrals : referrals.map(publicReferral),
+    prospectingLeads: includeSiteAdmin ? prospectingLeads : [],
     accessRequests: includeSiteAdmin ? accessRequests : [],
     auditLog,
     twilio: getTwilioStatus(),
@@ -748,6 +749,48 @@ app.patch("/api/site-admin/platform-settings", (req, res) => {
   saveState();
   recordAudit("site-admin", "Updated platform vendor call settings", `Production calls ${platformSettings.productionVendorCallsEnabled ? "enabled" : "disabled"}; test mode ${platformSettings.vendorCallTestMode ? "enabled" : "disabled"}.`);
   res.json({ platformSettings });
+});
+
+app.post("/api/site-admin/prospecting-leads", (req, res) => {
+  try {
+    const lead = normalizeProspectingLead(req.body || {});
+    const existing = findExistingProspectingLead(lead);
+    if (existing) {
+      Object.assign(existing, {
+        ...existing,
+        ...lead,
+        id: existing.id,
+        createdAt: existing.createdAt || lead.createdAt,
+        firstSeenAt: existing.firstSeenAt || lead.firstSeenAt,
+        updatedAt: new Date().toISOString()
+      });
+      recordAudit("site-admin", "Updated prospecting lead", `${existing.name} refreshed from ${existing.sourceName || "prospecting source"}.`);
+      res.json({ lead: existing, created: false });
+      return;
+    }
+    prospectingLeads.unshift(lead);
+    recordAudit("site-admin", "Added prospecting lead", `${lead.name} added from ${lead.sourceName || "prospecting source"}.`);
+    res.status(201).json({ lead, created: true });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.patch("/api/site-admin/prospecting-leads/:id", (req, res) => {
+  const lead = prospectingLeads.find((item) => item.id === req.params.id);
+  if (!lead) {
+    res.status(404).json({ error: "Prospecting lead not found" });
+    return;
+  }
+  const allowed = ["notes", "fit", "contactName", "contactRole", "email", "phone", "website", "listingUrl", "rentalAddress", "market", "unitCount", "sourceName"];
+  for (const key of allowed) {
+    if (Object.hasOwn(req.body, key)) lead[key] = sanitizeText(req.body[key]);
+  }
+  if (Object.hasOwn(req.body, "status")) lead.status = normalizeLeadStatus(req.body.status);
+  if (Object.hasOwn(req.body, "priority")) lead.priority = normalizeLeadPriority(req.body.priority);
+  lead.updatedAt = new Date().toISOString();
+  recordAudit("site-admin", "Updated prospecting lead status", `${lead.name} marked ${lead.status || "Updated"}.`);
+  res.json({ lead });
 });
 
 app.post("/api/site-admin/accounts", (req, res) => {
@@ -2813,6 +2856,89 @@ function escapeXml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
+}
+
+function normalizeProspectingLead(input) {
+  const now = new Date().toISOString();
+  const name = sanitizeText(input.name || input.company || input.propertyName);
+  const email = sanitizeText(input.email).toLowerCase();
+  const phone = sanitizeText(input.phone);
+  const website = sanitizeText(input.website);
+  const listingUrl = sanitizeText(input.listingUrl || input.sourceUrl);
+  if (!name) throw new Error("Lead name is required");
+  if (!email && !phone && !website && !listingUrl) throw new Error("At least one public contact or source URL is required");
+  return {
+    id: sanitizeText(input.id) || `lead-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+    name,
+    segment: normalizeLeadSegment(input.segment),
+    status: normalizeLeadStatus(input.status),
+    priority: normalizeLeadPriority(input.priority),
+    fit: sanitizeText(input.fit || input.reason),
+    contactName: sanitizeText(input.contactName),
+    contactRole: sanitizeText(input.contactRole),
+    email,
+    phone,
+    website,
+    listingUrl,
+    sourceName: sanitizeText(input.sourceName || input.source),
+    rentalAddress: sanitizeText(input.rentalAddress || input.address),
+    market: sanitizeText(input.market || input.city),
+    unitCount: sanitizeText(input.unitCount || input.portfolioSize),
+    notes: sanitizeText(input.notes),
+    firstSeenAt: sanitizeText(input.firstSeenAt) || now,
+    createdAt: sanitizeText(input.createdAt) || now,
+    updatedAt: now
+  };
+}
+
+function findExistingProspectingLead(lead) {
+  const email = lead.email && lead.email.toLowerCase();
+  const phone = lead.phone && normalizePhone(lead.phone);
+  const listingUrl = normalizeUrlKey(lead.listingUrl);
+  const website = normalizeUrlKey(lead.website);
+  return prospectingLeads.find((item) =>
+    (email && String(item.email || "").toLowerCase() === email) ||
+    (phone && normalizePhone(item.phone || "") === phone) ||
+    (listingUrl && normalizeUrlKey(item.listingUrl) === listingUrl) ||
+    (website && normalizeUrlKey(item.website) === website)
+  );
+}
+
+function normalizeLeadSegment(value) {
+  const text = sanitizeText(value).toLowerCase();
+  if (text.includes("owner")) return "Small owner";
+  if (text.includes("landlord")) return "Small landlord";
+  if (text.includes("apartment")) return "Apartment rental";
+  return "Property manager";
+}
+
+function normalizeLeadStatus(value) {
+  const allowed = new Set(["New", "Researching", "Ready to contact", "Contacted", "Replied", "Not a fit", "Do not contact"]);
+  const text = sanitizeText(value);
+  return allowed.has(text) ? text : "New";
+}
+
+function normalizeLeadPriority(value) {
+  const allowed = new Set(["High", "Medium", "Low"]);
+  const text = sanitizeText(value);
+  return allowed.has(text) ? text : "Medium";
+}
+
+function sanitizeText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 1000);
+}
+
+function normalizeUrlKey(value) {
+  const text = sanitizeText(value).toLowerCase();
+  if (!text) return "";
+  try {
+    const url = new URL(text.startsWith("http") ? text : `https://${text}`);
+    url.hash = "";
+    url.search = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return text.replace(/\/$/, "");
+  }
 }
 
 const server = app.listen(port, () => {

@@ -1907,6 +1907,44 @@ select:focus {
   margin-bottom: 12px;
 }
 
+.prospecting-market-bar {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: end;
+  margin: 10px 0 12px;
+}
+
+.prospecting-market-bar label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 850;
+  color: #5e514c;
+}
+
+.market-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.market-chip-list button {
+  border: 1px solid #d8d8d5;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0a0a0a;
+  min-height: 38px;
+  padding: 0 12px;
+  font-weight: 850;
+}
+
+.market-chip-list button.active {
+  border-color: #0a0a0a;
+  background: #0a0a0a;
+  color: #ffffff;
+}
+
 .link-like-button {
   display: inline-flex;
   align-items: center;
@@ -4047,5 +4085,9 @@ body:has(.login-card.admin-login-card) {
 
   .record-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .prospecting-market-bar {
+    grid-template-columns: 1fr;
   }
 }

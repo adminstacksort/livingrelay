@@ -249,6 +249,7 @@ const seedState = {
       createdAt: "2026-05-02T12:00:00.000Z"
     }
   ],
+  prospectingLeads: [],
   accessRequests: [],
   notifications: [],
   auditLog: [
@@ -266,6 +267,7 @@ export const workOrders = state.workOrders;
 export const invoices = state.invoices;
 export const billingEvents = state.billingEvents;
 export const referrals = state.referrals || (state.referrals = []);
+export const prospectingLeads = state.prospectingLeads || (state.prospectingLeads = []);
 export const accessRequests = state.accessRequests;
 export const notifications = state.notifications || (state.notifications = []);
 export const auditLog = state.auditLog;
@@ -400,6 +402,7 @@ function mergeLoadedState(loaded) {
     invoices: loaded.invoices || seedState.invoices,
     billingEvents: loaded.billingEvents || seedState.billingEvents,
     referrals: loaded.referrals || seedState.referrals,
+    prospectingLeads: loaded.prospectingLeads || seedState.prospectingLeads,
     accessRequests: loaded.accessRequests || seedState.accessRequests,
     notifications: loaded.notifications || seedState.notifications,
     auditLog: loaded.auditLog || []
