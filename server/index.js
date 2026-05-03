@@ -81,6 +81,9 @@ app.use(express.json({
   }
 }));
 app.use(express.urlencoded({ extended: false }));
+app.get("/favicon.ico", (req, res) => {
+  res.redirect(302, "/favicon.svg");
+});
 app.use(express.static(distDir));
 
 app.use((req, res, next) => {
