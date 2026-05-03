@@ -1907,6 +1907,14 @@ select:focus {
   margin-bottom: 12px;
 }
 
+.prospecting-refresh-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 0 0 12px;
+}
+
 .prospecting-market-bar {
   display: grid;
   grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);

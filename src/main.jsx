@@ -3372,6 +3372,7 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken }
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [cityFilter, setCityFilter] = useState("San Francisco");
+  const [refreshStatus, setRefreshStatus] = useState({ state: "idle", message: "" });
   const [form, setForm] = useState({
     name: "",
     segment: "Property manager",
@@ -3449,6 +3450,23 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken }
     await reloadState?.();
   }
 
+  async function runProspectingRefresh() {
+    setRefreshStatus({ state: "running", message: `Generating ${cityFilter === "All" ? "target-market" : cityFilter} leads...` });
+    try {
+      const response = await fetch("/api/site-admin/prospecting-refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${siteAdminToken}` },
+        body: JSON.stringify({ market: cityFilter, limit: cityFilter === "All" ? 18 : 12 })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Prospecting refresh failed");
+      setRefreshStatus({ state: "ok", message: `${data.added || 0} added, ${data.updated || 0} updated for ${data.market}.` });
+      await reloadState?.();
+    } catch (error) {
+      setRefreshStatus({ state: "error", message: error.message || "Prospecting refresh failed" });
+    }
+  }
+
   return (
     <section className="panel">
       <SectionTitle icon={<Target />} title="Prospecting pipeline" eyebrow="Public rental leads" />
@@ -3456,6 +3474,12 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken }
         <Metric icon={<Target />} label="Total leads" value={prospectingLeads.length} />
         <Metric icon={<Bell />} label="Ready to contact" value={prospectingLeads.filter((lead) => lead.status === "Ready to contact").length} />
         <Metric icon={<Check />} label="Contacted" value={prospectingLeads.filter((lead) => lead.status === "Contacted").length} />
+      </div>
+      <div className="prospecting-refresh-row">
+        <button className="primary" type="button" onClick={runProspectingRefresh} disabled={refreshStatus.state === "running"}>
+          <Sparkles size={16} /> Generate leads
+        </button>
+        {refreshStatus.message && <p className={`integration-status ${refreshStatus.state === "error" ? "error" : refreshStatus.state === "ok" ? "ok" : "idle"}`}>{refreshStatus.message}</p>}
       </div>
       <div className="search-box">
         <Search size={16} />
