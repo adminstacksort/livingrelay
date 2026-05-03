@@ -78,6 +78,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Write frontend build env
+        run: |
+          case "${{ inputs.environment }}" in
+            staging)
+              printf 'VITE_GA_MEASUREMENT_ID=G-4EPQK851N0\n' > .env.production.local
+              ;;
+            production)
+              printf 'VITE_GA_MEASUREMENT_ID=G-JK9RC1VEXR\n' > .env.production.local
+              ;;
+            *)
+              printf 'VITE_GA_MEASUREMENT_ID=\n' > .env.production.local
+              ;;
+          esac
+
       - name: Build and push GHCR image
         uses: docker/build-push-action@v6
         with:
