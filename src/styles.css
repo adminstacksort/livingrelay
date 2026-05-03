@@ -2360,6 +2360,53 @@ body:has(.login-card.admin-login-card) {
   margin: 0;
 }
 
+.qa-provider-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.qa-provider-card {
+  border: 1px solid #e5e5e2;
+  border-radius: 8px;
+  background: #fff;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.qa-provider-card span {
+  color: #777;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.qa-provider-card strong {
+  font-size: 13px;
+}
+
+.qa-provider-card p {
+  color: #555f5a;
+  font-size: 11px;
+  line-height: 1.35;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.qa-provider-card.ok {
+  border-color: #cdded8;
+  background: #f4fbf8;
+}
+
+.qa-provider-card.warn {
+  border-color: #ead7b8;
+  background: #fffaf0;
+}
+
 .qa-progress-step {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
@@ -4750,6 +4797,10 @@ body:has(.login-card.admin-login-card) {
 
   .qa-role-picker div {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .qa-provider-grid {
+    grid-template-columns: 1fr;
   }
 
   .qa-run-log-item {
