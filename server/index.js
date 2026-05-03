@@ -3,7 +3,7 @@ import express from "express";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { accounts, auditLog, billingEvents, invoices, people, platformSettings, properties, recordAudit, saveState, vendors, waitForStatePersistence, workOrders } from "./data.js";
+import { accessRequests, accounts, auditLog, billingEvents, invoices, notifications, people, platformSettings, properties, recordAudit, referrals, saveState, vendors, waitForStatePersistence, workOrders } from "./data.js";
 import { composeActionMessage, handleInboundCommand, normalizePhone } from "./smsLogic.js";
 import { getTwilioStatus, sendSms } from "./twilioClient.js";
 import { registerTwilioCallWithElevenLabs, startVendorQuoteCalls } from "./elevenLabsCalls.js";
@@ -17,6 +17,7 @@ import { getRuntimeEnvironment, getStateId } from "./postgresState.js";
 import { chargeStripeDispatchFee, createStripeOwnerSubscriptionSession, createStripePortalSession, createStripeSetupSession, dispatchFeeCents, ownerSubscriptionCents, retrieveStripeCheckoutSession, retrieveStripeSetupIntent, setCustomerDefaultPaymentMethod, stripeBillingStatus } from "./stripeBilling.js";
 import { attachMediaRelay, getMediaRelayRoom } from "./mediaRelay.js";
 import { consumeVerifiedPhoneToken, createPhoneChallenge, verifyPhoneChallenge } from "./phoneVerification.js";
+import { defaultNotifyForRole, dispatchNotification, mergeNotifySettings, notificationCatalog, registerPushDevice } from "./notifications.js";
 import {
   buildTenantAvailability,
   buildInvoiceDeliveryInstructions,
@@ -43,6 +44,20 @@ const siteAdminHosts = new Set([
 const demoHost = process.env.DEMO_HOST || "demo.livingrelay.com";
 const siteAdminSessions = new Set();
 const appSessions = new Map();
+const publicInviteTemplates = {
+  "adopt-livingrelay": {
+    issue: "Can we use LivingRelay for this rental?",
+    access: "It gives renters one text-first place for maintenance while owners and property managers get approvals, vendor coordination, and records without hunting through separate threads."
+  },
+  "owner-manager-loop": {
+    issue: "I would like the owner and property manager to use LivingRelay together.",
+    access: "It keeps repair requests, access notes, approvals, vendor updates, and invoices visible to the right people after everyone logs in."
+  },
+  "cleaner-process": {
+    issue: "Could we set up LivingRelay before the next maintenance issue?",
+    access: "That way future requests go through the app instead of scattered texts, and everyone can see status, approvals, vendor booking, and repair history."
+  }
+};
 
 app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   try {
@@ -105,7 +120,7 @@ app.get("/api/state", (req, res) => {
   const includeSiteAdmin = isSiteAdminHost(req);
   const includeDemo = isDemoExperienceHost(req);
   res.json({
-    accounts: includeSiteAdmin ? accounts : accounts.map(({ id, name, status, plan, stripeCustomerId, billingPayerRole, billingPayerPersonId, billingSetupStatus, ownerSubscriptionStatus, ownerSubscriptionPlan, ownerSubscriptionStripeId, ownerSubscriptionCurrentPeriodEnd, productionVendorCallsEnabled }) => ({
+    accounts: includeSiteAdmin ? accounts : accounts.map(({ id, name, status, plan, stripeCustomerId, billingPayerRole, billingPayerPersonId, billingSetupStatus, ownerSubscriptionStatus, ownerSubscriptionPlan, ownerSubscriptionStripeId, ownerSubscriptionCurrentPeriodEnd, referralRewards, productionVendorCallsEnabled }) => ({
       id,
       name,
       status,
@@ -118,6 +133,7 @@ app.get("/api/state", (req, res) => {
       ownerSubscriptionPlan: ownerSubscriptionPlan || "Owner Subscription",
       ownerSubscriptionStripeId,
       ownerSubscriptionCurrentPeriodEnd,
+      referralRewards: publicReferralRewards(referralRewards),
       productionVendorCallsEnabled: productionVendorCallsEnabled !== false
     })),
     people: (includeSiteAdmin ? people : people.filter((person) => person.role !== "Site Admin")).map(safePerson),
@@ -130,6 +146,10 @@ app.get("/api/state", (req, res) => {
     workOrders,
     invoices,
     billingEvents,
+    notifications: includeSiteAdmin ? notifications : notifications.slice(0, 20),
+    notificationCatalog: notificationCatalog(),
+    referrals: includeSiteAdmin ? referrals : referrals.map(publicReferral),
+    accessRequests: includeSiteAdmin ? accessRequests : [],
     auditLog,
     twilio: getTwilioStatus(),
     stripe: stripeBillingStatus(),
@@ -319,7 +339,7 @@ app.post("/api/auth/logout", (req, res) => {
 });
 
 app.post("/api/onboarding/property", (req, res) => {
-  const { propertyName, address = "", managerName, managerPhone, role = "Property manager", pin, phoneVerificationToken } = req.body;
+  const { propertyName, address = "", managerName, managerPhone, role = "Property manager", pin, phoneVerificationToken, referralToken = "" } = req.body;
   if (!propertyName || !managerName || !managerPhone) {
     res.status(400).json({ error: "propertyName, managerName, and managerPhone are required" });
     return;
@@ -371,9 +391,7 @@ app.post("/api/onboarding/property", (req, res) => {
     person.phoneVerificationRequired = true;
     person.propertyIds = person.propertyIds || [];
     person.accountIds = addUnique(person.accountIds || [], account.id);
-    if (!person.notify && ["Manager", "Owner"].includes(person.role)) {
-      person.notify = { tenantReports: true, everyUpdate: person.role === "Manager", keyUpdates: true };
-    }
+    person.notify = defaultNotifyForRole(person.role, person.notify || {});
   } else {
     person = {
       id: `${personRole.toLowerCase()}-${Date.now()}`,
@@ -385,7 +403,7 @@ app.post("/api/onboarding/property", (req, res) => {
       pin: pin || String(Math.floor(1000 + Math.random() * 9000)),
       propertyIds: [],
       accountIds: [account.id],
-      notify: { tenantReports: true, everyUpdate: personRole === "Manager", keyUpdates: true }
+      notify: defaultNotifyForRole(personRole)
     };
     people.push(person);
   }
@@ -411,12 +429,18 @@ app.post("/api/onboarding/property", (req, res) => {
   };
   properties.push(property);
   person.propertyIds = addUnique(person.propertyIds || [], property.id);
+  const referral = claimReferralForProperty({
+    referralToken,
+    referredPerson: person,
+    referredAccount: account,
+    property
+  });
 
   saveState();
-  recordAudit("self-serve", reconciled ? "Added property to existing account" : "Created property", `${managerName} created ${property.name}${reconciled ? " on an existing phone account" : ""}.`);
+  recordAudit("self-serve", reconciled ? "Added property to existing account" : "Created property", `${managerName} created ${property.name}${reconciled ? " on an existing phone account" : ""}${referral ? " from a referral invite" : ""}.`);
   const token = createAppSession(person);
   setAppSessionCookie(res, token);
-  res.json({ account, person, property, reconciled, phoneVerified: true, token });
+  res.json({ account, person, property, reconciled, referral, phoneVerified: true, token });
 });
 
 app.use("/api/site-admin", requireSiteAdminHost);
@@ -556,6 +580,7 @@ function isAuthorizedAppRequest(req, user) {
   }
   if (path.startsWith("/api/admin")) return managerRoles.has(role);
   if (path.startsWith("/api/billing")) return ownerManagerRoles.has(role);
+  if (path.startsWith("/api/referrals")) return ownerManagerRoles.has(role);
   if (path.startsWith("/api/invoices")) return ownerManagerRoles.has(role);
   if (path.startsWith("/api/properties")) return ownerManagerRoles.has(role);
   if (path.startsWith("/api/people")) return managerRoles.has(role) || path.includes(`/${user.id}/`);
@@ -566,6 +591,7 @@ function isAuthorizedAppRequest(req, user) {
 app.use([
   "/api/admin",
   "/api/billing",
+  "/api/referrals",
   "/api/work-orders",
   "/api/invoices",
   "/api/people",
@@ -694,6 +720,21 @@ app.patch("/api/site-admin/accounts/:id", (req, res) => {
   res.json({ account });
 });
 
+app.post("/api/site-admin/referrals/:id/validate", (req, res) => {
+  const referral = referrals.find((item) => item.id === req.params.id);
+  if (!referral) {
+    res.status(404).json({ error: "referral not found" });
+    return;
+  }
+  const result = validateReferral(referral, {
+    actor: req.user?.name || "site-admin",
+    legitimate: req.body.legitimate !== false,
+    note: req.body.note || "Property legitimacy validated by LivingRelay."
+  });
+  saveState();
+  res.json(result);
+});
+
 app.delete("/api/site-admin/accounts/:id", (req, res) => {
   const account = accounts.find((item) => item.id === req.params.id);
   if (!account) {
@@ -811,17 +852,17 @@ app.post("/api/admin/people", (req, res) => {
     accountIds: accountId ? [accountId] : undefined,
     unit: role === "Tenant" ? unit : undefined,
     trade: role === "Vendor" ? trade : undefined,
-    notify: ["Manager", "Owner"].includes(role) ? { tenantReports: true, everyUpdate: role === "Manager", keyUpdates: true } : undefined
+    notify: defaultNotifyForRole(role)
   };
   people.push(person);
   const property = properties.find((item) => item.id === propertyId);
   if (property && role === "Owner") property.ownerId = person.id;
   saveState();
   recordAudit("admin", "Added person", `${name} added as ${role}.`);
-  res.json({ person });
+  res.json({ person: safePerson(person) });
 });
 
-app.post("/api/admin/work-orders", (req, res) => {
+app.post("/api/admin/work-orders", async (req, res) => {
   const { propertyId, unit, tenantId, trade = "General", severity = "Normal", status = "Manager review", estimate = 0, vendorId, issue, access = "", actorName = "Manager", actorRole = "Manager" } = req.body;
   if (!propertyId || !unit || !issue) {
     res.status(400).json({ error: "propertyId, unit, and issue are required" });
@@ -873,6 +914,10 @@ app.post("/api/admin/work-orders", (req, res) => {
   workOrders.unshift(order);
   saveState();
   recordAudit(actorName, "Created work order", `${order.id} created by ${actorRole}.`);
+  await dispatchNotification("tenant_report", { order });
+  if (order.ownerApproved === false || order.status.toLowerCase().includes("owner")) {
+    await dispatchNotification("owner_approval", { order });
+  }
   res.json({ order });
 });
 
@@ -983,6 +1028,57 @@ app.post("/api/billing/confirm-owner-subscription", async (req, res) => {
   }
 });
 
+app.post("/api/referrals", async (req, res) => {
+  try {
+    const referrer = req.user;
+    const property = properties.find((item) => item.id === req.body.propertyId)
+      || properties.find((item) => (referrer.propertyIds || []).includes(item.id));
+    const account = accounts.find((item) => item.id === req.body.accountId)
+      || accounts.find((item) => item.id === property?.accountId)
+      || accounts.find((item) => (referrer.accountIds || []).includes(item.id));
+    if (!account) {
+      res.status(404).json({ error: "account not found" });
+      return;
+    }
+    const referredName = String(req.body.referredName || "").trim().slice(0, 100);
+    const referredEmail = String(req.body.referredEmail || "").trim().toLowerCase();
+    const referredRole = normalizeReferralRole(req.body.referredRole);
+    if (!referredName || !validEmail(referredEmail)) {
+      res.status(400).json({ error: "referredName and a valid referredEmail are required" });
+      return;
+    }
+    const token = createReferralToken();
+    const referral = {
+      id: `ref-${Date.now()}-${randomUUID().slice(0, 8)}`,
+      token,
+      program: "dispatch_and_owner_subscription",
+      referrerPersonId: referrer.id,
+      referrerAccountId: account.id,
+      referrerName: referrer.name,
+      referredName,
+      referredEmail,
+      referredRole,
+      status: "Invite sent",
+      inviteDelivery: { sent: false, reason: "email_not_configured" },
+      rewardSummary: referralRewardSummary(referrer.role, referredRole),
+      createdAt: new Date().toISOString()
+    };
+    const inviteUrl = referralInviteUrl(req, token);
+    referral.inviteUrl = inviteUrl;
+    referral.inviteDelivery = await sendLivingRelayInviteEmail({
+      to: referredEmail,
+      subject: `${referrer.name} invited you to LivingRelay`,
+      text: buildReferralInviteEmail({ referrer, referredName, referredRole, inviteUrl, token })
+    });
+    referrals.unshift(referral);
+    saveState();
+    recordAudit(referrer.name, "Sent referral invite", `${referredName} invited for ${referral.rewardSummary}`);
+    res.json({ referral: publicReferral(referral) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post("/api/work-orders/:id/book-vendor", async (req, res) => {
   const order = workOrders.find((item) => item.id === req.params.id);
   if (!order) {
@@ -1010,6 +1106,7 @@ app.post("/api/work-orders/:id/book-vendor", async (req, res) => {
     stamp: new Date().toISOString()
   });
   const billingEvent = await recordDispatchBillingEvent({ account, property, order, actor: req.body.actor || "manager" });
+  await dispatchNotification("vendor_booked", { order, property, vendor, billingEvent });
   saveState();
   res.json({ order, billingEvent });
 });
@@ -1029,6 +1126,8 @@ app.post("/api/work-orders/:id/vendor-outreach", async (req, res) => {
       res.status(404).json(result);
       return;
     }
+    const order = workOrders.find((item) => item.id === req.params.id);
+    if (order) await dispatchNotification("vendor_contacted", { order });
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1044,12 +1143,13 @@ app.post("/api/work-orders/:id/vendor-outreach/select", (req, res) => {
   res.json(result);
 });
 
-app.post("/api/work-orders/:id/completion-package", (req, res) => {
+app.post("/api/work-orders/:id/completion-package", async (req, res) => {
   const result = recordVendorCompletion(req.params.id, req.body);
   if (result.error) {
     res.status(404).json(result);
     return;
   }
+  await dispatchNotification("issue_resolved", { order: result.order });
   res.json(result);
 });
 
@@ -1072,10 +1172,32 @@ app.patch("/api/people/:id/notify", (req, res) => {
     res.status(404).json({ error: "person not found" });
     return;
   }
-  person.notify = { ...(person.notify || {}), ...req.body };
+  if (req.body.email !== undefined) {
+    const email = String(req.body.email || "").trim().toLowerCase();
+    if (email && !validEmail(email)) {
+      res.status(400).json({ error: "valid email required" });
+      return;
+    }
+    person.email = email || undefined;
+  }
+  person.notify = mergeNotifySettings(person, req.body);
   saveState();
   recordAudit(person.name, "Updated notification settings", JSON.stringify(person.notify));
-  res.json({ person });
+  res.json({ person: safePerson(person) });
+});
+
+app.post("/api/people/:id/push-devices", (req, res) => {
+  const person = people.find((item) => item.id === req.params.id);
+  if (!person) {
+    res.status(404).json({ error: "person not found" });
+    return;
+  }
+  const result = registerPushDevice(person, req.body);
+  if (result.error) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json({ person: safePerson(result.person), device: result.device });
 });
 
 app.post("/api/work-orders/:id/invoices", (req, res) => {
@@ -1119,7 +1241,7 @@ app.post("/api/work-orders/:id/invoices", (req, res) => {
   res.json({ invoice, order });
 });
 
-app.patch("/api/work-orders/:id", (req, res) => {
+app.patch("/api/work-orders/:id", async (req, res) => {
   const order = workOrders.find((item) => item.id === req.params.id);
   if (!order) {
     res.status(404).json({ error: "work order not found" });
@@ -1139,6 +1261,9 @@ app.patch("/api/work-orders/:id", (req, res) => {
   }
   saveState();
   recordAudit(req.body.actor || req.user?.name || "app", "Updated work order", `${order.id} set to ${order.status}.`);
+  if (["closed", "completed", "resolved", "tenant resolved"].some((status) => String(order.status || "").toLowerCase().includes(status))) {
+    await dispatchNotification("issue_resolved", { order });
+  }
   res.json({ order });
 });
 
@@ -1287,15 +1412,21 @@ app.post("/api/work-orders/:id/full-flow-demo", (req, res) => {
   res.json(result);
 });
 
-app.patch("/api/invoices/:id", (req, res) => {
+app.patch("/api/invoices/:id", async (req, res) => {
   const invoice = invoices.find((item) => item.id === req.params.id);
   if (!invoice) {
     res.status(404).json({ error: "invoice not found" });
     return;
   }
+  const wasPaid = String(invoice.paymentStatus || invoice.status || "").toLowerCase().includes("paid");
   Object.assign(invoice, req.body);
   saveState();
   recordAudit("owner", "Updated invoice", `${invoice.id} set to ${invoice.status}.`);
+  const isPaid = String(invoice.paymentStatus || invoice.status || "").toLowerCase().includes("paid");
+  if (!wasPaid && isPaid) {
+    const order = workOrders.find((item) => item.id === invoice.orderId);
+    await dispatchNotification("owner_paid", { order, invoice, propertyId: invoice.propertyId });
+  }
   res.json({ invoice });
 });
 
@@ -1454,6 +1585,123 @@ function accountBillingSetupStatus(account) {
   return account.billingSetupStatus || (account.stripeCustomerId ? "Card on file" : "Needs card");
 }
 
+function publicReferralRewards(rewards = {}) {
+  return {
+    dispatchCredits: Number(rewards.dispatchCredits || 0),
+    ownerSecondYearPending: Number(rewards.ownerSecondYearPending || 0),
+    ownerSecondYearCredits: Number(rewards.ownerSecondYearCredits || 0)
+  };
+}
+
+function ensureReferralRewards(account) {
+  if (!account) return { dispatchCredits: 0, ownerSecondYearPending: 0, ownerSecondYearCredits: 0 };
+  account.referralRewards = {
+    dispatchCredits: 0,
+    ownerSecondYearPending: 0,
+    ownerSecondYearCredits: 0,
+    ...(account.referralRewards || {})
+  };
+  return account.referralRewards;
+}
+
+function publicReferral(referral = {}) {
+  return {
+    ...referral,
+    referredEmail: maskEmail(referral.referredEmail),
+    token: referral.token,
+    inviteUrl: referral.inviteUrl
+  };
+}
+
+function referralRewardSummary(referrerRole, referredRole) {
+  const ownerEligible = referrerRole === "Owner" || referredRole === "Owner";
+  return ownerEligible
+    ? "Both accounts get one free dispatch after validation, plus a free second owner subscription year after each pays for the first year."
+    : "Both accounts get one free dispatch after LivingRelay validates the referred property.";
+}
+
+function createReferralToken() {
+  return `LR-${randomUUID().slice(0, 8).toUpperCase()}`;
+}
+
+function normalizeReferralRole(role = "") {
+  return String(role).toLowerCase().includes("owner") ? "Owner" : "Property manager";
+}
+
+function referralInviteUrl(req, token) {
+  const base = process.env.APP_PUBLIC_URL || `${req.protocol}://${req.get("host")}`;
+  const url = new URL(base);
+  url.pathname = `/ref/${encodeURIComponent(token)}`;
+  url.search = "";
+  url.searchParams.set("ref", token);
+  url.searchParams.set("mode", "create");
+  return url.toString();
+}
+
+function buildReferralInviteEmail({ referrer, referredName, referredRole, inviteUrl, token }) {
+  return [
+    `Hi ${referredName},`,
+    "",
+    `${referrer.name} invited you to try LivingRelay for your rental maintenance workflow as a ${referredRole.toLowerCase()}.`,
+    "",
+    "When you create a property and LivingRelay validates that it is legitimate, both of you get your first vendor dispatch coordination fee covered.",
+    "If this is an owner-to-owner or owner-to-property-manager referral, both accounts also become eligible for a free second year of the $99 Owner Subscription after each account pays for the first year.",
+    "",
+    `Start here: ${inviteUrl}`,
+    `Referral code: ${token}`
+  ].join("\n");
+}
+
+function claimReferralForProperty({ referralToken, referredPerson, referredAccount, property }) {
+  const token = String(referralToken || "").trim().toUpperCase();
+  if (!token) return null;
+  const referral = referrals.find((item) => String(item.token || "").toUpperCase() === token);
+  if (!referral || referral.status === "Validated" || referral.status === "Reward granted") return null;
+  referral.status = "Property created";
+  referral.referredPersonId = referredPerson.id;
+  referral.referredAccountId = referredAccount.id;
+  referral.referredPropertyId = property.id;
+  referral.referredPropertyName = property.name;
+  referral.propertyCreatedAt = new Date().toISOString();
+  referral.validationStatus = "Needs LivingRelay review";
+  recordAudit(referredPerson.name, "Claimed referral invite", `${property.name} is awaiting referral validation.`);
+  return publicReferral(referral);
+}
+
+function validateReferral(referral, { actor, legitimate, note }) {
+  referral.validationStatus = legitimate ? "Legitimate property" : "Rejected";
+  referral.validationNote = note;
+  referral.validatedAt = new Date().toISOString();
+  if (!legitimate) {
+    referral.status = "Rejected";
+    recordAudit(actor, "Rejected referral", `${referral.referredPropertyName || referral.referredEmail}: ${note}`);
+    return { referral };
+  }
+  if (referral.rewardsGrantedAt) return { referral, alreadyGranted: true };
+  const referrerAccount = accounts.find((item) => item.id === referral.referrerAccountId);
+  const referredAccount = accounts.find((item) => item.id === referral.referredAccountId);
+  for (const account of [referrerAccount, referredAccount].filter(Boolean)) {
+    const rewards = ensureReferralRewards(account);
+    rewards.dispatchCredits += 1;
+  }
+  const referrer = people.find((person) => person.id === referral.referrerPersonId);
+  const ownerSecondYearEligible = referrer?.role === "Owner" || referral.referredRole === "Owner";
+  if (ownerSecondYearEligible) {
+    for (const account of [referrerAccount, referredAccount].filter(Boolean)) {
+      const rewards = ensureReferralRewards(account);
+      rewards.ownerSecondYearPending += 1;
+    }
+  }
+  referral.status = "Reward granted";
+  referral.rewardsGrantedAt = new Date().toISOString();
+  referral.rewards = {
+    dispatchCreditsPerAccount: 1,
+    ownerSecondYearEligible
+  };
+  recordAudit(actor, "Validated referral", `${referral.referredPropertyName || referral.referredEmail}: rewards granted.`);
+  return { referral, referrerAccount, referredAccount };
+}
+
 function formatMoney(amount) {
   return `$${Number(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
@@ -1558,7 +1806,10 @@ function safeEnvValue(key) {
 
 function safePerson(person = {}) {
   const { pin, ...publicPerson } = person;
-  return publicPerson;
+  return {
+    ...publicPerson,
+    notify: defaultNotifyForRole(person.role, person.notify || {})
+  };
 }
 
 function maskPhone(phone = "") {
@@ -1566,6 +1817,80 @@ function maskPhone(phone = "") {
   const digits = value.replace(/\D/g, "");
   if (digits.length < 4) return value ? "configured" : "";
   return `•••${digits.slice(-4)}`;
+}
+
+function maskEmail(email = "") {
+  const [name = "", domain = ""] = String(email).split("@");
+  if (!name || !domain) return email ? "configured" : "";
+  return `${name.slice(0, 2)}***@${domain}`;
+}
+
+function validEmail(email = "") {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email).trim());
+}
+
+function buildPublicLivingRelayInvite(body) {
+  const channels = {
+    text: body.textChannel !== false,
+    email: body.emailChannel !== false
+  };
+  if (!channels.text && !channels.email) return { error: "Choose text, email, or both." };
+  const template = publicInviteTemplates[body.templateId] || publicInviteTemplates["adopt-livingrelay"];
+  const renterName = String(body.renterName || "your renter").trim().slice(0, 80);
+  const rentalAddress = String(body.rentalAddress || "my rental").trim().slice(0, 140);
+  const unit = String(body.unit || "").trim().slice(0, 60);
+  const address = [rentalAddress, unit].filter(Boolean).join(", ");
+  const customMessage = String(body.message || "").trim().slice(0, 900);
+  const defaultMessage = `Hi, this is ${renterName} at ${address}. ${template.issue} ${template.access}`;
+  const message = customMessage || defaultMessage;
+  const recipients = [
+    body.sendOwner !== false && {
+      role: "Owner",
+      name: String(body.ownerName || "Owner").trim().slice(0, 80),
+      phone: body.ownerPhone ? normalizePhone(body.ownerPhone) : "",
+      email: String(body.ownerEmail || "").trim().toLowerCase()
+    },
+    body.sendManager !== false && {
+      role: "Property manager",
+      name: String(body.managerName || "Property manager").trim().slice(0, 80),
+      phone: body.managerPhone ? normalizePhone(body.managerPhone) : "",
+      email: String(body.managerEmail || "").trim().toLowerCase()
+    }
+  ].filter(Boolean).map((recipient) => ({
+    ...recipient,
+    phone: recipient.phone && recipient.phone.replace(/\D/g, "").length >= 10 ? recipient.phone : "",
+    email: validEmail(recipient.email) ? recipient.email : ""
+  }));
+  if (!recipients.length) return { error: "Choose an owner, property manager, or both." };
+  const deliverable = recipients.some((recipient) => (channels.text && recipient.phone) || (channels.email && recipient.email));
+  if (!deliverable) return { error: "Add at least one phone number or email for the selected channel." };
+  return {
+    renterName,
+    rentalAddress,
+    unit,
+    templateId: template.id || body.templateId || "adopt-livingrelay",
+    channels,
+    recipients,
+    message,
+    subject: `LivingRelay invite for ${rentalAddress}`
+  };
+}
+
+async function sendLivingRelayInviteEmail({ to, subject, text }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) return { sent: false, reason: "email_not_configured" };
+  const from = process.env.RESEND_FROM_EMAIL || process.env.INVITE_FROM_EMAIL || "LivingRelay <support@livingrelay.com>";
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ from, to, subject, text })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) return { sent: false, reason: data.message || data.error || `email_failed_${response.status}` };
+  return { sent: true, id: data.id };
 }
 
 function isTestLoginPerson(person) {
@@ -1598,6 +1923,9 @@ async function handleStripeWebhookEvent(event) {
       };
     }
     recordAudit("stripe", paid ? "Dispatch fee paid" : "Dispatch fee payment failed", `${billingEvent.orderId}: ${billingEvent.status}.`);
+    if (paid) {
+      await dispatchNotification("owner_paid", { order, billingEvent, propertyId: billingEvent.propertyId });
+    }
   }
   if (event.type === "checkout.session.completed" || event.type === "setup_intent.succeeded") {
     const object = event.data?.object || {};
@@ -1655,6 +1983,12 @@ function completeOwnerSubscription({ accountId, customerId, subscriptionId, stat
   account.ownerSubscriptionPlan = "Owner Subscription";
   if (subscriptionId) account.ownerSubscriptionStripeId = subscriptionId;
   if (currentPeriodEnd) account.ownerSubscriptionCurrentPeriodEnd = currentPeriodEnd;
+  const rewards = ensureReferralRewards(account);
+  if (status === "Active" && rewards.ownerSecondYearPending > 0) {
+    rewards.ownerSecondYearCredits += rewards.ownerSecondYearPending;
+    rewards.ownerSecondYearPending = 0;
+    account.ownerSubscriptionStatus = "Active + second year referral credit";
+  }
   recordAudit("stripe", "Owner Subscription updated", `${account.name}: ${status}.`);
   return account;
 }
@@ -1673,6 +2007,33 @@ async function recordDispatchBillingEvent({ account, property, order, actor }) {
   const existing = billingEvents.find((event) => event.orderId === order.id && event.type === "dispatch_fee");
   if (existing) return existing;
   const payerRole = property?.billingPayerRole || account?.billingPayerRole || "Owner";
+  const rewards = ensureReferralRewards(account);
+  if (rewards.dispatchCredits > 0) {
+    rewards.dispatchCredits -= 1;
+    const billingEvent = {
+      id: `bill-${billingEvents.length + 1}`,
+      type: "dispatch_fee",
+      accountId: account?.id,
+      propertyId: property?.id,
+      orderId: order.id,
+      amount: 0,
+      standardAmount: dispatchFeeCents / 100,
+      payerRole,
+      status: "Referral credit applied",
+      note: "First dispatch free referral reward covered the LivingRelay coordination fee.",
+      createdAt: new Date().toISOString()
+    };
+    order.dispatchFee = {
+      status: billingEvent.status,
+      amount: 0,
+      standardAmount: dispatchFeeCents / 100,
+      billingEventId: billingEvent.id,
+      reason: billingEvent.note
+    };
+    billingEvents.unshift(billingEvent);
+    recordAudit(actor, "Applied referral dispatch credit", `${order.id}: first dispatch free.`);
+    return billingEvent;
+  }
   const billingEvent = {
     id: `bill-${billingEvents.length + 1}`,
     type: "dispatch_fee",
@@ -1758,6 +2119,86 @@ app.post("/api/messages/send", async (req, res) => {
   }
 });
 
+app.post("/api/public/livingrelay-invite", async (req, res) => {
+  try {
+    const payload = buildPublicLivingRelayInvite(req.body || {});
+    if (payload.error) {
+      res.status(400).json({ error: payload.error });
+      return;
+    }
+    const results = [];
+    for (const recipient of payload.recipients) {
+      if (payload.channels.text && recipient.phone) {
+        try {
+          const smsResult = await sendSms({ to: recipient.phone, body: payload.message });
+          results.push({
+            channel: "text",
+            role: recipient.role,
+            to: maskPhone(recipient.phone),
+            sent: smsResult.sent,
+            reason: smsResult.error || smsResult.status || "sent"
+          });
+        } catch (error) {
+          results.push({
+            channel: "text",
+            role: recipient.role,
+            to: maskPhone(recipient.phone),
+            sent: false,
+            reason: error.message
+          });
+        }
+      }
+      if (payload.channels.email && recipient.email) {
+        try {
+          const emailResult = await sendLivingRelayInviteEmail({
+            to: recipient.email,
+            subject: payload.subject,
+            text: payload.message
+          });
+          results.push({
+            channel: "email",
+            role: recipient.role,
+            to: maskEmail(recipient.email),
+            sent: emailResult.sent,
+            reason: emailResult.reason || emailResult.id || "sent"
+          });
+        } catch (error) {
+          results.push({
+            channel: "email",
+            role: recipient.role,
+            to: maskEmail(recipient.email),
+            sent: false,
+            reason: error.message
+          });
+        }
+      }
+    }
+    const sent = results.filter((item) => item.sent).length;
+    const accessRequest = {
+      id: `access-${Date.now()}-${randomUUID().slice(0, 8)}`,
+      renterName: payload.renterName,
+      rentalAddress: payload.rentalAddress,
+      unit: payload.unit,
+      templateId: payload.templateId,
+      message: payload.message,
+      channels: payload.channels,
+      recipients: payload.recipients,
+      deliveryResults: results,
+      sent,
+      deliveryCount: results.length,
+      status: sent > 0 ? "Sent" : "Delivery pending",
+      source: "public_request_access",
+      createdAt: new Date().toISOString()
+    };
+    accessRequests.unshift(accessRequest);
+    saveState();
+    recordAudit(payload.renterName || "renter", "Requested LivingRelay invite", `${sent}/${results.length} invite deliveries sent for ${payload.rentalAddress || "rental property"}.`);
+    res.json({ ok: sent > 0, sent, results, accessRequestId: accessRequest.id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post("/api/twilio/inbound", async (req, res) => {
   try {
     const from = req.body.From;
@@ -1771,7 +2212,12 @@ app.post("/api/twilio/inbound", async (req, res) => {
         if (!quoteResult.started && quoteResult.reason) {
           console.log(`[Vendor quote calls skipped] ${quoteResult.reason}`);
         }
+        await dispatchNotification("vendor_contacted", { orderId: action.orderId });
         continue;
+      }
+      const notificationEvent = notificationEventForAction(action);
+      if (notificationEvent) {
+        await dispatchNotification(notificationEvent, { orderId: action.orderId });
       }
       const outbound = composeActionMessage(action);
       if (outbound) {
@@ -1797,6 +2243,16 @@ app.post("/api/twilio/inbound", async (req, res) => {
     `.trim());
   }
 });
+
+function notificationEventForAction(action = {}) {
+  if (["notify_tenant_report", "notify_manager_guidance_started"].includes(action.type)) return "tenant_report";
+  if (action.type === "notify_billing_setup_required") return "billing_required";
+  if (action.type === "notify_owner_approval") return "owner_approval";
+  if (action.type === "notify_tenant_closed") return "issue_resolved";
+  if (["notify_manager_vendor_accepted", "notify_manager_vendor_declined", "notify_manager_vendor_issue"].includes(action.type)) return "vendor_contacted";
+  if (action.type === "notify_manager_owner_approved") return "vendor_contacted";
+  return "";
+}
 
 app.post("/api/elevenlabs/vendor-call-result", (req, res) => {
   if (!verifyElevenLabsSignature(req)) {

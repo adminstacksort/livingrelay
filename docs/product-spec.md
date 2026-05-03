@@ -44,6 +44,7 @@ Service provider. Receives job scope, accepts or declines work, gives ETA/quote 
 - SMS first, web supported: the primary workflow should work over text messages, with web and iOS dashboards for richer operations.
 - One URL, role-aware experience: avoid separate portals for each role while keeping each party's phone number unique.
 - Human approval gates: managers and owners stay in control of spend and dispatch decisions.
+- Comfortable text: interface copy should feel calm and readable, with moderate type weights, generous line-height, and enough spacing that form work does not feel compressed.
 - Off-platform repair payments in v1: LivingRelay tracks vendor invoices and paid status but does not pay vendors.
 - Low-friction identity: phone + PIN keeps access simple, with SMS verification and stronger checks for privileged flows.
 - Operational audit trail: every meaningful action should create a timeline, message, or audit event.
@@ -205,14 +206,15 @@ Future production hardening should move these checks to durable server-side auth
 
 Notification preferences currently include:
 
-- `tenantReports`: notify on new tenant issues.
-- `everyUpdate`: notify on meaningful state updates.
-- `keyUpdates`: notify on approval, billing, vendor decline, completion, overdue, and similar critical events.
+- Email and native push channels per person.
+- Event-level controls for tenant logged request, vendors being contacted, vendor booked, issue resolved, owner paid, owner approval, and billing setup.
 
 Defaults:
 
-- Manager: tenant reports, every update, and key updates.
-- Owner: tenant reports and key updates.
+- Manager: tenant request, vendor contact, vendor booked, issue resolved, owner paid, and billing setup.
+- Owner: tenant request, vendor booked, issue resolved, owner approval, and billing setup.
+- Tenant: vendor booked and issue resolved.
+- Vendor: vendor booked.
 
 ## 10. Billing Model
 

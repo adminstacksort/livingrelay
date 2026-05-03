@@ -22,6 +22,7 @@ create table if not exists accounts (
   owner_subscription_plan text not null default 'Owner Subscription',
   owner_subscription_stripe_id text,
   owner_subscription_current_period_end timestamptz,
+  referral_rewards jsonb not null default '{"dispatchCredits":0,"ownerSecondYearPending":0,"ownerSecondYearCredits":0}'::jsonb,
   production_vendor_calls_enabled boolean not null default true,
   created_at timestamptz not null default now()
 );
@@ -128,6 +129,44 @@ create table if not exists billing_events (
   unique (work_order_id, type)
 );
 
+create table if not exists access_requests (
+  id uuid primary key default gen_random_uuid(),
+  renter_name text not null default '',
+  rental_address text not null default '',
+  unit text not null default '',
+  template_id text not null default '',
+  message text not null default '',
+  channels jsonb not null default '{}'::jsonb,
+  recipients jsonb not null default '[]'::jsonb,
+  delivery_results jsonb not null default '[]'::jsonb,
+  status text not null default 'Delivery pending',
+  source text not null default 'public_request_access',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists referrals (
+  id uuid primary key default gen_random_uuid(),
+  token text not null unique,
+  program text not null default 'dispatch_and_owner_subscription',
+  referrer_person_id uuid references people(id),
+  referrer_account_id uuid references accounts(id) on delete cascade,
+  referred_person_id uuid references people(id),
+  referred_account_id uuid references accounts(id) on delete cascade,
+  referred_property_id uuid references properties(id) on delete cascade,
+  referred_name text not null,
+  referred_email text not null,
+  referred_role text not null check (referred_role in ('Owner', 'Property manager')),
+  status text not null default 'Invite sent',
+  validation_status text,
+  validation_note text,
+  invite_delivery jsonb not null default '{}'::jsonb,
+  rewards jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  property_created_at timestamptz,
+  validated_at timestamptz,
+  rewards_granted_at timestamptz
+);
+
 create table if not exists messages (
   id uuid primary key default gen_random_uuid(),
   work_order_id text references work_orders(id) on delete cascade,
@@ -137,6 +176,29 @@ create table if not exists messages (
   body text not null,
   provider_sid text,
   created_at timestamptz not null default now()
+);
+
+create table if not exists notification_deliveries (
+  id uuid primary key default gen_random_uuid(),
+  person_id uuid references people(id) on delete set null,
+  work_order_id text references work_orders(id) on delete cascade,
+  property_id uuid references properties(id) on delete cascade,
+  event_key text not null,
+  channel text not null check (channel in ('email', 'push')),
+  status text not null,
+  provider_reason text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists push_devices (
+  id uuid primary key default gen_random_uuid(),
+  person_id uuid references people(id) on delete cascade,
+  platform text not null check (platform in ('ios', 'android')),
+  token text not null unique,
+  environment text not null default 'production',
+  app_bundle_id text,
+  enabled boolean not null default true,
+  registered_at timestamptz not null default now()
 );
 
 create table if not exists media (
@@ -243,5 +305,7 @@ create index if not exists idx_work_orders_property_status on work_orders(proper
 create index if not exists idx_billing_events_property on billing_events(property_id, created_at);
 create index if not exists idx_messages_work_order on messages(work_order_id, created_at);
 create index if not exists idx_invoices_property_year on invoices(property_id, tax_year);
+create index if not exists idx_referrals_referrer_account on referrals(referrer_account_id, created_at);
+create index if not exists idx_referrals_referred_account on referrals(referred_account_id, created_at);
 create index if not exists idx_vendor_completion_work_order on vendor_completion_packages(work_order_id, created_at);
 create index if not exists idx_vendor_call_attempts_work_order on vendor_call_attempts(work_order_id, started_at);

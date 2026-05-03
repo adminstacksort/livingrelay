@@ -70,14 +70,15 @@ App behavior:
 
 Admins and owners should be able to choose:
 
-- `tenantReports`: notify as soon as a tenant reports a new issue.
-- `everyUpdate`: notify on every meaningful status update.
-- `keyUpdates`: notify only for important events such as approval requests, billing/invoice updates, vendor decline, completion, or overdue reminders.
+- Channels: email and native push. Email works for any role with an email address. iOS push uses registered APNs device tokens; Android tokens are stored with the same device shape for FCM rollout.
+- Events: tenant logged request, vendors being contacted, vendor booked, issue resolved, owner paid, owner approval, and billing setup.
 
 The default should be:
 
-- manager: tenant reports + every update + key updates
-- owner: tenant reports + key updates, but not every update
+- manager: tenant request, vendor contact, vendor booked, issue resolved, owner paid, and billing setup.
+- owner: tenant request, vendor booked, issue resolved, owner approval, and billing setup.
+- tenant: vendor booked and issue resolved.
+- vendor: vendor booked.
 
 Tenant report notifications are informational unless the message is an explicit approval request.
 
@@ -276,6 +277,19 @@ APP_PUBLIC_URL
 DISPATCH_FEE_CENTS=2500
 OWNER_SUBSCRIPTION_AMOUNT_CENTS=9900
 ```
+
+### Durable Callback URLs
+
+Use the AWS dev environment for deployed-development Stripe and Twilio callback testing instead of disposable quick tunnels.
+
+```text
+APP_PUBLIC_URL=https://dev.livingrelay.com
+Stripe webhook=https://dev.livingrelay.com/api/stripe/webhook
+Twilio inbound SMS webhook=https://dev.livingrelay.com/api/twilio/inbound
+Twilio media stream=wss://dev.livingrelay.com/api/media/twilio
+```
+
+`dev.livingrelay.com` is backed by Route 53, ACM, an Application Load Balancer, ECS Fargate, and Postgres, so callback URLs stay stable across local restarts. It is for the deployed dev environment only. If a provider must call code running only on a workstation, use a separate laptop-specific public host such as `local-dev.livingrelay.com` rather than overloading `dev.livingrelay.com`.
 
 ### Billing Rules
 

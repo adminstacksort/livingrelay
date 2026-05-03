@@ -17,7 +17,10 @@ staging=https://staging.livingrelay.com
 production=https://livingrelay.com
 site_admin=https://admin.livingrelay.com
 app=https://app.livingrelay.com
+local_public=<optional workstation callback host, for example https://local-dev.livingrelay.com>
 ```
+
+`dev.livingrelay.com` is the deployed AWS development environment, not a production host and not a direct pointer to a developer laptop. Provider dashboards should use the deployed environment URLs for durable dev testing. If a provider needs to call code running only on a workstation, use a separate laptop-specific public host such as `local-dev.livingrelay.com` so it is never confused with deployed dev, staging, or production.
 
 ## GitHub Setup
 
@@ -97,8 +100,16 @@ TWILIO_AUTH_TOKEN
 TWILIO_MESSAGING_NUMBER
 ANTHROPIC_API_KEY
 SESSION_SECRET
+GOOGLE_PLACES_API_KEY
 STRIPE_SECRET_KEY
 STRIPE_WEBHOOK_SECRET
+RESEND_API_KEY
+RESEND_FROM_EMAIL
+APNS_KEY_ID
+APNS_TEAM_ID
+APNS_BUNDLE_ID
+APNS_PRIVATE_KEY
+APNS_ENVIRONMENT=production
 DISPATCH_FEE_CENTS
 OWNER_SUBSCRIPTION_AMOUNT_CENTS
 SITE_ADMIN_HOST=admin.livingrelay.com

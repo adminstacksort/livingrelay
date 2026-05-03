@@ -28,6 +28,11 @@ const seedState = {
       billingSetupStatus: "Needs card",
       ownerSubscriptionStatus: "Free",
       ownerSubscriptionPlan: "Owner Subscription",
+      referralRewards: {
+        dispatchCredits: 0,
+        ownerSecondYearPending: 0,
+        ownerSecondYearCredits: 0
+      },
       productionVendorCallsEnabled: true,
       createdAt: "2026-04-01T12:00:00.000Z"
     },
@@ -42,6 +47,11 @@ const seedState = {
       billingSetupStatus: "Needs card",
       ownerSubscriptionStatus: "Free",
       ownerSubscriptionPlan: "Owner Subscription",
+      referralRewards: {
+        dispatchCredits: 0,
+        ownerSecondYearPending: 0,
+        ownerSecondYearCredits: 0
+      },
       productionVendorCallsEnabled: true,
       createdAt: "2026-05-02T12:00:00.000Z"
     }
@@ -215,6 +225,25 @@ const seedState = {
       createdAt: "2026-04-30T12:00:00.000Z"
     }
   ],
+  referrals: [
+    {
+      id: "ref-demo-1",
+      token: "LR-DEMO-1",
+      program: "dispatch_and_owner_subscription",
+      referrerPersonId: "owner-1",
+      referrerAccountId: "acct-1",
+      referrerName: "Priya Shah",
+      referredName: "Nina Patel",
+      referredEmail: "nina@propertyowner.example",
+      referredRole: "Owner",
+      status: "Invite sent",
+      inviteDelivery: { sent: false, reason: "Demo seed" },
+      rewardSummary: "If Nina creates and validates a legitimate property, both accounts get one free dispatch and owner subscription second-year eligibility.",
+      createdAt: "2026-05-02T12:00:00.000Z"
+    }
+  ],
+  accessRequests: [],
+  notifications: [],
   auditLog: [
     audit("system", "Seeded local state", "Initial demo data loaded.")
   ]
@@ -229,6 +258,9 @@ export const vendors = state.vendors;
 export const workOrders = state.workOrders;
 export const invoices = state.invoices;
 export const billingEvents = state.billingEvents;
+export const referrals = state.referrals || (state.referrals = []);
+export const accessRequests = state.accessRequests;
+export const notifications = state.notifications || (state.notifications = []);
 export const auditLog = state.auditLog;
 
 export function saveState() {
@@ -304,6 +336,12 @@ function mergeLoadedState(loaded) {
     billingSetupStatus: isDemoStripeCustomer(account.stripeCustomerId) ? "Needs card" : account.billingSetupStatus || (account.stripeCustomerId ? "Card on file" : "Needs card"),
     ownerSubscriptionStatus: account.ownerSubscriptionStatus || "Free",
     ownerSubscriptionPlan: account.ownerSubscriptionPlan || "Owner Subscription",
+    referralRewards: {
+      dispatchCredits: 0,
+      ownerSecondYearPending: 0,
+      ownerSecondYearCredits: 0,
+      ...(account.referralRewards || {})
+    },
     productionVendorCallsEnabled: account.productionVendorCallsEnabled !== false
   }));
   const people = upsertRequiredById(ensureSiteAdmin(loaded.people || seedState.people, accounts), requiredPeople)
@@ -354,6 +392,9 @@ function mergeLoadedState(loaded) {
     workOrders,
     invoices: loaded.invoices || seedState.invoices,
     billingEvents: loaded.billingEvents || seedState.billingEvents,
+    referrals: loaded.referrals || seedState.referrals,
+    accessRequests: loaded.accessRequests || seedState.accessRequests,
+    notifications: loaded.notifications || seedState.notifications,
     auditLog: loaded.auditLog || []
   };
 }

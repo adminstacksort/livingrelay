@@ -88,6 +88,8 @@ Required production env:
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_MESSAGING_NUMBER`
 - `ANTHROPIC_API_KEY`
+- `RESEND_API_KEY` and `RESEND_FROM_EMAIL` for email notifications
+- `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID`, `APNS_PRIVATE_KEY`, and `APNS_ENVIRONMENT` for iOS push notifications
 
 See `.env.example`, `docs/aws-deploy.md`, and `docs/production-cutover.md`.
 

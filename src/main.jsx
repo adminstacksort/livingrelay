@@ -15,6 +15,7 @@ import {
   DollarSign,
   Download,
   FileText,
+  Gift,
   MapPin,
   Home,
   LayoutDashboard,
@@ -237,6 +238,35 @@ const defaultRequest = {
   photos: ""
 };
 
+const notificationEvents = [
+  ["tenant_report", "Tenant logged request", ["Manager", "Owner"]],
+  ["vendor_contacted", "Vendors being contacted", ["Manager", "Owner"]],
+  ["vendor_booked", "Vendor booked", ["Manager", "Owner", "Tenant", "Vendor"]],
+  ["issue_resolved", "Issue resolved", ["Manager", "Owner", "Tenant"]],
+  ["owner_paid", "Owner paid", ["Manager"]],
+  ["owner_approval", "Owner approval", ["Owner"]],
+  ["billing_required", "Billing setup", ["Manager", "Owner"]]
+];
+
+function defaultNotify(role, notify = {}) {
+  const defaults = {
+    Manager: { tenant_report: true, vendor_contacted: true, vendor_booked: true, issue_resolved: true, owner_paid: true, owner_approval: false, billing_required: true },
+    Owner: { tenant_report: true, vendor_contacted: false, vendor_booked: true, issue_resolved: true, owner_paid: false, owner_approval: true, billing_required: true },
+    Tenant: { tenant_report: false, vendor_contacted: false, vendor_booked: true, issue_resolved: true, owner_paid: false, owner_approval: false, billing_required: false },
+    Vendor: { tenant_report: false, vendor_contacted: false, vendor_booked: true, issue_resolved: false, owner_paid: false, owner_approval: false, billing_required: false }
+  };
+  return {
+    channels: {
+      email: notify.channels?.email ?? true,
+      push: notify.channels?.push ?? true
+    },
+    events: {
+      ...(defaults[role] || {}),
+      ...(notify.events || {})
+    }
+  };
+}
+
 function event(label, detail) {
   return { label, detail, stamp: "Today" };
 }
@@ -247,6 +277,13 @@ function sms(from, text) {
 
 function formatMoney(value) {
   return `$${value.toLocaleString()}`;
+}
+
+function referralTokenFromLocation() {
+  const params = new URLSearchParams(window.location.search);
+  const queryToken = params.get("ref") || params.get("referral") || params.get("referral_code") || "";
+  const pathToken = window.location.pathname.match(/^\/ref\/([^/?#]+)/i)?.[1] || "";
+  return decodeURIComponent(queryToken || pathToken).trim().toUpperCase();
 }
 
 function isSiteAdminConsoleHost() {
@@ -307,6 +344,9 @@ function sectionFromRoutePage(role, page) {
       dashboard: "accounts",
       accounts: "accounts",
       customers: "accounts",
+      access: "accessRequests",
+      referrals: "accessRequests",
+      "access-requests": "accessRequests",
       people: "directory",
       directory: "directory",
       properties: "properties",
@@ -327,6 +367,7 @@ function pageFromSection(role, section) {
   if (role === "Site Admin") {
     return {
       accounts: "dashboard",
+      accessRequests: "access",
       directory: "people",
       properties: "properties",
       workOrders: "support",
@@ -485,6 +526,11 @@ function formatPlaceAddress(place) {
 
 function formatPlaceName(place, prediction) {
   return place?.displayName?.text || place?.name || prediction?.mainText || prediction?.description || "";
+}
+
+function formatPropertyNameFromAddress(place, prediction) {
+  const address = formatPlaceAddress(place) || prediction?.description || "";
+  return formatPlaceName(place, prediction) || address.split(",")[0]?.trim() || "";
 }
 
 function propertyLocationLabel(property) {
@@ -814,6 +860,52 @@ const tenantIssueStarters = [
   "Lock, door, or window will not secure"
 ];
 
+const renterServiceTemplates = [
+  {
+    id: "adopt-livingrelay",
+    label: "Ask manager",
+    issue: "Can we use LivingRelay for this rental?",
+    access: "It gives renters one text-first place for maintenance while owners and property managers get approvals, vendor coordination, and records without hunting through separate threads."
+  },
+  {
+    id: "owner-manager-loop",
+    label: "Ask owner",
+    issue: "Could we use LivingRelay for maintenance at this rental?",
+    access: "It keeps repair requests, approvals, vendor updates, and invoices in one shared record instead of scattered texts."
+  },
+  {
+    id: "cleaner-process",
+    label: "Cleaner process",
+    issue: "Could we set up LivingRelay before the next maintenance issue?",
+    access: "That way future requests go through the app instead of scattered texts, and everyone can see status, approvals, vendor booking, and repair history."
+  }
+];
+
+const defaultRenterServiceRequest = {
+  renterName: "",
+  rentalAddress: "",
+  unit: "",
+  ownerName: "",
+  ownerPhone: "",
+  ownerEmail: "",
+  managerName: "",
+  managerPhone: "",
+  managerEmail: "",
+  sendOwner: false,
+  sendManager: true,
+  textChannel: true,
+  emailChannel: true,
+  templateId: "adopt-livingrelay",
+  message: ""
+};
+
+function buildRenterServiceMessage(request, templateId = request.templateId) {
+  const template = renterServiceTemplates.find((item) => item.id === templateId) || renterServiceTemplates[0];
+  const name = request.renterName?.trim() || "your renter";
+  const address = [request.rentalAddress, request.unit].filter(Boolean).join(", ") || "my rental";
+  return `Hi, this is ${name} at ${address}. ${template.issue} ${template.access}`;
+}
+
 const rememberedPhoneStorageKey = "livingrelay.rememberedPhone";
 const authTokenStorageKey = "livingrelay.authToken";
 const sessionUserStorageKey = "livingrelay.sessionUserId";
@@ -843,14 +935,16 @@ function App() {
   const [demoStatus, setDemoStatus] = useState("");
   const [appData, setAppData] = useState(null);
   const [adminSection, setAdminSection] = useState("operations");
-  const [landingMode, setLandingMode] = useState("create");
+  const referralCodeFromUrl = referralTokenFromLocation();
+  const [landingMode, setLandingMode] = useState(() => new URLSearchParams(window.location.search).get("mode") || (referralCodeFromUrl ? "create" : "create"));
   const [signupForm, setSignupForm] = useState({
     propertyName: "",
     address: "",
     managerName: "",
     managerPhone: "",
     role: "Property manager",
-    pin: ""
+    pin: "",
+    referralToken: referralCodeFromUrl
   });
   const [signupStatus, setSignupStatus] = useState({ state: "idle", message: "" });
   const [signupVerification, setSignupVerification] = useState({ challengeId: "", code: "", token: "", state: "idle", message: "" });
@@ -872,6 +966,8 @@ function App() {
   const propertiesData = appData?.properties || properties;
   const vendorsData = appData?.vendors || vendors;
   const billingEventsData = appData?.billingEvents || seedBillingEvents;
+  const referralsData = appData?.referrals || [];
+  const accessRequestsData = appData?.accessRequests || [];
   const platformSettings = appData?.platformSettings || { vendorCallTestMode: true, productionVendorCallsEnabled: true, vendorCallTestNumber: "" };
   const stripeData = appData?.stripe || { configured: false, missing: ["STRIPE_SECRET_KEY", "APP_PUBLIC_URL"], dispatchFeeCents: 2500 };
   const auditData = appData?.auditLog || [];
@@ -1482,8 +1578,9 @@ function App() {
           <span className="eyebrow">{user.role === "Site Admin" ? "LivingRelay platform" : "Shared URL session"}</span>
           <h1>{user.role === "Site Admin" ? "Admin Console" : activeProperty.name}</h1>
           <p>{user.role === "Site Admin" ? `${user.name} · Platform admin` : `${user.name} · ${user.role}`}</p>
+          {user.role !== "Site Admin" && <span className="header-meta">{activeProperty.address}</span>}
+          <button className="logout-link" onClick={signOut} type="button">Log out</button>
         </div>
-        <button className="icon-button" onClick={signOut} aria-label="Sign out"><LockKeyhole size={18} /></button>
       </header>
 
       {user.role !== "Site Admin" && <section className="property-switcher">
@@ -1541,6 +1638,7 @@ function App() {
           properties={propertiesData}
           orders={orders}
           billingEvents={billingEventsData}
+          accessRequests={accessRequestsData}
           stripe={stripeData}
           twilioStatus={twilioStatus}
           platformSettings={platformSettings}
@@ -1548,7 +1646,7 @@ function App() {
       )}
 
       {["Manager", "Owner"].includes(user.role) && (
-        <RoleTabs active={adminSection} setActive={setAdminSection} role={user.role} />
+        <RoleSectionAction active={adminSection} setActive={setAdminSection} role={user.role} />
       )}
 
       {user.role === "Site Admin" && (
@@ -1565,6 +1663,8 @@ function App() {
           orders={orders}
           invoices={invoices}
           billingEvents={billingEventsData}
+          referrals={referralsData}
+          accessRequests={accessRequestsData}
           auditLog={auditData}
           platformSettings={platformSettings}
           reloadState={loadState}
@@ -1582,6 +1682,16 @@ function App() {
           createOrder={createOrder}
           property={activeProperty}
           user={user}
+        />
+      )}
+
+      {["Manager", "Owner"].includes(user.role) && adminSection !== "billing" && (
+        <ReferralServicePanel
+          user={user}
+          property={activeProperty}
+          account={accountsData.find((account) => account.id === activeProperty.accountId)}
+          referrals={referralsData}
+          reloadState={loadState}
         />
       )}
 
@@ -1691,6 +1801,67 @@ function App() {
 
 function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSitePassword, siteAdminConsoleAvailable, login, loginCandidate, loginError, loginVerification, setLoginVerification, loginPeople, setLoginError, landingMode, setLandingMode, signupForm, setSignupForm, signupStatus, signupVerification, setSignupVerification, createOnboardingProperty, rememberedPhone, editingRememberedPhone, setEditingRememberedPhone }) {
   const updateSignup = (key, value) => setSignupForm((current) => ({ ...current, [key]: value }));
+  const [showReferralCode, setShowReferralCode] = useState(Boolean(signupForm.referralToken));
+  const [renterRequest, setRenterRequest] = useState(() => ({
+    ...defaultRenterServiceRequest,
+    message: buildRenterServiceMessage(defaultRenterServiceRequest)
+  }));
+  const [renterRequestStatus, setRenterRequestStatus] = useState({ state: "idle", message: "" });
+  const updateRenterRequest = (key, value) => {
+    setRenterRequest((current) => {
+      const next = { ...current, [key]: value };
+      if (["renterName", "rentalAddress", "unit"].includes(key) && next.message === buildRenterServiceMessage(current)) {
+        next.message = buildRenterServiceMessage(next);
+      }
+      return next;
+    });
+  };
+  const chooseRenterRecipientAudience = (audience) => {
+    const templateId = audience === "owner" ? "owner-manager-loop" : "adopt-livingrelay";
+    setRenterRequest((current) => {
+      const next = {
+        ...current,
+        templateId,
+        sendOwner: audience === "owner" || audience === "both",
+        sendManager: audience === "manager" || audience === "both"
+      };
+      if (current.message === buildRenterServiceMessage(current)) {
+        next.message = buildRenterServiceMessage(next, templateId);
+      }
+      return next;
+    });
+  };
+  const renterRecipientAudience = renterRequest.sendOwner && renterRequest.sendManager
+    ? "both"
+    : renterRequest.sendOwner
+      ? "owner"
+      : "manager";
+  const submitRenterInvite = async (event) => {
+    event.preventDefault();
+    setRenterRequestStatus({ state: "saving", message: "Sending LivingRelay invite..." });
+    try {
+      const response = await fetch("/api/public/livingrelay-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(renterRequest)
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setRenterRequestStatus({ state: "error", message: data.error || "Could not send the invite." });
+        return;
+      }
+      const sent = data.results?.filter((item) => item.sent).length || 0;
+      const skippedEmail = data.results?.some((item) => item.channel === "email" && item.reason === "email_not_configured");
+      setRenterRequestStatus({
+        state: "ok",
+        message: skippedEmail
+          ? `${sent} invite${sent === 1 ? "" : "s"} sent. Email delivery needs RESEND_API_KEY.`
+          : `${sent} LivingRelay invite${sent === 1 ? "" : "s"} sent.`
+      });
+    } catch (error) {
+      setRenterRequestStatus({ state: "error", message: error.message });
+    }
+  };
   const fillLoginShortcut = (person) => {
     setPhone(formatPhoneInput(person.phone));
     setPin(formatPinInput(person.pin));
@@ -1734,19 +1905,20 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
           <div>
             <a href="#pricing">Pricing</a>
             <a href="#how-it-works">How it works</a>
+            <button className="ghost light" onClick={() => setLandingMode("renter")}>Request access</button>
             <button className="ghost light" onClick={() => setLandingMode("login")}>Log in</button>
           </div>
         </nav>
         <div className="landing-hero-grid">
           <div className="hero-copy">
             <span className="hero-kicker">City home maintenance over SMS</span>
-            <h1>LivingRelay</h1>
-            <p>One shared workspace for rental homes, duplexes, townhomes, and small multifamily properties. Resident texts become triaged work orders, approvals, vendor coordination, and tax-ready records.</p>
+            <p>Start here: set up a rental property, request access for your home, or log in to manage repairs.</p>
           </div>
 
-          <section className="access-panel" aria-label={landingMode === "create" ? "Create a property" : "Log into property"}>
+          <section className="access-panel" aria-label={landingMode === "create" ? "Setup property" : "Log into property"}>
             <div className="mode-switch">
-              <button className={landingMode === "create" ? "active" : ""} onClick={() => setLandingMode("create")}>Create property</button>
+              <button className={landingMode === "create" ? "active" : ""} onClick={() => setLandingMode("create")}>Setup property</button>
+              <button className={landingMode === "renter" ? "active" : ""} onClick={() => setLandingMode("renter")}>Request access</button>
               <button className={landingMode === "login" ? "active" : ""} onClick={() => setLandingMode("login")}>Log in</button>
             </div>
             {landingMode === "login" ? (
@@ -1778,15 +1950,87 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
                   </div>
                 )}
               </>
+            ) : landingMode === "renter" ? (
+              <form className="renter-request-form" onSubmit={submitRenterInvite}>
+                <label>Your name<input value={renterRequest.renterName} onChange={(event) => updateRenterRequest("renterName", event.target.value)} placeholder="Maya Chen" /></label>
+                <label>Rental address<GooglePlacesAddressInput value={renterRequest.rentalAddress} onChange={(value) => updateRenterRequest("rentalAddress", value)} onPlaceSelect={(place, prediction) => updateRenterRequest("rentalAddress", formatPlaceAddress(place) || prediction?.description || renterRequest.rentalAddress)} placeholder="11820 Pacific Ave" /></label>
+                <label>Unit<input value={renterRequest.unit} onChange={(event) => updateRenterRequest("unit", event.target.value)} placeholder="Garden flat" /></label>
+                <section className="request-recipient-card">
+                  <div className="request-card-head">
+                    <span>Send invite to</span>
+                    <div className="recipient-choice-grid" role="group" aria-label="Invite recipient">
+                      <button type="button" className={`recipient-choice ${renterRecipientAudience === "manager" ? "active" : ""}`} onClick={() => chooseRenterRecipientAudience("manager")}>
+                        Property manager
+                      </button>
+                      <button type="button" className={`recipient-choice ${renterRecipientAudience === "owner" ? "active" : ""}`} onClick={() => chooseRenterRecipientAudience("owner")}>
+                        Owner
+                      </button>
+                      <button type="button" className={`recipient-choice ${renterRecipientAudience === "both" ? "active" : ""}`} onClick={() => chooseRenterRecipientAudience("both")}>
+                        Both
+                      </button>
+                    </div>
+                  </div>
+                  {renterRequest.sendOwner && (
+                    <div className="recipient-contact-section">
+                      <p>Owner contact</p>
+                      <div className="recipient-grid">
+                        <input value={renterRequest.ownerName} onChange={(event) => updateRenterRequest("ownerName", event.target.value)} placeholder="Owner name" />
+                        <input value={renterRequest.ownerPhone} onChange={(event) => updateRenterRequest("ownerPhone", formatPhoneInput(event.target.value))} inputMode="tel" placeholder="Owner phone" />
+                        <input value={renterRequest.ownerEmail} onChange={(event) => updateRenterRequest("ownerEmail", event.target.value)} inputMode="email" placeholder="Owner email" />
+                      </div>
+                    </div>
+                  )}
+                  {renterRequest.sendManager && (
+                    <div className="recipient-contact-section">
+                      <p>Property manager contact</p>
+                      <div className="recipient-grid">
+                        <input value={renterRequest.managerName} onChange={(event) => updateRenterRequest("managerName", event.target.value)} placeholder="Manager name" />
+                        <input value={renterRequest.managerPhone} onChange={(event) => updateRenterRequest("managerPhone", formatPhoneInput(event.target.value))} inputMode="tel" placeholder="Manager phone" />
+                        <input value={renterRequest.managerEmail} onChange={(event) => updateRenterRequest("managerEmail", event.target.value)} inputMode="email" placeholder="Manager email" />
+                      </div>
+                    </div>
+                  )}
+                </section>
+                <details className="message-preview">
+                  <summary>Preview/edit invite</summary>
+                  <textarea rows={4} value={renterRequest.message} onChange={(event) => updateRenterRequest("message", event.target.value)} />
+                </details>
+                <div className="request-action-grid request-send-row">
+                  <div className="channel-toggle-group" aria-label="Delivery channels">
+                    <label><input type="checkbox" checked={renterRequest.textChannel} onChange={(event) => updateRenterRequest("textChannel", event.target.checked)} /> Text</label>
+                    <label><input type="checkbox" checked={renterRequest.emailChannel} onChange={(event) => updateRenterRequest("emailChannel", event.target.checked)} /> Email</label>
+                  </div>
+                  <button type="submit" className="primary" disabled={renterRequestStatus.state === "saving"}>
+                    <Send size={16} /> {renterRequestStatus.state === "saving" ? "Sending" : "Send LivingRelay invite"}
+                  </button>
+                </div>
+                {renterRequestStatus.message && <p className={`form-status ${renterRequestStatus.state}`}>{renterRequestStatus.message}</p>}
+              </form>
             ) : (
               <>
                 <form className="signup-form" onSubmit={createOnboardingProperty}>
                   <label>Property name<GooglePlacesAddressInput required value={signupForm.propertyName} onChange={(value) => updateSignup("propertyName", value)} selectedValueForPrediction={(prediction) => prediction.mainText || prediction.description} onPlaceSelect={(place, prediction) => setSignupForm((current) => ({ ...current, propertyName: formatPlaceName(place, prediction) || current.propertyName, address: formatPlaceAddress(place) || prediction?.description || current.address }))} placeholder="Noe Valley Duplex" autoComplete="organization" /></label>
-                  <label>Address<GooglePlacesAddressInput value={signupForm.address} onChange={(value) => updateSignup("address", value)} onPlaceSelect={(place, prediction) => setSignupForm((current) => ({ ...current, address: formatPlaceAddress(place) || prediction?.description || current.address, propertyName: current.propertyName || formatPlaceName(place, prediction) }))} placeholder="11820 Pacific Ave" /></label>
+                  <label>Address<GooglePlacesAddressInput value={signupForm.address} onChange={(value) => updateSignup("address", value)} onPlaceSelect={(place, prediction) => setSignupForm((current) => {
+                    const address = formatPlaceAddress(place) || prediction?.description || current.address;
+                    const propertyName = current.propertyName.trim()
+                      ? current.propertyName
+                      : formatPropertyNameFromAddress(place, prediction) || current.propertyName;
+                    return { ...current, address, propertyName };
+                  })} placeholder="11820 Pacific Ave" /></label>
                   <label>Your name<input required value={signupForm.managerName} onChange={(event) => updateSignup("managerName", event.target.value)} placeholder="Jordan Lee" /></label>
                   <label>Your role<select value={signupForm.role} onChange={(event) => updateSignup("role", event.target.value)}><option>Property manager</option><option>Owner</option><option>Owner and property manager</option></select></label>
                   <label>Phone<input required value={signupForm.managerPhone} onChange={(event) => updateSignup("managerPhone", formatPhoneInput(event.target.value))} inputMode="tel" autoComplete="tel" placeholder="(310) 555-0100" /></label>
                   <label>PIN<PinCodeInput value={signupForm.pin} onChange={(value) => updateSignup("pin", value)} /></label>
+                  {showReferralCode || signupForm.referralToken ? (
+                    <label className="span-2 optional-referral-field">
+                      <span>{signupForm.referralToken ? "Referral applied" : "Referral code"} <small>optional</small></span>
+                      <input value={signupForm.referralToken} onChange={(event) => updateSignup("referralToken", event.target.value.toUpperCase())} placeholder="LR-ABC12345" />
+                    </label>
+                  ) : (
+                    <button className="link-button subtle-referral-toggle" type="button" onClick={() => setShowReferralCode(true)}>
+                      <Gift size={14} /> I have a referral code
+                    </button>
+                  )}
                   {signupVerification.challengeId && (
                     <label className="span-2">Verification code<input required value={signupVerification.code} onChange={(event) => setSignupVerification((current) => ({ ...current, code: event.target.value }))} inputMode="numeric" placeholder="6-digit code" /></label>
                   )}
@@ -1817,7 +2061,7 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
           <span>Launch price</span>
           <strong>$0/property</strong>
           <p>plus $25 only when a vendor is booked</p>
-          <button className="primary wide" onClick={() => setLandingMode("create")}><Building2 size={16} /> Create property</button>
+          <button className="primary wide" onClick={() => setLandingMode("create")}><Building2 size={16} /> Setup property</button>
         </article>
       </section>
     </main>
@@ -1940,7 +2184,7 @@ function LegacyLandingPage({ phone, setPhone, pin, setPin, sitePassword, setSite
         <h1>{landingMode === "signup" ? "Add a property and start routing repairs." : "One URL. Role-specific PIN access."}</h1>
         <p>{landingMode === "signup" ? "Create a customer account, property, and first manager login." : "Managers, owners, and residents enter the same place. Phone + PIN decides what they can see and do."}</p>
         <div className="landing-toggle">
-          <button className={landingMode === "login" ? "active" : ""} onClick={() => setLandingMode("login")}>Login</button>
+          <button className={landingMode === "login" ? "active" : ""} onClick={() => setLandingMode("login")}>Log in</button>
           <button className={landingMode === "signup" ? "active" : ""} onClick={() => setLandingMode("signup")}>Add property</button>
         </div>
         {landingMode === "login" ? (
@@ -1972,7 +2216,7 @@ function LegacyLandingPage({ phone, setPhone, pin, setPin, sitePassword, setSite
             <label>Address<input value={signupForm.address} onChange={(event) => setSignupForm({ ...signupForm, address: event.target.value })} /></label>
             <label>Manager name<input required value={signupForm.managerName} onChange={(event) => setSignupForm({ ...signupForm, managerName: event.target.value })} /></label>
             <label>Manager phone<input required value={signupForm.managerPhone} onChange={(event) => setSignupForm({ ...signupForm, managerPhone: event.target.value })} /></label>
-            <button className="primary wide" type="submit" disabled={signupStatus.state === "saving"}><Plus size={16} /> Create property</button>
+            <button className="primary wide" type="submit" disabled={signupStatus.state === "saving"}><Plus size={16} /> Setup property</button>
             {signupStatus.message && <p className={`login-error ${signupStatus.state === "ok" ? "ok" : ""}`}>{signupStatus.message}</p>}
           </form>
         )}
@@ -1986,6 +2230,7 @@ const LandingPage = LandingPageUnused;
 function AdminConsoleNav({ active, setActive }) {
   const items = [
     ["accounts", LayoutDashboard, "Customers"],
+    ["accessRequests", Send, "Access"],
     ["directory", Users, "People"],
     ["properties", Building2, "Properties"],
     ["workOrders", ClipboardList, "Support"],
@@ -2004,11 +2249,15 @@ function AdminConsoleNav({ active, setActive }) {
   );
 }
 
-function SiteOwnerHero({ accounts, people, properties, orders, billingEvents, stripe, twilioStatus, platformSettings }) {
+function SiteOwnerHero({ accounts, people, properties, orders, billingEvents, accessRequests = [], stripe, twilioStatus, platformSettings }) {
   const openOrders = orders.filter((order) => order.status !== "Closed").length;
   const activeAccounts = accounts.filter((account) => account.status === "Active").length;
   const dispatchRevenue = billingEvents.reduce((sum, event) => sum + Number(event.amount || 0), 0);
   const ownerUsers = people.filter((person) => person.role === "Owner").length;
+  const recentAccessRequests = accessRequests.filter((request) => {
+    const createdAt = new Date(request.createdAt || 0).getTime();
+    return createdAt && Date.now() - createdAt < 1000 * 60 * 60 * 24 * 30;
+  }).length;
   return (
     <section className="owner-console-hero">
       <div>
@@ -2020,6 +2269,7 @@ function SiteOwnerHero({ accounts, people, properties, orders, billingEvents, st
         <MiniRow icon={<LayoutDashboard />} label="Active customers" value={`${activeAccounts}/${accounts.length}`} />
         <MiniRow icon={<DollarSign />} label="Dispatch revenue" value={formatMoney(dispatchRevenue)} />
         <MiniRow icon={<ClipboardList />} label="Open support load" value={openOrders} />
+        <MiniRow icon={<Send />} label="Access referrals" value={recentAccessRequests || accessRequests.length} />
         <MiniRow icon={<Users />} label="Owner users" value={ownerUsers} />
         <MiniRow icon={<CreditCard />} label="Stripe" value={stripe.configured ? "Ready" : "Needs keys"} />
         <MiniRow icon={<Smartphone />} label="Twilio" value={twilioStatus?.configured ? "Ready" : "Needs config"} />
@@ -2029,23 +2279,20 @@ function SiteOwnerHero({ accounts, people, properties, orders, billingEvents, st
   );
 }
 
-function RoleTabs({ active, setActive, role }) {
-  const items = role === "Owner"
-    ? [["operations", ShieldCheck, "Approvals"], ["billing", CreditCard, "Billing"]]
-    : [["operations", ClipboardList, "Operations"], ["billing", CreditCard, "Billing"]];
+function RoleSectionAction({ active, setActive, role }) {
+  const billingActive = active === "billing";
+  const operationsLabel = role === "Owner" ? "Approvals" : "Operations";
   return (
-    <nav className="admin-nav" aria-label={`${role} sections`}>
-      {items.map(([id, Icon, label]) => (
-        <button key={id} className={active === id ? "active" : ""} onClick={() => setActive(id)}>
-          <Icon size={16} /> {label}
-        </button>
-      ))}
-    </nav>
+    <div className={`role-section-action ${billingActive ? "billing-active" : ""}`}>
+      <span>{billingActive ? "Billing settings" : operationsLabel}</span>
+      <button className={billingActive ? "ghost" : "link-button"} onClick={() => setActive(billingActive ? "operations" : "billing")}>
+        {billingActive ? <><ClipboardList size={16} /> Back to {operationsLabel.toLowerCase()}</> : <><CreditCard size={15} /> Billing settings</>}
+      </button>
+    </div>
   );
 }
 
-function AdminConsole({ active, accounts, people, properties, vendors, orders, invoices, billingEvents, auditLog, platformSettings, reloadState, siteAdminToken, setActivePropertyId, setActiveOrderId, setAdminSection }) {
-  const billingTotal = invoices.reduce((sum, invoice) => sum + Number(invoice.amount || 0), 0);
+function AdminConsole({ active, accounts, people, properties, vendors, orders, invoices, billingEvents, referrals = [], accessRequests = [], auditLog, platformSettings, reloadState, siteAdminToken, setActivePropertyId, setActiveOrderId, setAdminSection }) {
   const activeProperties = properties.length;
   const pendingInvoices = invoices.filter((invoice) => !String(invoice.status).toLowerCase().includes("paid")).length;
   const openOrders = orders.filter((order) => order.status !== "Closed").length;
@@ -2054,20 +2301,110 @@ function AdminConsole({ active, accounts, people, properties, vendors, orders, i
     <section className="admin-console">
       <div className="admin-overview">
         <Metric icon={<LayoutDashboard />} label="Customer accounts" value={accounts.length} />
+        <Metric icon={<Send />} label="Access requests" value={accessRequests.length} />
         <Metric icon={<DollarSign />} label="Dispatch fees" value={formatMoney(dispatchRevenue)} />
         <Metric icon={<ClipboardList />} label="Open support load" value={openOrders} />
-        <Metric icon={<ReceiptText />} label="Repair volume" value={formatMoney(billingTotal)} />
       </div>
       {active === "accounts" && <>
         <PlatformVendorCallSettings platformSettings={platformSettings} reloadState={reloadState} siteAdminToken={siteAdminToken} />
         <SiteAccounts accounts={accounts} properties={properties} people={people} orders={orders} invoices={invoices} reloadState={reloadState} siteAdminToken={siteAdminToken} />
       </>}
+      {active === "accessRequests" && <AdminAccessRequests accessRequests={accessRequests} referrals={referrals} reloadState={reloadState} siteAdminToken={siteAdminToken} />}
       {active === "directory" && <AdminDirectory people={people} properties={properties} accounts={accounts} reloadState={reloadState} />}
       {active === "properties" && <AdminProperties properties={properties} people={people} accounts={accounts} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setAdminSection={setAdminSection} />}
       {active === "workOrders" && <AdminWorkOrders orders={orders} properties={properties} people={people} vendors={vendors} accounts={accounts} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setActiveOrderId={setActiveOrderId} setAdminSection={setAdminSection} />}
       {active === "billing" && <AdminBilling accounts={accounts} properties={properties} invoices={invoices} billingEvents={billingEvents} activeProperties={activeProperties} pendingInvoices={pendingInvoices} reloadState={reloadState} />}
       {active === "diagnostics" && <AdminDiagnostics siteAdminToken={siteAdminToken} platformSettings={platformSettings} />}
       {active === "audit" && <AdminAudit auditLog={auditLog} />}
+    </section>
+  );
+}
+
+function AdminAccessRequests({ accessRequests, referrals = [], reloadState, siteAdminToken }) {
+  const [query, setQuery] = useState("");
+  const filteredRequests = accessRequests
+    .filter((request) => [
+      request.renterName,
+      request.rentalAddress,
+      request.unit,
+      request.message,
+      ...(request.recipients || []).flatMap((recipient) => [recipient.name, recipient.role, recipient.phone, recipient.email])
+    ].join(" ").toLowerCase().includes(query.toLowerCase()))
+    .sort((left, right) => new Date(right.createdAt || 0) - new Date(left.createdAt || 0));
+  async function validateReferral(referral, legitimate = true) {
+    await fetch(`/api/site-admin/referrals/${referral.id}/validate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${siteAdminToken}` },
+      body: JSON.stringify({ legitimate })
+    });
+    await reloadState?.();
+  }
+
+  return (
+    <section className="panel">
+      <SectionTitle icon={<Gift />} title="Referral service" eyebrow="Invites and validation" />
+      <div className="admin-card-list referral-admin-list">
+        {!referrals.length && <p className="form-note">No manager or owner referral invites yet.</p>}
+        {referrals.map((referral) => (
+          <article className="admin-record access-request-record" key={referral.id}>
+            <div>
+              <span>{referral.createdAt ? new Date(referral.createdAt).toLocaleString() : "Unknown date"} · {referral.status}</span>
+              <strong>{referral.referrerName || "Referrer"} invited {referral.referredName || "a contact"}</strong>
+              <p>{referral.referredRole} · {referral.referredEmail} · code {referral.token}</p>
+              <p>{referral.rewardSummary}</p>
+              {referral.referredPropertyName && <p>Created property: {referral.referredPropertyName}</p>}
+            </div>
+            <div className="record-actions access-delivery-list">
+              <span>{referral.validationStatus || referral.inviteDelivery?.reason || "Awaiting signup"}</span>
+              {referral.status === "Property created" && (
+                <>
+                  <button className="primary" onClick={() => validateReferral(referral, true)}><Check size={15} /> Validate</button>
+                  <button className="ghost" onClick={() => validateReferral(referral, false)}>Reject</button>
+                </>
+              )}
+            </div>
+          </article>
+        ))}
+      </div>
+      <SectionTitle icon={<Send />} title="Request access entries" eyebrow="Renter invites" />
+      <div className="search-box">
+        <Search size={16} />
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search renter, address, owner, manager, phone, or email" />
+      </div>
+      <div className="admin-card-list">
+        {filteredRequests.length === 0 && <p className="form-note">No request access entries yet.</p>}
+        {filteredRequests.map((request) => {
+          const delivery = request.deliveryResults || [];
+          const sent = delivery.filter((item) => item.sent).length;
+          return (
+            <article className="admin-record access-request-record" key={request.id}>
+              <div>
+                <span>{request.createdAt ? new Date(request.createdAt).toLocaleString() : "Unknown date"} · {request.status || "Delivery pending"}</span>
+                <strong>{request.renterName || "Renter"} referred {request.rentalAddress || "a rental"}</strong>
+                <p>{[request.rentalAddress, request.unit].filter(Boolean).join(" · ") || "No rental address provided"}</p>
+                <p>{request.message}</p>
+                <div className="access-recipient-list">
+                  {(request.recipients || []).map((recipient, index) => (
+                    <div key={`${request.id}-${recipient.role}-${index}`}>
+                      <span>{recipient.role}</span>
+                      <strong>{recipient.name || "Unnamed"}</strong>
+                      <p>{[recipient.phone, recipient.email].filter(Boolean).join(" · ") || "No contact detail"}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="record-actions access-delivery-list">
+                <span>{sent}/{delivery.length} sent</span>
+                {delivery.map((item, index) => (
+                  <p key={`${request.id}-${item.channel}-${item.role}-${index}`}>
+                    {item.channel} {item.role}: {item.sent ? "sent" : item.reason || "pending"}
+                  </p>
+                ))}
+              </div>
+            </article>
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -2443,7 +2780,7 @@ function AdminProperties({ properties, people, accounts, reloadState, setActiveP
           <label>Owner<select value={form.ownerId} onChange={(event) => setForm({ ...form, ownerId: event.target.value })}>{people.filter((person) => person.role === "Owner").map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}</select></label>
           <label>Your role<select value={form.creatorRole} onChange={(event) => setForm({ ...form, creatorRole: event.target.value })}><option>Property manager</option><option>Owner</option><option>Owner and property manager</option></select></label>
           <label>Who pays dispatch fees?<select value={form.billingPayerRole} onChange={(event) => setForm({ ...form, billingPayerRole: event.target.value })}><option>Owner</option><option>Property manager</option></select></label>
-          <button className="primary wide" type="submit"><Building2 size={16} /> Create property</button>
+          <button className="primary wide" type="submit"><Building2 size={16} /> Setup property</button>
         </form>
       </section>
     </div>
@@ -2865,9 +3202,12 @@ function VendorAttemptsPanel({ order }) {
 }
 
 function AdminTools({ property, people, vendors, auditLog, reloadState }) {
-  const [personForm, setPersonForm] = useState({ name: "", role: "Tenant", phone: "", unit: propertyLocationLabel(property), trade: "Plumbing" });
+  const [personForm, setPersonForm] = useState({ name: "", role: "Tenant", phone: "", email: "", unit: propertyLocationLabel(property), trade: "Plumbing" });
   const [vendorForm, setVendorForm] = useState({ name: "", trade: "Plumbing", phone: "" });
-  const notifyPeople = people.filter((person) => ["Manager", "Owner"].includes(person.role));
+  const notifyPeople = people.filter((person) =>
+    ["Manager", "Owner", "Tenant", "Vendor"].includes(person.role)
+      && (person.propertyIds || []).includes(property.id)
+  );
 
   async function addPerson(event) {
     event.preventDefault();
@@ -2876,7 +3216,7 @@ function AdminTools({ property, people, vendors, auditLog, reloadState }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...personForm, propertyId: property.id })
     });
-    setPersonForm({ name: "", role: "Tenant", phone: "", unit: propertyLocationLabel(property), trade: "Plumbing" });
+    setPersonForm({ name: "", role: "Tenant", phone: "", email: "", unit: propertyLocationLabel(property), trade: "Plumbing" });
     await reloadState();
   }
 
@@ -2891,11 +3231,11 @@ function AdminTools({ property, people, vendors, auditLog, reloadState }) {
     await reloadState();
   }
 
-  async function updateNotify(person, key, value) {
+  async function updateNotify(person, patch) {
     await fetch(`/api/people/${person.id}/notify`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ [key]: value })
+      body: JSON.stringify(patch)
     });
     await reloadState();
   }
@@ -2907,6 +3247,7 @@ function AdminTools({ property, people, vendors, auditLog, reloadState }) {
       <form className="compact-form" onSubmit={addPerson}>
         <input placeholder="Name" value={personForm.name} onChange={(event) => setPersonForm({ ...personForm, name: event.target.value })} />
         <input placeholder="Phone" value={personForm.phone} onChange={(event) => setPersonForm({ ...personForm, phone: event.target.value })} />
+        <input placeholder="Email" value={personForm.email} onChange={(event) => setPersonForm({ ...personForm, email: event.target.value })} />
         <select value={personForm.role} onChange={(event) => setPersonForm({ ...personForm, role: event.target.value })}>
           <option>Tenant</option>
           <option>Owner</option>
@@ -2928,17 +3269,50 @@ function AdminTools({ property, people, vendors, auditLog, reloadState }) {
       <h3>Notifications</h3>
       {notifyPeople.map((person) => (
         <div className="notify-row" key={person.id}>
-          <strong>{person.name}</strong>
-          {[
-            ["tenantReports", "Tenant reports"],
-            ["everyUpdate", "Every update"],
-            ["keyUpdates", "Key updates"]
-          ].map(([key, label]) => (
-            <label className="check-row" key={key}>
-              <input type="checkbox" checked={person.notify?.[key] !== false && (key !== "everyUpdate" || person.notify?.everyUpdate === true)} onChange={(event) => updateNotify(person, key, event.target.checked)} />
-              {label}
-            </label>
-          ))}
+          <div className="notify-person-head">
+            <strong>{person.name}</strong>
+            <span>{person.role}</span>
+          </div>
+          <input
+            placeholder="Email for alerts"
+            defaultValue={person.email || ""}
+            onBlur={(event) => updateNotify(person, { email: event.target.value })}
+          />
+          <div className="notify-channel-grid">
+            {[
+              ["email", "Email"],
+              ["push", "iOS push"]
+            ].map(([key, label]) => {
+              const notify = defaultNotify(person.role, person.notify);
+              return (
+                <label className="check-row" key={key}>
+                  <input
+                    type="checkbox"
+                    checked={notify.channels[key] !== false}
+                    onChange={(event) => updateNotify(person, { channels: { ...notify.channels, [key]: event.target.checked } })}
+                  />
+                  {label}
+                </label>
+              );
+            })}
+          </div>
+          <div className="notify-event-grid">
+            {notificationEvents
+              .filter(([, , roles]) => roles.includes(person.role))
+              .map(([key, label]) => {
+                const notify = defaultNotify(person.role, person.notify);
+                return (
+                  <label className="check-row" key={key}>
+                    <input
+                      type="checkbox"
+                      checked={notify.events[key] !== false}
+                      onChange={(event) => updateNotify(person, { events: { ...notify.events, [key]: event.target.checked } })}
+                    />
+                    {label}
+                  </label>
+                );
+              })}
+          </div>
         </div>
       ))}
 
@@ -3386,6 +3760,76 @@ function BillingTab({ property, account, people, invoices, orders, billingEvents
   );
 }
 
+function ReferralServicePanel({ user, property, account, referrals, reloadState }) {
+  const [form, setForm] = useState({ referredName: "", referredEmail: "", referredRole: "Property manager" });
+  const [status, setStatus] = useState({ state: "idle", message: "" });
+  const accountReferrals = referrals.filter((referral) =>
+    referral.referrerAccountId === account?.id
+    || referral.referredAccountId === account?.id
+    || referral.referrerPersonId === user.id
+  );
+  const rewards = account?.referralRewards || {};
+  async function submitReferral(event) {
+    event.preventDefault();
+    setStatus({ state: "saving", message: "Sending referral invite..." });
+    try {
+      const response = await fetch("/api/referrals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, propertyId: property.id, accountId: account?.id })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not send referral invite.");
+      setForm({ referredName: "", referredEmail: "", referredRole: "Property manager" });
+      setStatus({ state: "ok", message: data.referral?.inviteDelivery?.sent ? "Referral invite sent." : "Referral saved. Email delivery needs RESEND_API_KEY." });
+      await reloadState?.();
+    } catch (error) {
+      setStatus({ state: "error", message: error.message });
+    }
+  }
+  return (
+    <section className="split-view referral-service">
+      <div className="panel">
+        <SectionTitle icon={<Gift />} title="Referral rewards" eyebrow={property.name} />
+        <div className="billing-summary">
+          <MiniRow icon={<Wrench />} label="Free dispatch credits" value={rewards.dispatchCredits || 0} />
+          <MiniRow icon={<CreditCard />} label="Second-year pending" value={rewards.ownerSecondYearPending || 0} />
+          <MiniRow icon={<ShieldCheck />} label="Second-year banked" value={rewards.ownerSecondYearCredits || 0} />
+        </div>
+        <form className="tax-panel stack" onSubmit={submitReferral}>
+          <div className="form-grid">
+            <label>Name<input required value={form.referredName} onChange={(event) => setForm({ ...form, referredName: event.target.value })} placeholder="Sam Rivera" /></label>
+            <label>Email<input required type="email" value={form.referredEmail} onChange={(event) => setForm({ ...form, referredEmail: event.target.value })} placeholder="sam@example.com" /></label>
+            <label className="span-2">They are a<select value={form.referredRole} onChange={(event) => setForm({ ...form, referredRole: event.target.value })}><option>Property manager</option><option>Owner</option></select></label>
+          </div>
+          <button className="primary" type="submit"><Send size={16} /> Send referral invite</button>
+          {status.message && <p className={`send-status ${status.state}`}>{status.message}</p>}
+        </form>
+      </div>
+      <div className="panel">
+        <SectionTitle icon={<ClipboardList />} title="Referral tracker" eyebrow="Validation and rewards" />
+        <div className="admin-card-list">
+          {!accountReferrals.length && <p className="empty-copy">No referrals yet. Invite another owner or property manager to start earning credits.</p>}
+          {accountReferrals.map((referral) => (
+            <article className="invoice-row referral-row" key={referral.id}>
+              <div>
+                <span className="eyebrow">{referral.status} · {referral.referredRole}</span>
+                <h3>{referral.referredName}</h3>
+                <p>{referral.rewardSummary}</p>
+                {referral.referredPropertyName && <p>Property: {referral.referredPropertyName}</p>}
+              </div>
+              <div className="invoice-side">
+                <strong>{referral.token}</strong>
+                <span>{referral.validationStatus || "Invite outstanding"}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function OwnerView({ property, account, orders, invoices, patchInvoice, reloadState }) {
   const [taxSummary, setTaxSummary] = useState(null);
   const [taxYear, setTaxYear] = useState("2026");
@@ -3723,9 +4167,11 @@ function VendorView({ orders }) {
 function Metric({ icon, label, value }) {
   return (
     <div className="metric-card">
-      <div>{icon}</div>
-      <span>{label}</span>
-      <strong>{value}</strong>
+      <div className="metric-icon">{icon}</div>
+      <div>
+        <span>{label}</span>
+        <strong>{value}</strong>
+      </div>
     </div>
   );
 }

@@ -3,3 +3,22 @@ dist/
 .DS_Store
 .env
 data/local-state.json
+
+# Local agent/skill workspaces
+.agents/
+.claude/
+.goose/
+skills/
+skills-lock.json
+
+# Side-project worktrees kept next to the web app locally
+livingrelay-ios/
+livingrelay-ios-demo/
+
+# Local brand exports and generated asset bundles
+assets/brand/
+
+# AWS provisioning scratch scripts kept local unless intentionally promoted
+scripts/provision-aws-dev-runtime.mjs
+scripts/provision-aws-https.mjs
+scripts/provision-aws-live.mjs

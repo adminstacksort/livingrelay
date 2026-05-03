@@ -242,7 +242,7 @@ export async function handleInboundCommand({ from, body, mediaItems = [] }) {
     const property = properties.find((item) => item.id === created.propertyId);
     const actions = needsImmediateManagerNotice(created)
       ? [{ type: "notify_manager_guidance_started", orderId: created.id }]
-      : [];
+      : [{ type: "notify_tenant_report", orderId: created.id }];
     if (billingNeedsSetup(property)) {
       actions.push({ type: "notify_billing_setup_required", orderId: created.id });
     }
