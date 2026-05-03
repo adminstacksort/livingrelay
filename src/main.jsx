@@ -759,6 +759,13 @@ function buildDashboardUrl(role, section, { propertyId, orderId } = {}) {
   return `${dashboardPathFor(role, section)}${query ? `?${query}` : ""}${window.location.hash}`;
 }
 
+function signedOutUrl() {
+  if (window.location.hostname.toLowerCase() === "admin.livingrelay.com" || window.location.pathname.startsWith("/admin")) {
+    return "/admin";
+  }
+  return "/";
+}
+
 function normalizedPhoneDigits(value = "") {
   return String(value).replace(/\D/g, "").slice(-10);
 }
@@ -1726,6 +1733,7 @@ function App() {
     setAuthToken("");
     window.localStorage.removeItem(authTokenStorageKey);
     window.localStorage.removeItem(sessionUserStorageKey);
+    window.history.replaceState({}, "", signedOutUrl());
   }
 
   useEffect(() => {
@@ -2627,7 +2635,6 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
           <div>
             <a href="#pricing">Pricing</a>
             <a href="#how-it-works">How it works</a>
-            <button className="ghost light" onClick={() => setLandingMode("renter")}>Request access</button>
             <button className="ghost light" onClick={() => setLandingMode("login")}>Log in</button>
           </div>
         </nav>
