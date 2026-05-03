@@ -265,6 +265,18 @@ function isDemoLoginShortcutsHost() {
   return isDemoExperienceHost();
 }
 
+const publicSitePages = {
+  "/support": "support",
+  "/marketing": "marketing",
+  "/privacy": "privacy",
+  "/privacy-policy": "privacy"
+};
+
+function publicSitePageFor(pathname = window.location.pathname) {
+  const normalized = pathname.replace(/\/+$/, "") || "/";
+  return publicSitePages[normalized] || null;
+}
+
 const routeRoles = {
   admin: "Site Admin",
   manager: "Manager",
@@ -611,6 +623,173 @@ function maintenanceNotesForProperty(property) {
 
   notes.push(`For ${property?.name || "this property"}, include the best entry window, pets or gate notes, and whether the issue is still happening.`);
   return notes.slice(0, 3);
+}
+
+function PublicSiteRouter() {
+  const page = publicSitePageFor();
+  return page ? <PublicSitePage page={page} /> : <App />;
+}
+
+function PublicSitePage({ page }) {
+  const pages = {
+    marketing: {
+      eyebrow: "LivingRelay",
+      title: "SMS-first rental repair coordination",
+      summary: "LivingRelay turns tenant texts into organized repair workflows, approvals, vendor coordination, and invoice records for small property operators.",
+      primary: "Open app",
+      primaryHref: "/",
+      secondary: "Get support",
+      secondaryHref: "/support"
+    },
+    support: {
+      eyebrow: "Support",
+      title: "Get help with LivingRelay",
+      summary: "For account access, onboarding, repair workflows, billing, or App Review questions, contact LivingRelay support and include the property, phone number, and issue context.",
+      primary: "Email support",
+      primaryHref: "mailto:support@livingrelay.com",
+      secondary: "Privacy policy",
+      secondaryHref: "/privacy"
+    },
+    privacy: {
+      eyebrow: "Privacy Policy",
+      title: "How LivingRelay handles product data",
+      summary: "LivingRelay uses account, property, repair, messaging, vendor, and invoice information to operate rental repair workflows and provide support.",
+      primary: "Contact privacy",
+      primaryHref: "mailto:privacy@livingrelay.com",
+      secondary: "Support",
+      secondaryHref: "/support"
+    }
+  };
+  const content = pages[page] || pages.marketing;
+
+  return (
+    <main className="public-page">
+      <nav className="public-nav" aria-label="Public navigation">
+        <a className="public-brand" href="/marketing" aria-label="LivingRelay marketing page">
+          <span className="app-mark"><Wrench size={22} /></span>
+          <strong>LivingRelay</strong>
+        </a>
+        <div>
+          <a href="/marketing">Marketing</a>
+          <a href="/support">Support</a>
+          <a href="/privacy">Privacy</a>
+          <a className="public-nav-button" href="/">Open app</a>
+        </div>
+      </nav>
+
+      <section className="public-hero">
+        <span className="hero-kicker">{content.eyebrow}</span>
+        <h1>{content.title}</h1>
+        <p>{content.summary}</p>
+        <div className="hero-actions">
+          <a className="primary" href={content.primaryHref}>{content.primary} <ArrowRight size={18} /></a>
+          <a className="ghost" href={content.secondaryHref}>{content.secondary}</a>
+        </div>
+      </section>
+
+      {page === "marketing" && <MarketingContent />}
+      {page === "support" && <SupportContent />}
+      {page === "privacy" && <PrivacyContent />}
+    </main>
+  );
+}
+
+function MarketingContent() {
+  return (
+    <>
+      <section className="public-grid three">
+        <PublicCard icon={<MessageSquare />} title="Tenant intake" text="Tenants can report repair issues with the context managers need: unit, symptoms, access notes, and photos." />
+        <PublicCard icon={<ShieldCheck />} title="Approval workflow" text="Managers and owners can review work orders, estimates, vendor choices, and repair history before work moves forward." />
+        <PublicCard icon={<ReceiptText />} title="Invoice records" text="LivingRelay keeps off-platform vendor payments organized with invoice status, tax-year totals, and property-level repair history." />
+      </section>
+
+      <section className="public-band">
+        <div>
+          <span className="eyebrow">Built for small operators</span>
+          <h2>One workflow for managers, owners, tenants, and vendors.</h2>
+        </div>
+        <div className="public-checklist">
+          <p><Check size={18} /> Phone and PIN access scoped by role</p>
+          <p><Check size={18} /> Property-specific repair rules and approval thresholds</p>
+          <p><Check size={18} /> Vendor outreach context and closeout records</p>
+          <p><Check size={18} /> Owner visibility without moving repair payments on platform</p>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function SupportContent() {
+  return (
+    <>
+      <section className="public-grid two">
+        <PublicCard icon={<Phone />} title="Account access" text="For login help, include the phone number on the account, property name, and whether you are a manager, owner, tenant, or vendor." />
+        <PublicCard icon={<ClipboardList />} title="Repair workflow help" text="For a work order question, include the property, unit or space, work order ID if available, and the current repair status." />
+      </section>
+
+      <section className="public-band">
+        <div>
+          <span className="eyebrow">Support channels</span>
+          <h2>We use email for account-safe support.</h2>
+        </div>
+        <div className="public-contact-list">
+          <a href="mailto:support@livingrelay.com"><MessageSquare size={18} /> support@livingrelay.com</a>
+          <a href="mailto:billing@livingrelay.com"><CreditCard size={18} /> billing@livingrelay.com</a>
+          <a href="mailto:privacy@livingrelay.com"><ShieldCheck size={18} /> privacy@livingrelay.com</a>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function PrivacyContent() {
+  return (
+    <section className="privacy-document" aria-label="Privacy Policy">
+      <p className="privacy-date">Effective May 3, 2026</p>
+      <h2>Privacy Policy</h2>
+      <p>LivingRelay provides rental repair coordination software for property managers, owners, tenants, and vendors. This policy explains the information we collect, how we use it, and the choices available to users.</p>
+
+      <h3>Information We Collect</h3>
+      <p>We collect account and contact information such as names, phone numbers, roles, property assignments, and authentication details. We collect property and repair workflow information such as property names, addresses, unit labels, repair requests, access notes, work order status, vendor details, approval history, invoice records, and support requests.</p>
+
+      <h3>Messages And Repair Content</h3>
+      <p>LivingRelay may process tenant, manager, owner, and vendor messages, photos, call metadata, and repair notes so the service can classify issues, route approvals, coordinate vendors, keep audit history, and provide support.</p>
+
+      <h3>How We Use Information</h3>
+      <p>We use information to operate the product, authenticate users, provide role-scoped access, coordinate repair workflows, maintain invoice and tax records, troubleshoot issues, improve reliability, prevent abuse, and meet legal or compliance obligations.</p>
+
+      <h3>Service Providers</h3>
+      <p>We may use trusted service providers for hosting, messaging, phone verification, payment infrastructure, email, analytics, logging, and support operations. These providers process information only as needed to provide their services to LivingRelay.</p>
+
+      <h3>Payments</h3>
+      <p>Repair payments are handled off platform. LivingRelay may track invoice status and billing events, and may use payment infrastructure for subscription or coordination fees where applicable. We do not intentionally store full payment card numbers on LivingRelay servers.</p>
+
+      <h3>Sharing</h3>
+      <p>We share repair workflow information with users who need it for the property workflow, such as managers, owners, tenants, and vendors. We do not sell personal information.</p>
+
+      <h3>Retention</h3>
+      <p>We retain information for as long as needed to provide the service, keep repair and invoice audit trails, resolve disputes, comply with legal obligations, and support legitimate business purposes.</p>
+
+      <h3>Your Choices</h3>
+      <p>To request access, correction, deletion, or account assistance, contact privacy@livingrelay.com. Some records may need to be retained when required for security, compliance, billing, audit, or legal reasons.</p>
+
+      <h3>Security</h3>
+      <p>We use reasonable administrative, technical, and organizational safeguards designed to protect information. No internet service can be guaranteed to be completely secure.</p>
+
+      <h3>Contact</h3>
+      <p>Questions about this policy can be sent to privacy@livingrelay.com or support@livingrelay.com.</p>
+    </section>
+  );
+}
+
+function PublicCard({ icon, title, text }) {
+  return (
+    <article className="public-card">
+      <span className="section-icon">{icon}</span>
+      <h2>{title}</h2>
+      <p>{text}</p>
+    </article>
+  );
 }
 
 const tenantIssueStarters = [
@@ -3738,4 +3917,4 @@ function stageMatches(stage, item) {
 const rootElement = document.getElementById("root");
 const root = globalThis.__livingRelayRoot || createRoot(rootElement);
 globalThis.__livingRelayRoot = root;
-root.render(<App />);
+root.render(<PublicSiteRouter />);
