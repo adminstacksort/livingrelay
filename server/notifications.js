@@ -229,6 +229,23 @@ export function registerPushDevice(person, device = {}) {
   return { person, device: devices.at(-1) };
 }
 
+export function getPushStatus() {
+  const ios = getApnsConfig();
+  const android = getFcmConfig();
+  return {
+    ios: {
+      configured: ios.configured,
+      provider: "apns",
+      missing: ios.missing
+    },
+    android: {
+      configured: android.configured,
+      provider: "firebase_cloud_messaging",
+      missing: android.missing
+    }
+  };
+}
+
 function recipientsForEvent({ event, order, property, tenant, vendor }) {
   const peopleById = new Map(people.map((person) => [person.id, person]));
   const ids = new Set([
@@ -279,7 +296,14 @@ async function sendEmailNotification({ person, eventKey, title, body, order }) {
 async function sendPushNotification({ person, device, eventKey, title, body, order }) {
   if (device.enabled === false) return deliveryResult({ person, channel: "push", eventKey, sent: false, reason: "device_disabled" });
   if (device.platform === "android") {
-    return deliveryResult({ person, channel: "push", eventKey, sent: false, reason: "android_fcm_not_configured" });
+    const fcm = getFcmConfig();
+    if (!fcm.configured) return deliveryResult({ person, channel: "push", eventKey, sent: false, reason: `fcm_not_configured:${fcm.missing.join(",")}` });
+    try {
+      const result = await sendFcm({ ...fcm, token: device.token, title, body, orderId: order?.id || "", eventKey });
+      return deliveryResult({ person, channel: "push", eventKey, sent: result.sent, reason: result.reason || result.name || "sent" });
+    } catch (error) {
+      return deliveryResult({ person, channel: "push", eventKey, sent: false, reason: error.message });
+    }
   }
   const apns = getApnsConfig(device);
   if (!apns.configured) return deliveryResult({ person, channel: "push", eventKey, sent: false, reason: `apns_not_configured:${apns.missing.join(",")}` });
@@ -289,6 +313,19 @@ async function sendPushNotification({ person, device, eventKey, title, body, ord
   } catch (error) {
     return deliveryResult({ person, channel: "push", eventKey, sent: false, reason: error.message });
   }
+}
+
+function getFcmConfig() {
+  const config = {
+    projectId: process.env.FCM_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || "",
+    clientEmail: process.env.FCM_CLIENT_EMAIL || process.env.FIREBASE_CLIENT_EMAIL || "",
+    privateKey: (process.env.FCM_PRIVATE_KEY || process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n")
+  };
+  const missing = [];
+  if (!config.projectId) missing.push("FCM_PROJECT_ID or FIREBASE_PROJECT_ID");
+  if (!config.clientEmail) missing.push("FCM_CLIENT_EMAIL or FIREBASE_CLIENT_EMAIL");
+  if (!config.privateKey) missing.push("FCM_PRIVATE_KEY or FIREBASE_PRIVATE_KEY");
+  return { ...config, missing, configured: missing.length === 0 };
 }
 
 function getApnsConfig(device = {}) {
@@ -355,6 +392,80 @@ function sendApns({ keyId, teamId, bundleId, privateKey, environment, token, tit
     });
     req.end(payload);
   });
+}
+
+async function sendFcm({ projectId, clientEmail, privateKey, token, title, body, orderId, eventKey }) {
+  const accessToken = await getGoogleAccessToken({ clientEmail, privateKey });
+  const response = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      message: {
+        token,
+        notification: { title, body },
+        data: {
+          orderId: String(orderId || ""),
+          eventKey: String(eventKey || "")
+        },
+        android: {
+          priority: "HIGH",
+          notification: {
+            sound: "default"
+          }
+        }
+      }
+    })
+  });
+  const responseText = await response.text();
+  let data = {};
+  if (responseText) {
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      data = { error: { message: responseText.slice(0, 240) } };
+    }
+  }
+  if (!response.ok) {
+    return {
+      sent: false,
+      reason: data.error?.message || `fcm_failed_${response.status}`
+    };
+  }
+  return { sent: true, name: data.name || "sent" };
+}
+
+async function getGoogleAccessToken({ clientEmail, privateKey }) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = base64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const claims = base64Url(JSON.stringify({
+    iss: clientEmail,
+    scope: "https://www.googleapis.com/auth/firebase.messaging",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600
+  }));
+  const signer = createSign("RSA-SHA256");
+  signer.update(`${header}.${claims}`);
+  signer.end();
+  const assertion = `${header}.${claims}.${base64Url(signer.sign(privateKey))}`;
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion
+    })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.access_token) {
+    throw new Error(data.error_description || data.error || `google_token_failed_${response.status}`);
+  }
+  return data.access_token;
 }
 
 function deliveryResult({ person, channel, eventKey, sent, reason }) {

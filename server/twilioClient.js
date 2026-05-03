@@ -26,6 +26,9 @@ export async function sendSms({ to, body }) {
     to,
     body
   };
+  if (process.env.TWILIO_STATUS_CALLBACK_URL) {
+    message.statusCallback = process.env.TWILIO_STATUS_CALLBACK_URL;
+  }
   if (process.env.TWILIO_MESSAGING_SERVICE_SID) {
     message.messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
   } else {

@@ -3544,6 +3544,7 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
   const [runLog, setRunLog] = useState([]);
   const [progress, setProgress] = useState([]);
   const [callbackInfo, setCallbackInfo] = useState(null);
+  const [providerStatus, setProviderStatus] = useState(null);
 
   useEffect(() => {
     loadScenarios();
@@ -3562,6 +3563,7 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
         return;
       }
       if (data.callbacks) setCallbackInfo(data.callbacks);
+      if (data.notifications) setProviderStatus(data.notifications);
       if (data.roles?.length) setRoles(data.roles);
       if (response.ok && data.scenarios?.length) setScenarios(data.scenarios);
     } catch {
@@ -3637,6 +3639,7 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
       setRun(data.run);
       setRunLog(data.history || [data.run, ...runLog.filter((item) => item.id !== data.run.id)]);
       if (data.run?.callbacks) setCallbackInfo(data.run.callbacks);
+      if (data.run?.notificationProviders) setProviderStatus(data.run.notificationProviders);
       updateProgress("results", "done");
       const deliverySummary = summarizeQaDeliveries(data.run.deliveries || []);
       setStatus({
@@ -3697,6 +3700,17 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
               : "SMS, email, and voice checks use this same environment, so live delivery can be tested here."}
           </p>
         </div>
+        {providerStatus && (
+          <div className="qa-provider-grid">
+            {qaProviderRows(providerStatus).map((item) => (
+              <div className={`qa-provider-card ${item.tone}`} key={item.label}>
+                <span>{item.label}</span>
+                <strong>{item.status}</strong>
+                <p>{item.detail}</p>
+              </div>
+            ))}
+          </div>
+        )}
         {progress.length > 0 && (
           <div className="qa-progress-list" aria-live="polite">
             {progress.map((item) => (
@@ -3769,6 +3783,9 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
               <DiagnosticRow label="Voice webhooks" value={run.callbacks?.voiceOutboundUrl || "Unknown"} tone={run.callbacks?.mismatch ? "warn" : "ok"} />
             </DiagnosticBlock>
             <DiagnosticBlock title="Artifacts">
+              {run.notificationProviders && qaProviderRows(run.notificationProviders).map((item) => (
+                <DiagnosticRow key={item.label} label={item.label} value={item.detail} tone={item.tone} />
+              ))}
               <DiagnosticRow label="Run" value={run.id} />
               <DiagnosticRow label="Work order" value={run.workOrderId} tone="ok" />
               <DiagnosticRow label="Property" value={run.property?.name || "Unknown"} />
@@ -3826,6 +3843,42 @@ function summarizeQaDeliveries(deliveries = []) {
     const errorText = counts.errors.size ? ` (${Array.from(counts.errors).join(", ")})` : "";
     return `${label}: ${counts.sent} sent, ${counts.failed} failed${errorText}, ${counts.skipped} skipped`;
   }).join("; ");
+}
+
+function qaProviderRows(providers = {}) {
+  const sms = providers.sms || {};
+  const email = providers.email || {};
+  const push = providers.push || {};
+  return [
+    {
+      label: "SMS",
+      status: sms.configured ? "Ready" : "Needs setup",
+      tone: sms.configured ? "ok" : "warn",
+      detail: sms.configured
+        ? [sms.senderMode === "messaging_service" ? "Messaging Service" : "Phone number", sms.messagingServiceSid || sms.from].filter(Boolean).join(": ")
+        : `Missing ${sms.missing?.join(", ") || "Twilio sender config"}`
+    },
+    {
+      label: "Email",
+      status: email.configured ? "Ready" : "Needs SendGrid",
+      tone: email.configured ? "ok" : "warn",
+      detail: email.configured
+        ? `${email.provider || "email"} from ${email.from || "configured sender"}`
+        : `Missing ${email.missing?.join(", ") || "SendGrid API key"}`
+    },
+    {
+      label: "iOS push",
+      status: push.ios?.configured ? "Ready" : "Needs APNS",
+      tone: push.ios?.configured ? "ok" : "warn",
+      detail: push.ios?.configured ? "APNS credentials configured" : `Missing ${push.ios?.missing?.join(", ") || "APNS credentials"}`
+    },
+    {
+      label: "Android push",
+      status: push.android?.configured ? "Ready" : "Needs FCM",
+      tone: push.android?.configured ? "ok" : "warn",
+      detail: push.android?.configured ? "Firebase Cloud Messaging configured" : `Missing ${push.android?.missing?.join(", ") || "FCM credentials"}`
+    }
+  ];
 }
 
 function qaDeliveryCounts(deliveries = []) {

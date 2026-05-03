@@ -6,7 +6,8 @@ export function getEmailStatus() {
     configured: Boolean(apiKeyName),
     provider: "twilio_sendgrid",
     apiKey: apiKeyName || null,
-    from: getFromEmail()
+    from: getFromEmail(),
+    missing: apiKeyName ? [] : ["TWILIO_SENDGRID_API_KEY or SENDGRID_API_KEY"]
   };
 }
 

@@ -1,6 +1,7 @@
 import { getPostgresStatus, getRuntimeEnvironment, getStateId } from "./postgresState.js";
 import { getTwilioStatus } from "./twilioClient.js";
 import { getEmailStatus } from "./emailClient.js";
+import { getPushStatus } from "./notifications.js";
 import { platformSettings } from "./data.js";
 
 const productionRequired = [
@@ -24,6 +25,7 @@ export async function getReadiness() {
   const twilio = getTwilioStatus();
   if (!twilio.configured) missing.push(...twilio.missing.filter((key) => !missing.includes(key)));
   const email = getEmailStatus();
+  const push = getPushStatus();
   const vendorCallsEnabled = process.env.ENABLE_VENDOR_CALLS === "true";
   const elevenLabsMissing = vendorCallsEnabled
     ? [
@@ -50,8 +52,12 @@ export async function getReadiness() {
     notifications: {
       emailConfigured: email.configured,
       emailProvider: email.provider,
-      iosPushConfigured: Boolean(process.env.APNS_KEY_ID && process.env.APNS_TEAM_ID && process.env.APNS_BUNDLE_ID && process.env.APNS_PRIVATE_KEY),
-      androidPushConfigured: false
+      emailFrom: email.from,
+      emailMissing: email.missing,
+      iosPushConfigured: push.ios.configured,
+      iosPushMissing: push.ios.missing,
+      androidPushConfigured: push.android.configured,
+      androidPushMissing: push.android.missing
     },
     vendorCalls: {
       enabled: vendorCallsEnabled,

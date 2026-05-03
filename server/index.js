@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { accessRequests, accounts, auditLog, billingEvents, event, invoices, message, notifications, people, platformSettings, properties, prospectingLeads, qaRuns, recordAudit, referrals, saveState, vendors, waitForStatePersistence, workOrders } from "./data.js";
 import { composeActionMessage, handleInboundCommand, normalizePhone } from "./smsLogic.js";
 import { getSmsMessageStatus, getTwilioStatus, sendSms } from "./twilioClient.js";
-import { sendEmail } from "./emailClient.js";
+import { getEmailStatus, sendEmail } from "./emailClient.js";
 import { generateProspectingLeadBatches, generateProspectingLeads } from "./prospectingResearch.js";
 import { registerTwilioCallWithElevenLabs, startVendorQuoteCalls } from "./elevenLabsCalls.js";
 import { runFullFlowDemo, selectDemoQuote, simulateVendorOutreach } from "./demoOutreach.js";
@@ -19,7 +19,7 @@ import { getRuntimeEnvironment, getStateId } from "./postgresState.js";
 import { chargeStripeDispatchFee, createStripeOwnerSubscriptionSession, createStripePortalSession, createStripeSetupSession, dispatchFeeCents, ownerSubscriptionCents, retrieveStripeCheckoutSession, retrieveStripeSetupIntent, setCustomerDefaultPaymentMethod, stripeBillingStatus } from "./stripeBilling.js";
 import { attachMediaRelay, getMediaRelayRoom } from "./mediaRelay.js";
 import { consumeVerifiedPhoneToken, createPhoneChallenge, verifyPhoneChallenge } from "./phoneVerification.js";
-import { defaultNotifyForRole, dispatchNotification, mergeNotifySettings, notificationCatalog, registerPushDevice } from "./notifications.js";
+import { defaultNotifyForRole, dispatchNotification, getPushStatus, mergeNotifySettings, notificationCatalog, registerPushDevice } from "./notifications.js";
 import {
   buildTenantAvailability,
   buildInvoiceDeliveryInstructions,
@@ -160,6 +160,11 @@ app.get("/api/state", (req, res) => {
     accessRequests: includeSiteAdmin ? accessRequests : [],
     auditLog,
     twilio: getTwilioStatus(),
+    notificationProviders: {
+      sms: getTwilioStatus(),
+      email: getEmailStatus(),
+      push: getPushStatus()
+    },
     stripe: stripeBillingStatus(),
     demoScenarios: includeDemo ? listDemoScenarios() : [],
     staleWorkOrders: getStaleWorkOrders({ thresholdHours: 12 })
@@ -833,6 +838,11 @@ const defaultQaPersonaRoles = ["tenant", "manager", "owner"];
 app.get("/api/site-admin/qa/scenarios", (req, res) => {
   res.json({
     callbacks: qaCallbackDiagnostics(req),
+    notifications: {
+      sms: getTwilioStatus(),
+      email: getEmailStatus(),
+      push: getPushStatus()
+    },
     roles: qaPersonaRoles,
     scenarios: Object.entries(qaScenarios).map(([id, scenario]) => ({
       id,
@@ -857,6 +867,11 @@ app.post("/api/site-admin/qa/run", async (req, res) => {
     const qaPhone = normalizeOptionalPhone(req.body.phone || platformSettings.vendorCallTestNumber || process.env.VENDOR_CALL_TEST_NUMBER || "");
     const qaEmail = String(req.body.email || "").trim().toLowerCase();
     const callbacks = qaCallbackDiagnostics(req);
+    const notificationProviders = {
+      sms: getTwilioStatus(),
+      email: getEmailStatus(),
+      push: getPushStatus()
+    };
     const liveCallbackChannelsAllowed = !callbacks.mismatch;
     const realMessagesAllowed = liveCallbackChannelsAllowed || req.body.allowRealMessages === true;
     const rolesToTest = normalizeQaRoles(req.body.rolesToTest);
@@ -1004,6 +1019,7 @@ app.post("/api/site-admin/qa/run", async (req, res) => {
       workflow,
       personas,
       deliveries,
+      notificationProviders,
       userUpdates,
       callbacks: { ...callbacks, realMessagesAllowed },
       calls: (callResult.calls || []).map((call) => ({
