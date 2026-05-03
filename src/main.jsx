@@ -2276,6 +2276,16 @@ function App() {
         />
       )}
 
+      {["Manager", "Owner"].includes(user.role) && adminSection !== "billing" && (
+        <VendorTeamOnboarding
+          property={activeProperty}
+          account={accountsData.find((account) => account.id === activeProperty.accountId)}
+          people={peopleData}
+          vendors={vendorsData}
+          reloadState={loadState}
+        />
+      )}
+
       {user.role === "Manager" && adminSection !== "billing" && (
         <AdminManagerView
           property={activeProperty}
@@ -2492,12 +2502,12 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
         </nav>
         <div className="landing-hero-grid">
           <div className="hero-copy">
-            <span className="hero-kicker">City home maintenance over SMS</span>
-            <h1>Rental repairs, routed from the first text.</h1>
-            <p>Set up a property, invite your owner or manager, and keep approvals, vendors, invoices, and tenant updates in one place.</p>
+            <span className="hero-kicker">AI vendor management for rental repairs</span>
+            <h1>LivingRelay calls vendors and gets repairs booked.</h1>
+            <p>Tenant texts become repair scopes. AI voice agents call vendors, compare availability and pricing, coordinate access windows, and keep owners in the loop.</p>
             <div className="hero-proof" aria-label="What LivingRelay coordinates">
-              <span><MessageSquare size={16} /> Tenant texts</span>
-              <span><ShieldCheck size={16} /> Owner approvals</span>
+              <span><Phone size={16} /> AI vendor calls</span>
+              <span><Wrench size={16} /> Best vendor booked</span>
               <span><ReceiptText size={16} /> Tax-ready records</span>
             </div>
           </div>
@@ -2631,18 +2641,43 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
         </div>
       </section>
 
+      <section className="vendor-ai-band" aria-label="AI vendor coordination">
+        <div className="vendor-ai-copy">
+          <span className="eyebrow">AI vendor desk</span>
+          <h2>The part nobody wants to do manually.</h2>
+          <p>LivingRelay can call plumbers, HVAC techs, electricians, handypeople, and cleaners with the repair scope, ask the practical questions, and bring back the vendor who can actually take the job.</p>
+        </div>
+        <div className="vendor-ai-flow">
+          <article>
+            <Phone size={21} />
+            <strong>Calls multiple vendors</strong>
+            <p>AI voice outreach explains the issue, confirms service area, availability, trip fees, rough range, warranty, and invoice delivery.</p>
+          </article>
+          <article>
+            <Search size={21} />
+            <strong>Compares who is best</strong>
+            <p>Owners and managers see the fastest option, best fit, quote notes, schedule constraints, and why a vendor is recommended.</p>
+          </article>
+          <article>
+            <MessageSquare size={21} />
+            <strong>Coordinates the tenant window</strong>
+            <p>LivingRelay keeps the tenant schedule, access notes, vendor booking, and manager updates connected in one thread.</p>
+          </article>
+        </div>
+      </section>
+
       <section className="value-band" id="how-it-works">
-        <article><MessageSquare size={22} /><strong>Residents text once</strong><p>LivingRelay asks follow-ups, captures access notes, and creates a work order for the property address.</p></article>
-        <article><ShieldCheck size={22} /><strong>Approvals stay clear</strong><p>Managers and owners see estimates, thresholds, invoices, and the full timeline.</p></article>
-        <article><Wrench size={22} /><strong>Vendors stay coordinated</strong><p>Send vendor messages, book dispatches, and keep every repair update attached.</p></article>
-        <article><FileText size={22} /><strong>Records are tax-ready</strong><p>Invoices and CSV exports stay organized by property and year.</p></article>
+        <article><Bot size={22} /><strong>AI turns texts into scopes</strong><p>Residents report the issue by text. LivingRelay asks follow-ups, captures photos and access notes, then prepares a vendor-ready scope.</p></article>
+        <article><Phone size={22} /><strong>Vendor calls happen for you</strong><p>AI voice agents reach out, gather availability and quote signals, and surface the most practical booking option.</p></article>
+        <article><ShieldCheck size={22} /><strong>Owners approve with context</strong><p>Owners see the repair history, recommendation, estimate range, thresholds, and booking status before approving spend.</p></article>
+        <article><FileText size={22} /><strong>Invoices and records stay put</strong><p>Vendor invoices, closeout notes, tax-year totals, and repair history stay organized by property for the owner.</p></article>
       </section>
 
       <section className="pricing-band" id="pricing">
         <div>
           <span className="eyebrow">Simple pricing</span>
           <h2>No monthly property fee.</h2>
-          <p>Start with a city rental home, duplex, townhome, or small multifamily property, then add residents, owner approvals, and vendor coordination. LivingRelay charges when coordination turns into a booked vendor dispatch.</p>
+          <p>Start with a city rental home, duplex, townhome, or small multifamily property. LivingRelay charges when AI vendor coordination turns into a booked dispatch.</p>
         </div>
         <article className="price-card">
           <span>Launch price</span>
@@ -3556,6 +3591,7 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
   const vendor = vendors.find((item) => item.id === activeOrder.vendorId);
   const manager = people.find((person) => person.id === property.managerId || person.id === property.adminId);
   const owner = people.find((person) => person.id === property.ownerId);
+  const vendorTeam = preferredVendorTeam(property, vendors);
   return (
     <section className="split-view">
       <div className="panel">
@@ -3572,6 +3608,7 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
           <MiniRow icon={<Users />} label="Manager" value={`${manager?.name || "Manager"} · ${manager?.phone || ""}`} />
           <MiniRow icon={<UserRound />} label="Owner" value={`${owner?.name || "Owner"} · ${owner?.phone || ""}`} />
           <MiniRow icon={<Wrench />} label="Rules" value={property.rules} />
+          <MiniRow icon={<ClipboardList />} label="Their team" value={vendorTeam.length ? vendorTeam.map((item) => `${item.trade}: ${item.names.join(", ")}`).join(" · ") : "No preferred vendors assigned yet"} />
         </div>
         <AdminTools property={property} people={people} vendors={vendors} auditLog={auditLog} reloadState={reloadState} />
         <StaleNudgePanel

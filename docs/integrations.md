@@ -4,13 +4,14 @@
 
 LivingRelay uses Google Analytics 4 through the frontend `gtag.js` integration.
 
-Required env:
+Required environment-specific env:
 
 ```text
-VITE_GA_MEASUREMENT_ID=G-XXXXXXXXXX
+staging: VITE_GA_MEASUREMENT_ID=G-4EPQK851N0
+production: VITE_GA_MEASUREMENT_ID=G-JK9RC1VEXR
 ```
 
-The app sends page views for public pages, the unauthenticated app entry, and role-aware dashboard route changes. Leave the variable blank for local development or any environment whose traffic should not be counted.
+The app sends page views for public pages, the unauthenticated app entry, and role-aware dashboard route changes. Leave the variable blank for local and dev so those visits are not counted.
 
 ## Twilio SMS
 

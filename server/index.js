@@ -1154,15 +1154,39 @@ app.post("/api/work-orders/:id/completion-package", async (req, res) => {
 });
 
 app.post("/api/admin/vendors", (req, res) => {
-  const { name, trade, phone, preferred = true } = req.body;
+  const { name, trade, phone, preferred = true, propertyId = "", accountId = "", useFor = "", notes = "" } = req.body;
   if (!name || !trade || !phone) {
     res.status(400).json({ error: "name, trade, and phone are required" });
     return;
   }
-  const vendor = { id: `v-${vendors.length + 1}`, name, trade, phone, preferred };
+  const property = propertyId ? properties.find((item) => item.id === propertyId) : null;
+  const vendor = {
+    id: `v-${vendors.length + 1}`,
+    name,
+    trade,
+    phone,
+    preferred,
+    propertyIds: propertyId ? [propertyId] : [],
+    accountId: accountId || property?.accountId || undefined,
+    useFor: useFor || undefined,
+    notes: notes || undefined
+  };
   vendors.push(vendor);
+  if (property) {
+    const settings = {
+      ...defaultDispatchSettings(),
+      ...(property.dispatchSettings || {}),
+      vendorPreferences: {
+        ...defaultDispatchSettings().vendorPreferences,
+        ...(property.dispatchSettings?.vendorPreferences || {})
+      }
+    };
+    const existing = settings.vendorPreferences[trade] || [];
+    settings.vendorPreferences[trade] = [name, ...existing.filter((item) => String(item).toLowerCase() !== String(name).toLowerCase())];
+    property.dispatchSettings = settings;
+  }
   saveState();
-  recordAudit("admin", "Added vendor", `${name} added for ${trade}.`);
+  recordAudit("admin", "Added vendor", `${name} added for ${trade}${property ? ` at ${property.name}` : ""}.`);
   res.json({ vendor });
 });
 

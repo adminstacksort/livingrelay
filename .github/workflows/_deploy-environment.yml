@@ -48,6 +48,7 @@ jobs:
       AWS_ECS_SERVICE: ${{ vars[inputs.ecs_service_variable] }}
       AWS_ECS_TASK_DEFINITION: ${{ vars[inputs.ecs_task_definition_variable] }}
       TARGET_REPOSITORY: ${{ vars[inputs.repository_variable] }}
+      VITE_GA_MEASUREMENT_ID: ${{ vars.VITE_GA_MEASUREMENT_ID }}
       DEPLOY_KEY: ${{ secrets[inputs.deploy_key_secret] }}
       DEPLOY_WEBHOOK_URL: ${{ secrets[inputs.deploy_webhook_secret] }}
       GHCR_IMAGE_NAME: ghcr.io/${{ github.repository }}/livingrelay
@@ -82,6 +83,8 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            VITE_GA_MEASUREMENT_ID=${{ env.VITE_GA_MEASUREMENT_ID }}
           tags: |
             ${{ env.GHCR_IMAGE_NAME }}:${{ inputs.image_tag }}
             ${{ env.GHCR_IMAGE_NAME }}:${{ inputs.image_tag }}-${{ github.sha }}
@@ -106,6 +109,8 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            VITE_GA_MEASUREMENT_ID=${{ env.VITE_GA_MEASUREMENT_ID }}
           tags: |
             ${{ env.ECR_REGISTRY }}/${{ env.AWS_ECR_REPOSITORY }}:${{ inputs.image_tag }}
             ${{ env.ECR_REGISTRY }}/${{ env.AWS_ECR_REPOSITORY }}:${{ inputs.image_tag }}-${{ github.sha }}

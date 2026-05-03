@@ -123,7 +123,7 @@ Set `APP_ENV` to `dev`, `staging`, or `production`. Persistent Postgres snapshot
 
 Use `https://staging.livingrelay.com/admin` for the staging admin portal. Plain `https://staging.livingrelay.com` remains the staging customer app for flows like Create property.
 
-`VITE_GA_MEASUREMENT_ID` enables Google Analytics 4 web traffic tracking in the frontend. Set it to the GA4 web stream measurement ID, for example `G-XXXXXXXXXX`. Leave it blank in local development when you do not want local visits counted.
+`VITE_GA_MEASUREMENT_ID` enables Google Analytics 4 web traffic tracking in the frontend. Use `G-4EPQK851N0` for staging and `G-JK9RC1VEXR` for production. Leave it blank in local and dev when you do not want those visits counted.
 
 When `ENABLE_VENDOR_CALLS=true`, also configure:
 
