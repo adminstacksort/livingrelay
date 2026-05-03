@@ -12,8 +12,14 @@ const productionRequired = [
   "SESSION_SECRET"
 ];
 
+export function getGooglePlacesApiKey() {
+  return process.env.GOOGLE_PLACES_API_KEY || process.env.VITE_GOOGLE_PLACES_API_KEY || "";
+}
+
 export async function getReadiness() {
   const missing = productionRequired.filter((key) => !process.env[key]);
+  const googlePlacesConfigured = Boolean(getGooglePlacesApiKey());
+  if (!googlePlacesConfigured) missing.push("GOOGLE_PLACES_API_KEY");
   const database = await getPostgresStatus();
   const twilio = getTwilioStatus();
   const vendorCallsEnabled = process.env.ENABLE_VENDOR_CALLS === "true";
@@ -35,6 +41,9 @@ export async function getReadiness() {
     twilio,
     ai: {
       anthropicConfigured: Boolean(process.env.ANTHROPIC_API_KEY)
+    },
+    places: {
+      googleConfigured: googlePlacesConfigured
     },
     vendorCalls: {
       enabled: vendorCallsEnabled,

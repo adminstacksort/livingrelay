@@ -12,7 +12,7 @@ import { createDemoScenario, listDemoScenarios } from "./demoScenarios.js";
 import { getStaleWorkOrders, nudgeStaleWorkOrders, nudgeWorkOrder } from "./staleNudges.js";
 import { dialManagerIntoCall, getLiveCalls, listenToCall, takeOverCall } from "./liveCallControl.js";
 import { buildTaxCsv, buildTaxSummary, canExportOwnerTaxPacket, recordTaxBundleAudit } from "./taxExports.js";
-import { getReadiness } from "./config.js";
+import { getGooglePlacesApiKey, getReadiness } from "./config.js";
 import { getRuntimeEnvironment, getStateId } from "./postgresState.js";
 import { chargeStripeDispatchFee, createStripeOwnerSubscriptionSession, createStripePortalSession, createStripeSetupSession, dispatchFeeCents, ownerSubscriptionCents, retrieveStripeCheckoutSession, retrieveStripeSetupIntent, setCustomerDefaultPaymentMethod, stripeBillingStatus } from "./stripeBilling.js";
 import { attachMediaRelay, getMediaRelayRoom } from "./mediaRelay.js";
@@ -139,10 +139,14 @@ app.get("/api/state", (req, res) => {
 });
 
 app.get("/api/places/autocomplete", async (req, res) => {
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.VITE_GOOGLE_PLACES_API_KEY;
+  const apiKey = getGooglePlacesApiKey();
   const input = String(req.query.input || "").trim();
-  if (!apiKey || input.length < 3) {
+  if (input.length < 3) {
     res.json({ predictions: [] });
+    return;
+  }
+  if (!apiKey) {
+    res.status(503).json({ predictions: [], error: "Google Places API key is not configured" });
     return;
   }
 
@@ -180,10 +184,14 @@ app.get("/api/places/autocomplete", async (req, res) => {
 });
 
 app.get("/api/places/:placeId", async (req, res) => {
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.VITE_GOOGLE_PLACES_API_KEY;
+  const apiKey = getGooglePlacesApiKey();
   const placeId = String(req.params.placeId || "").trim();
-  if (!apiKey || !placeId) {
+  if (!placeId) {
     res.status(404).json({ error: "place not found" });
+    return;
+  }
+  if (!apiKey) {
+    res.status(503).json({ error: "Google Places API key is not configured" });
     return;
   }
 

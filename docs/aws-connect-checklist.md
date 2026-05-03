@@ -66,6 +66,7 @@ Use SecureString parameters, one path per environment:
 /livingrelay/dev/TWILIO_AUTH_TOKEN
 /livingrelay/dev/TWILIO_MESSAGING_NUMBER
 /livingrelay/dev/ANTHROPIC_API_KEY
+/livingrelay/dev/GOOGLE_PLACES_API_KEY
 /livingrelay/dev/APP_BASE_URL
 /livingrelay/dev/STRIPE_SECRET_KEY
 /livingrelay/dev/STRIPE_WEBHOOK_SECRET

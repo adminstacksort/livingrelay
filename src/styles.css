@@ -244,6 +244,15 @@ select:focus {
   text-align: right;
 }
 
+.places-error {
+  color: #9f3c2f;
+  display: block;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.35;
+  margin-top: 6px;
+}
+
 .pac-container {
   border: 1px solid #d8d0c3;
   border-radius: 8px;

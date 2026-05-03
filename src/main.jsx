@@ -494,6 +494,7 @@ function GooglePlacesAddressInput({ value, onChange, onPlaceSelect, placeholder,
   const requestIdRef = useRef(0);
   const [predictions, setPredictions] = useState([]);
   const [showPredictions, setShowPredictions] = useState(false);
+  const [predictionError, setPredictionError] = useState("");
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -504,6 +505,7 @@ function GooglePlacesAddressInput({ value, onChange, onPlaceSelect, placeholder,
     const query = value.trim();
     if (query.length < 3) {
       setPredictions([]);
+      setPredictionError("");
       return undefined;
     }
 
@@ -512,13 +514,20 @@ function GooglePlacesAddressInput({ value, onChange, onPlaceSelect, placeholder,
     requestIdRef.current = requestId;
     const timer = window.setTimeout(() => {
       fetch(`/api/places/autocomplete?input=${encodeURIComponent(query)}`)
-        .then((response) => response.ok ? response.json() : { predictions: [] })
+        .then(async (response) => {
+          const data = await response.json().catch(() => ({ predictions: [] }));
+          return response.ok ? data : { predictions: [], error: data.error || "Address autocomplete is unavailable" };
+        })
         .then((data) => {
           if (cancelled || requestId !== requestIdRef.current) return;
           setPredictions(Array.isArray(data.predictions) ? data.predictions : []);
+          setPredictionError(data.error || "");
         })
         .catch(() => {
-          if (!cancelled && requestId === requestIdRef.current) setPredictions([]);
+          if (!cancelled && requestId === requestIdRef.current) {
+            setPredictions([]);
+            setPredictionError("Address autocomplete is unavailable");
+          }
         });
     }, 180);
 
@@ -576,6 +585,7 @@ function GooglePlacesAddressInput({ value, onChange, onPlaceSelect, placeholder,
           <em>Powered by Google</em>
         </span>
       )}
+      {showPredictions && predictionError && <small className="places-error">{predictionError}</small>}
     </span>
   );
 }
