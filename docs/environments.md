@@ -101,6 +101,7 @@ TWILIO_MESSAGING_NUMBER
 ANTHROPIC_API_KEY
 SESSION_SECRET
 GOOGLE_PLACES_API_KEY
+VITE_GA_MEASUREMENT_ID
 STRIPE_SECRET_KEY
 STRIPE_WEBHOOK_SECRET
 RESEND_API_KEY
@@ -121,6 +122,8 @@ SITE_ADMIN_PASSWORD
 Set `APP_ENV` to `dev`, `staging`, or `production`. Persistent Postgres snapshots are keyed by environment (`livingrelay-dev`, `livingrelay-staging`, `livingrelay-production`), so staging test properties remain visible in the staging admin portal until explicitly deleted and never mix with production data.
 
 Use `https://staging.livingrelay.com/admin` for the staging admin portal. Plain `https://staging.livingrelay.com` remains the staging customer app for flows like Create property.
+
+`VITE_GA_MEASUREMENT_ID` enables Google Analytics 4 web traffic tracking in the frontend. Set it to the GA4 web stream measurement ID, for example `G-XXXXXXXXXX`. Leave it blank in local development when you do not want local visits counted.
 
 When `ENABLE_VENDOR_CALLS=true`, also configure:
 

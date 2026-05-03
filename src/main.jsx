@@ -38,7 +38,10 @@ import {
   Wrench
 } from "lucide-react";
 import heroImage from "../assets/livingrelay-hero.png";
+import { initializeAnalytics, trackPageView } from "./analytics";
 import "./styles.css";
+
+initializeAnalytics();
 
 const people = [
   { id: "site-admin-1", name: "Avery Stone", role: "Site Admin", phone: "(310) 555-0199", pin: "9999", propertyIds: [], accountIds: ["acct-1"] },
@@ -303,15 +306,360 @@ function isDemoLoginShortcutsHost() {
 }
 
 const publicSitePages = {
+  "/about": "about",
   "/support": "support",
   "/marketing": "marketing",
   "/privacy": "privacy",
-  "/privacy-policy": "privacy"
+  "/privacy-policy": "privacy",
+  "/ios": "ios",
+  "/ios-app": "ios",
+  "/referral-program": "referral",
+  "/property-maintenance": "maintenanceIndex"
 };
+
+const propertyMaintenanceCities = [
+  {
+    city: "New York City",
+    state: "NY",
+    slug: "new-york-city-property-maintenance",
+    title: "New York City Property Maintenance",
+    climate: "steam heat, aging risers, roof drainage, elevator coordination, and tight building access",
+    stock: "co-ops, condos, brownstones, small mixed-use buildings, and prewar walk-ups",
+    issue: "radiator noise, recurring drain backups, intercom failures, leaks that travel through several apartments, and vendor access windows that disappear fast",
+    approach: "triage by building system first, separate emergency water or heat calls from cosmetic repairs, and keep super, board, owner, tenant, and vendor notes in one thread",
+    decade: "Over the last 10 years, package volume, remote owners, Local Law energy work, and tighter insurance expectations have made documentation as important as the repair itself.",
+    providers: "Managers often compare local licensed plumbers and electricians with marketplace options such as Angi, Thumbtack, Yelp, Taskrabbit for small jobs, and national brands like Roto-Rooter or Mr. Rooter when coverage matters.",
+    costs: "Small handyman visits often land around $175 to $700, routine plumbing or electrical work often starts in the low hundreds, and elevator, facade, boiler, or after-hours leak response can move into four figures quickly."
+  },
+  {
+    city: "Los Angeles",
+    state: "CA",
+    slug: "los-angeles-property-maintenance",
+    title: "Los Angeles Property Maintenance",
+    climate: "dry heat, hillside drainage, older galvanized plumbing, seismic concerns, and intense wear on roofs and stucco",
+    stock: "bungalows, duplexes, courtyard apartments, hillside rentals, and mid-century multifamily buildings",
+    issue: "slow leaks, AC strain, gate and garage access problems, pest entry points, appliance failures, and damage from deferred exterior maintenance",
+    approach: "capture photos early, verify whether the home is rent-stabilized or under HOA rules, and schedule vendors around traffic, parking, and tenant access",
+    decade: "The last decade brought more remote ownership, more accessory dwelling units, higher tenant expectations, and sharper scrutiny around habitability timelines.",
+    providers: "Many owners benchmark local trades against Angi, Thumbtack, Yelp, Home Depot Pro Referral, Taskrabbit, Roto-Rooter, Mr. Rooter, and large HVAC brands like One Hour Heating & Air Conditioning.",
+    costs: "A simple handyman job can stay under $300, but plumbing, electrical, HVAC, roofing, and emergency response commonly reach $300 to $2,000 depending on access, licensing, and parts."
+  },
+  {
+    city: "Chicago",
+    state: "IL",
+    slug: "chicago-property-maintenance",
+    title: "Chicago Property Maintenance",
+    climate: "freeze-thaw cycles, lake-effect moisture, flat roofs, masonry movement, and heavy boiler season",
+    stock: "two-flats, three-flats, courtyard buildings, condos, greystones, and vintage walk-ups",
+    issue: "radiator imbalance, roof membrane leaks, tuckpointing, frozen hose bibs, slow drains, and doors that shift after winter",
+    approach: "separate weather emergencies from seasonal maintenance, document heat complaints carefully, and plan roof, masonry, and gutter work before the first cold snap",
+    decade: "In the last 10 years, owners have become more proactive about winterization, camera-documented repairs, and energy upgrades because one missed freeze can create a very expensive week.",
+    providers: "Chicago managers often blend neighborhood trades with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Roto-Rooter, Mr. Rooter, and HVAC networks that can staff peak heating calls.",
+    costs: "Budget a few hundred dollars for small repairs, more for licensed plumbing or electrical, and four figures for boiler, masonry, roof, or water-damage work that needs fast labor."
+  },
+  {
+    city: "Houston",
+    state: "TX",
+    slug: "houston-property-maintenance",
+    title: "Houston Property Maintenance",
+    climate: "humidity, heavy rain, hurricanes, slab movement, pests, and long cooling seasons",
+    stock: "single-family rentals, townhomes, garden apartments, and fast-growing suburban portfolios",
+    issue: "AC failures, roof leaks, clogged condensate lines, fence damage, pest intrusion, drainage problems, and post-storm vendor scarcity",
+    approach: "rank AC, active water, electrical, and security issues first, keep storm photos organized, and maintain backup vendors before hurricane season",
+    decade: "The last decade has pushed Houston owners toward better storm readiness, stronger insurance documentation, and faster tenant communication during extreme weather.",
+    providers: "Teams commonly compare local HVAC and roofing companies with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Roto-Rooter, Mr. Rooter, and national restoration brands after major storms.",
+    costs: "Routine repairs may start in the low hundreds, AC service often runs higher during heat waves, and roof, water mitigation, or major HVAC work can escalate from $1,000 to several thousand dollars."
+  },
+  {
+    city: "Phoenix",
+    state: "AZ",
+    slug: "phoenix-property-maintenance",
+    title: "Phoenix Property Maintenance",
+    climate: "extreme heat, dust, hard water, sun-baked roofs, irrigation wear, and year-round AC dependence",
+    stock: "single-family rentals, condos, patio homes, and large master-planned community rentals",
+    issue: "AC failures, water heater scale, irrigation leaks, cracked exterior seals, appliance stress, and garage door trouble",
+    approach: "treat cooling problems as urgent, schedule preventive HVAC service before summer, and keep HOA access and gate notes attached to every work order",
+    decade: "Over the last 10 years, summer reliability has become the central maintenance story as heat waves, population growth, and parts delays raised the cost of slow response.",
+    providers: "Owners often compare local HVAC contractors with Angi, Thumbtack, Yelp, Home Depot Pro Referral, One Hour Heating & Air Conditioning, Roto-Rooter, and Mr. Rooter.",
+    costs: "A small repair may cost a few hundred dollars, while HVAC diagnostics, capacitor replacement, refrigerant issues, roof repairs, or water heater work can run from several hundred to several thousand."
+  },
+  {
+    city: "Philadelphia",
+    state: "PA",
+    slug: "philadelphia-property-maintenance",
+    title: "Philadelphia Property Maintenance",
+    climate: "rowhouse age, freeze-thaw movement, flat roofs, basement moisture, and old plumbing stacks",
+    stock: "rowhomes, duplexes, small apartment buildings, converted homes, and mixed-use rentals",
+    issue: "roof leaks, sewer line problems, plaster damage, radiator heat complaints, brick pointing, and narrow-access repairs",
+    approach: "document the exact room and wall path for leaks, distinguish habitability issues from finish repairs, and keep owner approvals moving before water damage spreads",
+    decade: "The last decade has brought more investor-owned rowhomes and more remote decision-making, making repair records and tenant updates much harder to manage by text alone.",
+    providers: "Philadelphia operators often compare neighborhood roofers, plumbers, and electricians with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Roto-Rooter, Mr. Rooter, and Taskrabbit for small turns.",
+    costs: "Expect small jobs in the low hundreds, licensed trades often in the mid hundreds, and roof, sewer, masonry, or plaster restoration to climb into four figures."
+  },
+  {
+    city: "San Antonio",
+    state: "TX",
+    slug: "san-antonio-property-maintenance",
+    title: "San Antonio Property Maintenance",
+    climate: "heat, hard water, foundation movement, seasonal storms, and heavy AC use",
+    stock: "single-family rentals, duplexes, small multifamily buildings, and newer suburban homes",
+    issue: "HVAC strain, water heater sediment, slab plumbing concerns, fence repairs, roof wear, and pest entry after storms",
+    approach: "log photos, age of equipment, access notes, and warranty status before dispatch so vendors can quote cleanly",
+    decade: "Growth over the last 10 years has made vendor availability more uneven, especially during heat waves and after hail or wind events.",
+    providers: "Owners often check local licensed contractors against Angi, Thumbtack, Yelp, Home Depot Pro Referral, Roto-Rooter, Mr. Rooter, and national HVAC service networks.",
+    costs: "Basic repairs may sit under $400, but HVAC, roof, foundation-adjacent plumbing, or emergency work can quickly require $750 to $3,000 or more."
+  },
+  {
+    city: "San Diego",
+    state: "CA",
+    slug: "san-diego-property-maintenance",
+    title: "San Diego Property Maintenance",
+    climate: "coastal air, marine corrosion, dry summers, hillside drainage, and HOA-managed communities",
+    stock: "condos, small apartment buildings, beach rentals, single-family homes, and townhomes",
+    issue: "window corrosion, slow leaks, exterior rot, garage access, appliance repairs, and plumbing wear in older coastal units",
+    approach: "confirm HOA responsibilities early, photograph moisture and corrosion, and separate tenant-caused wear from salt-air deterioration",
+    decade: "In the last 10 years, rising rents and owner distance have made prompt, well-documented repairs a trust signal for tenants and property managers.",
+    providers: "San Diego teams often compare local trades with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Taskrabbit, Roto-Rooter, and Mr. Rooter.",
+    costs: "Small maintenance can land in the low hundreds, while plumbing, electrical, appliance, HOA compliance, or coastal exterior work often moves higher because access and materials matter."
+  },
+  {
+    city: "Dallas",
+    state: "TX",
+    slug: "dallas-property-maintenance",
+    title: "Dallas Property Maintenance",
+    climate: "heat, hail, clay soil movement, hard water, and storm-driven roof claims",
+    stock: "single-family rentals, townhomes, duplexes, garden apartments, and newer infill properties",
+    issue: "AC failures, roof and gutter damage, slab movement symptoms, fence repairs, electrical panel concerns, and irrigation leaks",
+    approach: "triage safety and cooling first, attach photos for roof or fence claims, and keep tenant updates clear when storms create vendor backlogs",
+    decade: "The last decade has made Dallas maintenance more operational: growth brought more vendors, but storms and heat spikes still compress response windows.",
+    providers: "Owners commonly benchmark local roofers, HVAC techs, and plumbers against Angi, Thumbtack, Yelp, Home Depot Pro Referral, Roto-Rooter, Mr. Rooter, and One Hour Heating & Air Conditioning.",
+    costs: "Simple work may stay under $300, while HVAC, roofing, electrical, or drainage repairs can reach $500 to $3,000 depending on urgency and materials."
+  },
+  {
+    city: "Jacksonville",
+    state: "FL",
+    slug: "jacksonville-property-maintenance",
+    title: "Jacksonville Property Maintenance",
+    climate: "humidity, hurricanes, salt air near the coast, pests, drainage, and long cooling seasons",
+    stock: "single-family rentals, townhomes, garden apartments, and coastal or river-adjacent homes",
+    issue: "AC condensate clogs, roof leaks, exterior rot, pest intrusion, storm damage, and plumbing backups",
+    approach: "prepare before hurricane season, track photos and invoices for insurance, and treat AC, water, and security issues as first-response items",
+    decade: "Jacksonville's growth over the last 10 years has increased demand for reliable vendors, especially after storms when every owner is calling at once.",
+    providers: "Operators often compare local HVAC, roofing, and mitigation companies with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Roto-Rooter, Mr. Rooter, and national restoration brands.",
+    costs: "Routine items may cost a few hundred dollars, while water mitigation, roof repairs, or HVAC replacement can move from $1,000 into several thousand."
+  },
+  {
+    city: "Fort Worth",
+    state: "TX",
+    slug: "fort-worth-property-maintenance",
+    title: "Fort Worth Property Maintenance",
+    climate: "heat, hail, clay soil, high winds, and rapid suburban growth",
+    stock: "single-family rentals, duplexes, townhomes, and newer build-to-rent communities",
+    issue: "AC outages, fence damage, roof claims, irrigation problems, garage doors, and foundation movement warning signs",
+    approach: "keep equipment ages, warranty status, and storm photos tied to each property so vendors can move faster",
+    decade: "Over the last 10 years, Fort Worth moved from secondary market to core rental market, and maintenance expectations rose with that growth.",
+    providers: "Managers often blend local relationships with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Roto-Rooter, Mr. Rooter, and large HVAC service networks.",
+    costs: "Small jobs can be modest, but cooling, roof, fence, irrigation, and emergency plumbing work often lands between several hundred and several thousand dollars."
+  },
+  {
+    city: "San Jose",
+    state: "CA",
+    slug: "san-jose-property-maintenance",
+    title: "San Jose Property Maintenance",
+    climate: "high labor costs, aging suburban homes, seismic considerations, drought-aware landscaping, and tech-worker expectations",
+    stock: "single-family rentals, condos, duplexes, townhomes, and small apartment buildings",
+    issue: "appliance failures, plumbing leaks, electrical upgrades, garage doors, irrigation, and access scheduling across busy households",
+    approach: "document scope tightly, get approval thresholds clear, and avoid vague dispatches because Bay Area labor time is expensive",
+    decade: "The last 10 years increased both owner distance and tenant expectations, so fast communication now prevents many avoidable escalations.",
+    providers: "San Jose owners often compare local licensed trades with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Taskrabbit, Roto-Rooter, Mr. Rooter, and larger HVAC groups.",
+    costs: "Even routine visits can cost more than national averages; expect low-hundreds for small tasks and much higher totals for licensed trade work, parts, and repeat visits."
+  },
+  {
+    city: "Austin",
+    state: "TX",
+    slug: "austin-property-maintenance",
+    title: "Austin Property Maintenance",
+    climate: "heat, hard water, flash flooding, tree growth, and pressure from fast rental-market expansion",
+    stock: "single-family rentals, condos, duplexes, new townhomes, and small multifamily buildings",
+    issue: "AC failures, sewer line backups, appliance delays, fence repairs, tree damage, and smart-home device confusion",
+    approach: "rank cooling and water issues first, capture model numbers early, and keep owner approvals fast when vendors are scarce",
+    decade: "Over the last 10 years, Austin's growth changed maintenance from informal handyman calls to a capacity-planning problem.",
+    providers: "Owners often compare local trades with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Taskrabbit, Roto-Rooter, Mr. Rooter, and large HVAC networks.",
+    costs: "Small jobs may be a few hundred dollars, but AC, plumbing, tree, fence, and appliance work can rise quickly when demand peaks."
+  },
+  {
+    city: "Charlotte",
+    state: "NC",
+    slug: "charlotte-property-maintenance",
+    title: "Charlotte Property Maintenance",
+    climate: "humidity, storms, clay soil, tree cover, and mixed old-new housing stock",
+    stock: "single-family rentals, townhomes, condos, garden apartments, and renovated older homes",
+    issue: "HVAC humidity problems, crawlspace moisture, roof leaks, appliance repairs, drainage, and exterior wood rot",
+    approach: "separate moisture source from cosmetic damage, document crawlspace or attic photos, and schedule preventive HVAC and gutter work before storm season",
+    decade: "Charlotte's growth over the last decade has raised expectations for professional, trackable repair handling across small portfolios.",
+    providers: "Managers often compare local HVAC, plumbing, and restoration vendors with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Roto-Rooter, Mr. Rooter, and Taskrabbit.",
+    costs: "Routine repair visits often start in the low hundreds, while crawlspace, HVAC, roof, and water intrusion work can reach four figures."
+  },
+  {
+    city: "Columbus",
+    state: "OH",
+    slug: "columbus-property-maintenance",
+    title: "Columbus Property Maintenance",
+    climate: "freeze-thaw winters, humid summers, basement moisture, and student-rental turnover",
+    stock: "single-family rentals, duplexes, townhomes, student rentals, and small apartment buildings",
+    issue: "furnace failures, sump pump issues, basement seepage, drain backups, door and window drafts, and appliance turnover repairs",
+    approach: "winterize early, track recurring basement moisture, and use move-in photos to separate tenant damage from normal wear",
+    decade: "In the last 10 years, Columbus has grown into a more competitive rental market, and tenants expect clearer repair status than a voicemail chain can provide.",
+    providers: "Owners commonly use local trades alongside Angi, Thumbtack, Yelp, Home Depot Pro Referral, Taskrabbit, Roto-Rooter, Mr. Rooter, and regional HVAC companies.",
+    costs: "Small maintenance can be manageable, but furnace, sump, sewer, electrical, and turnover work commonly moves from a few hundred dollars to several thousand."
+  },
+  {
+    city: "Indianapolis",
+    state: "IN",
+    slug: "indianapolis-property-maintenance",
+    title: "Indianapolis Property Maintenance",
+    climate: "cold winters, humid summers, basements, tree cover, and broad single-family rental geography",
+    stock: "single-family homes, duplexes, townhomes, and small multifamily rentals",
+    issue: "furnace outages, roof leaks, sewer line issues, foundation moisture, appliance repair, and exterior trim wear",
+    approach: "group routine work by geography, escalate heat and security issues immediately, and keep repeat-problem history visible before dispatch",
+    decade: "Investor ownership grew over the last 10 years, making consistent vendor coordination and audit trails more valuable for scattered portfolios.",
+    providers: "Indianapolis managers often compare local trades with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Taskrabbit, Roto-Rooter, Mr. Rooter, and national HVAC brands.",
+    costs: "Routine jobs often start in the low hundreds, while HVAC, sewer, roof, and moisture repairs can move into four figures when diagnostics or materials stack up."
+  },
+  {
+    city: "San Francisco",
+    state: "CA",
+    slug: "san-francisco-property-maintenance",
+    title: "San Francisco Property Maintenance",
+    climate: "coastal moisture, fog, hills, old plumbing, tight access, and high labor costs",
+    stock: "Victorians, Edwardians, condos, TICs, small apartment buildings, and hillside homes",
+    issue: "window leaks, soft drywall, old sewer laterals, knob-and-tube surprises, roof drainage, and vendor parking constraints",
+    approach: "collect photos and exact location notes before dispatch, confirm HOA or building rules, and move owner approvals fast because repeat trips are costly",
+    decade: "Over the last 10 years, San Francisco maintenance became more documentation-heavy as remote ownership, tenant protections, and high trade costs changed the pace of decisions.",
+    providers: "Owners often compare trusted local specialists with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Taskrabbit, Roto-Rooter, Mr. Rooter, and Bay Area HVAC or electrical firms.",
+    costs: "A small job can still cost a few hundred dollars, while plumbing, electrical, roofing, or moisture repairs can reach $1,000 to $5,000 faster than owners expect."
+  },
+  {
+    city: "Seattle",
+    state: "WA",
+    slug: "seattle-property-maintenance",
+    title: "Seattle Property Maintenance",
+    climate: "rain, moss, drainage, older electrical systems, steep lots, and moisture-sensitive interiors",
+    stock: "single-family rentals, townhomes, condos, small apartment buildings, and craftsman homes",
+    issue: "roof leaks, clogged gutters, deck rot, basement moisture, heat pump issues, and window condensation",
+    approach: "treat drainage as a system, document exterior water paths, and schedule gutter, roof, and deck work before long wet stretches",
+    decade: "In the last 10 years, infill townhomes, remote work, and higher tenant expectations have made repair coordination more precise and less forgiving.",
+    providers: "Seattle owners often compare local roof, drain, and HVAC vendors with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Taskrabbit, Roto-Rooter, Mr. Rooter, and regional restoration firms.",
+    costs: "Handyman work may start in the low hundreds, while drainage, roof, deck, electrical, or heat pump repairs can move into four figures."
+  },
+  {
+    city: "Denver",
+    state: "CO",
+    slug: "denver-property-maintenance",
+    title: "Denver Property Maintenance",
+    climate: "snow, hail, sun exposure, freeze-thaw swings, dry air, and expanding rental neighborhoods",
+    stock: "single-family homes, duplexes, condos, townhomes, and small apartment buildings",
+    issue: "furnace problems, roof and gutter damage, irrigation blowouts, sewer line issues, cracked exterior caulk, and fence repairs",
+    approach: "plan seasonal maintenance around snow and irrigation cycles, document hail damage quickly, and keep furnace age visible in every heating work order",
+    decade: "Denver's last decade of growth pushed owners to professionalize maintenance, especially for remote landlords who cannot inspect storm damage in person.",
+    providers: "Managers commonly compare local HVAC, roof, and sewer vendors with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Roto-Rooter, Mr. Rooter, and national restoration brands.",
+    costs: "Routine repairs may be a few hundred dollars, while roof, sewer, HVAC, and storm-related work often climbs from $1,000 to several thousand."
+  },
+  {
+    city: "Oklahoma City",
+    state: "OK",
+    slug: "oklahoma-city-property-maintenance",
+    title: "Oklahoma City Property Maintenance",
+    climate: "heat, wind, hail, tornado-season storms, clay soil, and long driving distances between properties",
+    stock: "single-family rentals, duplexes, small multifamily buildings, and suburban homes",
+    issue: "roof damage, fence repairs, HVAC strain, drainage, slab movement, and appliance replacements",
+    approach: "keep storm photos, insurance notes, and vendor estimates organized, then group non-urgent repairs by route to reduce trip charges",
+    decade: "The last 10 years have made storm documentation and fast tenant messaging more central to maintenance planning.",
+    providers: "Owners often compare local roofers, HVAC techs, and plumbers with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Roto-Rooter, Mr. Rooter, and restoration companies.",
+    costs: "Small repairs can stay affordable, but roof, fence, HVAC, and water damage work commonly reaches several hundred to several thousand dollars."
+  },
+  {
+    city: "Nashville",
+    state: "TN",
+    slug: "nashville-property-maintenance",
+    title: "Nashville Property Maintenance",
+    climate: "humidity, storms, tree cover, crawlspaces, and rapid neighborhood redevelopment",
+    stock: "single-family rentals, duplexes, townhomes, renovated cottages, and small apartment buildings",
+    issue: "HVAC humidity problems, crawlspace moisture, roof leaks, appliance issues, deck repairs, and plumbing in renovated homes",
+    approach: "document what is original versus recently renovated, separate moisture problems from finish damage, and verify short-term rental or HOA rules where relevant",
+    decade: "Nashville's last decade of growth raised both repair volume and owner expectations for real-time visibility.",
+    providers: "Managers often compare local HVAC, plumbing, and crawlspace vendors with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Roto-Rooter, Mr. Rooter, and Taskrabbit.",
+    costs: "Routine work may start in the low hundreds, while HVAC, crawlspace, deck, roof, or plumbing repairs can run into the thousands."
+  },
+  {
+    city: "Washington",
+    state: "DC",
+    slug: "washington-dc-property-maintenance",
+    title: "Washington DC Property Maintenance",
+    climate: "humid summers, freeze-thaw winters, rowhouse age, strict permitting, and condo association rules",
+    stock: "rowhouses, condos, English basements, small apartment buildings, and mixed-use rentals",
+    issue: "roof leaks, basement moisture, radiator or heat pump issues, brick and stair repairs, pest entry, and access coordination",
+    approach: "confirm building responsibility, permit needs, and tenant access early, then keep owners informed before small water problems become legal problems",
+    decade: "Over the last 10 years, more professionalized rentals and stricter documentation habits have made repair records central to owner and tenant trust.",
+    providers: "DC managers often compare licensed local trades with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Taskrabbit, Roto-Rooter, Mr. Rooter, and regional restoration firms.",
+    costs: "Basic visits often start in the low hundreds, while roof, masonry, moisture, electrical, and HVAC repairs can become four-figure projects quickly."
+  },
+  {
+    city: "El Paso",
+    state: "TX",
+    slug: "el-paso-property-maintenance",
+    title: "El Paso Property Maintenance",
+    climate: "desert heat, dust, hard water, roof sun exposure, and cooling season stress",
+    stock: "single-family rentals, duplexes, townhomes, and low-rise apartment communities",
+    issue: "AC strain, evaporative cooler issues, water heater scale, stucco cracks, roof coating, and appliance wear",
+    approach: "track equipment age, schedule cooling service before peak heat, and keep parts notes handy for repeat HVAC calls",
+    decade: "The last 10 years have made preventive cooling maintenance more important as hotter summers and tenant expectations narrow the response window.",
+    providers: "Owners commonly compare local HVAC and plumbing vendors with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Roto-Rooter, Mr. Rooter, and national HVAC brands.",
+    costs: "Small jobs may remain modest, but cooling, roof coating, plumbing, and water heater work often ranges from a few hundred to several thousand dollars."
+  },
+  {
+    city: "Las Vegas",
+    state: "NV",
+    slug: "las-vegas-property-maintenance",
+    title: "Las Vegas Property Maintenance",
+    climate: "extreme heat, hard water, dust, sun exposure, irrigation rules, and heavy AC dependence",
+    stock: "single-family rentals, condos, townhomes, and HOA-heavy communities",
+    issue: "AC failures, water heater scale, appliance stress, garage doors, irrigation leaks, and cracked exterior seals",
+    approach: "treat cooling as urgent, verify HOA requirements, and collect appliance model numbers before sending a vendor",
+    decade: "Las Vegas maintenance changed over the last 10 years as remote investors, hotter summers, and short vendor windows made speed and documentation essential.",
+    providers: "Managers often compare local HVAC, plumbing, and appliance vendors with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Roto-Rooter, Mr. Rooter, and One Hour Heating & Air Conditioning.",
+    costs: "Routine repairs can start in the low hundreds, while HVAC, water heater, appliance, and emergency cooling work can reach $500 to several thousand dollars."
+  },
+  {
+    city: "Boston",
+    state: "MA",
+    slug: "boston-property-maintenance",
+    title: "Boston Property Maintenance",
+    climate: "old housing, snow, freeze-thaw cycles, coastal moisture, student turns, and high labor costs",
+    stock: "triple-deckers, brownstones, condos, small apartment buildings, and converted homes",
+    issue: "steam heat, frozen pipes, roof ice, old electrical, plaster damage, drain backups, and September turnover repairs",
+    approach: "document heat and water issues immediately, plan turn work well before lease changeover, and keep owner approvals tight when licensed trades are needed",
+    decade: "Over the last 10 years, Boston owners have dealt with higher trade costs, stricter tenant expectations, and less tolerance for scattered maintenance records.",
+    providers: "Owners often compare local licensed trades with Angi, Thumbtack, Yelp, Home Depot Pro Referral, Taskrabbit, Roto-Rooter, Mr. Rooter, and regional HVAC or restoration firms.",
+    costs: "A small visit can run a few hundred dollars, while heat, plumbing, electrical, roof, or turn-season work can quickly become a four-figure expense."
+  }
+];
+
+const publicFooterCityLinks = propertyMaintenanceCities.filter((city) =>
+  ["san-francisco-property-maintenance", "boston-property-maintenance", "new-york-city-property-maintenance", "los-angeles-property-maintenance", "chicago-property-maintenance", "houston-property-maintenance"].includes(city.slug)
+);
 
 function publicSitePageFor(pathname = window.location.pathname) {
   const normalized = pathname.replace(/\/+$/, "") || "/";
+  if (normalized.startsWith("/property-maintenance/")) {
+    return propertyMaintenanceCities.some((city) => `/property-maintenance/${city.slug}` === normalized) ? "maintenanceCity" : null;
+  }
   return publicSitePages[normalized] || null;
+}
+
+function propertyMaintenanceCityFor(pathname = window.location.pathname) {
+  const normalized = pathname.replace(/\/+$/, "") || "/";
+  return propertyMaintenanceCities.find((city) => `/property-maintenance/${city.slug}` === normalized) || null;
 }
 
 const routeRoles = {
@@ -687,11 +1035,26 @@ function maintenanceNotesForProperty(property) {
 
 function PublicSiteRouter() {
   const page = publicSitePageFor();
+
+  useEffect(() => {
+    if (page) trackPageView();
+  }, [page]);
+
   return page ? <PublicSitePage page={page} /> : <App />;
 }
 
 function PublicSitePage({ page }) {
+  const cityArticle = page === "maintenanceCity" ? propertyMaintenanceCityFor() : null;
   const pages = {
+    about: {
+      eyebrow: "About LivingRelay",
+      title: "Property maintenance without the scattered texts",
+      summary: "LivingRelay helps small rental operators keep tenant issues, owner approvals, vendor coordination, and invoice records moving in one place.",
+      primary: "Open app",
+      primaryHref: "/",
+      secondary: "Property maintenance guides",
+      secondaryHref: "/property-maintenance"
+    },
     marketing: {
       eyebrow: "LivingRelay",
       title: "SMS-first rental repair coordination",
@@ -718,6 +1081,42 @@ function PublicSitePage({ page }) {
       primaryHref: "mailto:privacy@livingrelay.com",
       secondary: "Support",
       secondaryHref: "/support"
+    },
+    ios: {
+      eyebrow: "iOS App",
+      title: "LivingRelay for managers, owners, tenants, and vendors on iPhone",
+      summary: "Use the LivingRelay iOS app to review repair requests, approve work, coordinate vendors, and keep maintenance records close when you are away from a desk.",
+      primary: "Open web app",
+      primaryHref: "/",
+      secondary: "Get support",
+      secondaryHref: "/support"
+    },
+    referral: {
+      eyebrow: "Referral Program",
+      title: "Invite another owner or property manager",
+      summary: "LivingRelay referrals help small operators bring cleaner repair coordination to the people they already work with.",
+      primary: "Open app",
+      primaryHref: "/",
+      secondary: "Property maintenance guides",
+      secondaryHref: "/property-maintenance"
+    },
+    maintenanceIndex: {
+      eyebrow: "Property Maintenance Guides",
+      title: "City-by-city property maintenance playbooks",
+      summary: "Maintenance looks different in every market. Start with the 25 largest U.S. cities and see the issues, vendors, costs, and workflows that shape rental repairs.",
+      primary: "Browse cities",
+      primaryHref: "#city-guides",
+      secondary: "Open app",
+      secondaryHref: "/"
+    },
+    maintenanceCity: {
+      eyebrow: cityArticle ? `${cityArticle.city}, ${cityArticle.state}` : "Property Maintenance",
+      title: cityArticle?.title || "Property Maintenance",
+      summary: cityArticle ? `A practical guide to common rental maintenance needs in ${cityArticle.city}, how owners and managers can approach repairs, and what costs tend to surprise teams.` : "A practical city guide for rental maintenance.",
+      primary: "Open app",
+      primaryHref: "/",
+      secondary: "All city guides",
+      secondaryHref: "/property-maintenance"
     }
   };
   const content = pages[page] || pages.marketing;
@@ -731,6 +1130,8 @@ function PublicSitePage({ page }) {
         </a>
         <div>
           <a href="/marketing">Marketing</a>
+          <a href="/about">About</a>
+          <a href="/property-maintenance">City guides</a>
           <a href="/support">Support</a>
           <a href="/privacy">Privacy</a>
           <a className="public-nav-button" href="/">Open app</a>
@@ -748,8 +1149,14 @@ function PublicSitePage({ page }) {
       </section>
 
       {page === "marketing" && <MarketingContent />}
+      {page === "about" && <AboutContent />}
       {page === "support" && <SupportContent />}
       {page === "privacy" && <PrivacyContent />}
+      {page === "ios" && <IosAppContent />}
+      {page === "referral" && <ReferralProgramContent />}
+      {page === "maintenanceIndex" && <PropertyMaintenanceIndex />}
+      {page === "maintenanceCity" && cityArticle && <PropertyMaintenanceCityArticle city={cityArticle} />}
+      <PublicFooter />
     </main>
   );
 }
@@ -779,6 +1186,29 @@ function MarketingContent() {
   );
 }
 
+function AboutContent() {
+  return (
+    <>
+      <section className="public-grid three">
+        <PublicCard icon={<MessageSquare />} title="Text-first intake" text="Tenants can start with the channel they already use, while managers still get structured issue details, access notes, and repair history." />
+        <PublicCard icon={<Users />} title="Role-aware approvals" text="Owners, managers, tenants, and vendors see the work that matters to them without exposing the whole operating account." />
+        <PublicCard icon={<ReceiptText />} title="Repair memory" text="Invoices, estimates, dispatch notes, and closeout records stay attached to the property so the next decision starts with context." />
+      </section>
+
+      <section className="public-band">
+        <div>
+          <span className="eyebrow">Why it exists</span>
+          <h2>Small rental teams need better coordination, not more portals.</h2>
+        </div>
+        <div className="public-copy-stack">
+          <p>Most maintenance problems begin simply: a renter notices water under a sink, a lock stops catching, an AC unit goes quiet, or an owner needs to approve a quote. The mess usually starts after that, when photos, vendor calls, estimates, approvals, and invoices scatter across separate threads.</p>
+          <p>LivingRelay is built for the operator who owns or manages real property but does not have an enterprise maintenance department. The goal is plain: keep repairs moving, keep people informed, and keep records clean enough that nobody has to reconstruct the story later.</p>
+        </div>
+      </section>
+    </>
+  );
+}
+
 function SupportContent() {
   return (
     <>
@@ -799,6 +1229,115 @@ function SupportContent() {
         </div>
       </section>
     </>
+  );
+}
+
+function IosAppContent() {
+  return (
+    <>
+      <section className="public-grid three">
+        <PublicCard icon={<Smartphone />} title="Field-ready repair review" text="Review tenant issues, work-order status, photos, estimates, and owner approvals from an iPhone." />
+        <PublicCard icon={<Bell />} title="Role-based updates" text="Managers, owners, tenants, and vendors can receive the notifications that match their responsibility." />
+        <PublicCard icon={<Download />} title="App Store ready" text="LivingRelay has iOS submission assets prepared for the production app experience. The public App Store link can be added here when the listing is live." />
+      </section>
+
+      <section className="public-band">
+        <div>
+          <span className="eyebrow">Download</span>
+          <h2>Use the web app today. Add the App Store link when live.</h2>
+        </div>
+        <div className="public-contact-list">
+          <a href="/"><Smartphone size={18} /> Open LivingRelay web app</a>
+          <a href="mailto:support@livingrelay.com"><MessageSquare size={18} /> Ask about iOS access</a>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function ReferralProgramContent() {
+  return (
+    <>
+      <section className="public-grid two">
+        <PublicCard icon={<Gift />} title="Invite owners and managers" text="Existing manager and owner accounts can invite another operator and attach a referral code to the new property setup flow." />
+        <PublicCard icon={<ShieldCheck />} title="Validated rewards" text="LivingRelay validates referred properties before granting rewards, which keeps the program useful for legitimate rental operators." />
+      </section>
+
+      <section className="public-band">
+        <div>
+          <span className="eyebrow">How it works</span>
+          <h2>Referrals are built around real property adoption.</h2>
+        </div>
+        <div className="public-checklist">
+          <p><Check size={18} /> Send a referral invite from the manager or owner workspace</p>
+          <p><Check size={18} /> The new operator creates a property using the referral code</p>
+          <p><Check size={18} /> LivingRelay reviews the property before granting credits</p>
+          <p><Check size={18} /> Qualified accounts can receive dispatch or subscription-related rewards</p>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function PropertyMaintenanceIndex() {
+  return (
+    <>
+      <section className="public-band maintenance-intro">
+        <div>
+          <span className="eyebrow">Top U.S. cities</span>
+          <h2>Maintenance is local. The workflow should remember that.</h2>
+        </div>
+        <div className="public-copy-stack">
+          <p>A clogged drain in Boston, an AC outage in Phoenix, a roof leak in Seattle, and a slab concern in San Antonio may all start as a tenant message. The right response depends on climate, building stock, local vendor capacity, and how quickly owners approve the next step.</p>
+          <p>These guides use the 25 largest U.S. cities by 2024 population estimate as the starting map for practical, city-aware rental maintenance content.</p>
+        </div>
+      </section>
+
+      <section className="city-guide-grid" id="city-guides" aria-label="Property maintenance city guides">
+        {propertyMaintenanceCities.map((city) => (
+          <a className="city-guide-card" href={`/property-maintenance/${city.slug}`} key={city.slug}>
+            <span><MapPin size={15} /> {city.state}</span>
+            <h2>{city.city} Property Maintenance</h2>
+            <p>{city.issue}</p>
+            <strong>Read guide <ArrowRight size={16} /></strong>
+          </a>
+        ))}
+      </section>
+    </>
+  );
+}
+
+function PropertyMaintenanceCityArticle({ city }) {
+  return (
+    <article className="maintenance-article" aria-label={city.title}>
+      <p className="privacy-date">Part of the LivingRelay city property maintenance series</p>
+      <h2>{city.title}: what rental operators actually need to plan for</h2>
+      <p>{city.city} maintenance is shaped by {city.climate}. The local rental base includes {city.stock}, so a work order is rarely just a generic repair ticket. The best operators treat each issue as a small operating decision: what is urgent, who needs to approve it, which vendor is right for the building, and what record should exist afterward.</p>
+
+      <h3>Common Maintenance Needs</h3>
+      <p>Common calls in {city.city} include {city.issue}. The first useful step is not always dispatch. It is getting the tenant to send the right context: where the problem is, whether it is active right now, whether there are photos, whether a shutoff or breaker has been tried, and when a vendor can enter.</p>
+
+      <h3>How To Approach Repairs</h3>
+      <p>For {city.city} property managers and owners, a strong process is to {city.approach}. LivingRelay supports that kind of process by turning tenant messages into structured work orders, then keeping approval notes, vendor outreach, estimates, and invoices attached to the property record.</p>
+
+      <h3>Service Providers To Compare</h3>
+      <p>{city.providers} The point is not that one marketplace should replace a trusted local vendor. The point is that managers need a visible comparison set when their first-choice plumber, electrician, HVAC technician, handyman, roofer, or appliance repair pro cannot take the job.</p>
+
+      <h3>What Has Changed In The Last 10 Years</h3>
+      <p>{city.decade} Tenants expect faster status updates. Owners expect better cost control. Vendors expect clearer scopes before they drive across town. A repair workflow that used to fit in three text messages now often needs photos, approval thresholds, invoice delivery rules, and a clean audit trail.</p>
+
+      <h3>Common Costs And Expenses</h3>
+      <p>{city.costs} As a planning baseline, national cost guides often place handyman projects around $176 to $689, plumbing calls around $180 to $496, electrician work around $163 to $538, and HVAC repairs across a much wider $130 to $2,000 range. {city.city} pricing can land above or below that depending on licensing, urgency, access, materials, and whether the repair requires repeat visits.</p>
+
+      <section className="article-cta">
+        <div>
+          <span className="eyebrow">LivingRelay</span>
+          <h3>Give every repair a cleaner record.</h3>
+          <p>Use LivingRelay to collect tenant details, coordinate owner approvals, contact vendors, and preserve invoice history for each rental property.</p>
+        </div>
+        <a className="primary" href="/">Open app <ArrowRight size={18} /></a>
+      </section>
+    </article>
   );
 }
 
@@ -849,6 +1388,42 @@ function PublicCard({ icon, title, text }) {
       <h2>{title}</h2>
       <p>{text}</p>
     </article>
+  );
+}
+
+function PublicFooter() {
+  return (
+    <footer className="public-footer">
+      <div className="public-footer-brand">
+        <a className="public-brand" href="/marketing" aria-label="LivingRelay marketing page">
+          <span className="app-mark"><Wrench size={20} /></span>
+          <strong>LivingRelay</strong>
+        </a>
+        <p>SMS-first property maintenance coordination for small rental operators.</p>
+      </div>
+
+      <div className="public-footer-links">
+        <div>
+          <h2>Company</h2>
+          <a href="/about">About</a>
+          <a href="/support">Support</a>
+          <a href="/privacy">Privacy</a>
+        </div>
+        <div>
+          <h2>Product</h2>
+          <a href="/ios">iOS app download</a>
+          <a href="/referral-program">Referral program</a>
+          <a href="/">Open app</a>
+        </div>
+        <div>
+          <h2>City Guides</h2>
+          <a href="/property-maintenance">All property maintenance guides</a>
+          {publicFooterCityLinks.map((city) => (
+            <a href={`/property-maintenance/${city.slug}`} key={city.slug}>{city.city} property maintenance</a>
+          ))}
+        </div>
+      </div>
+    </footer>
   );
 }
 
@@ -1037,6 +1612,11 @@ function App() {
   }, [siteAdminConsoleAvailable]);
 
   useEffect(() => {
+    if (user) return;
+    trackPageView();
+  }, [user?.id]);
+
+  useEffect(() => {
     function applyRoute() {
       const nextRoute = parseDashboardRoute();
       if (!nextRoute) return;
@@ -1056,6 +1636,7 @@ function App() {
     if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextUrl) {
       window.history.replaceState({}, "", nextUrl);
     }
+    trackPageView(nextUrl);
   }, [user?.id, user?.role, adminSection, activeProperty?.id, activeOrder?.id]);
 
   async function loadState() {
@@ -1912,7 +2493,13 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
         <div className="landing-hero-grid">
           <div className="hero-copy">
             <span className="hero-kicker">City home maintenance over SMS</span>
-            <p>Start here: set up a rental property, request access for your home, or log in to manage repairs.</p>
+            <h1>Rental repairs, routed from the first text.</h1>
+            <p>Set up a property, invite your owner or manager, and keep approvals, vendors, invoices, and tenant updates in one place.</p>
+            <div className="hero-proof" aria-label="What LivingRelay coordinates">
+              <span><MessageSquare size={16} /> Tenant texts</span>
+              <span><ShieldCheck size={16} /> Owner approvals</span>
+              <span><ReceiptText size={16} /> Tax-ready records</span>
+            </div>
           </div>
 
           <section className="access-panel" aria-label={landingMode === "create" ? "Setup property" : "Log into property"}>
@@ -2064,6 +2651,7 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
           <button className="primary wide" onClick={() => setLandingMode("create")}><Building2 size={16} /> Setup property</button>
         </article>
       </section>
+      <PublicFooter />
     </main>
   );
 }

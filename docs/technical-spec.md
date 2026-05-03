@@ -311,6 +311,10 @@ Places:
 - `GOOGLE_PLACES_API_KEY`
 - `VITE_GOOGLE_PLACES_API_KEY`
 
+Analytics:
+
+- `VITE_GA_MEASUREMENT_ID`
+
 Admin/hosts:
 
 - `SITE_ADMIN_HOST`

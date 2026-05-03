@@ -1,5 +1,17 @@
 # Integrations
 
+## Google Analytics
+
+LivingRelay uses Google Analytics 4 through the frontend `gtag.js` integration.
+
+Required env:
+
+```text
+VITE_GA_MEASUREMENT_ID=G-XXXXXXXXXX
+```
+
+The app sends page views for public pages, the unauthenticated app entry, and role-aware dashboard route changes. Leave the variable blank for local development or any environment whose traffic should not be counted.
+
 ## Twilio SMS
 
 Use Twilio first for SMS. Voice can come after the SMS workflow is reliable.
