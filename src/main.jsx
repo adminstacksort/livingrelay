@@ -46,8 +46,8 @@ const people = [
   { id: "tenant-1", name: "Maya Chen", role: "Tenant", phone: "(310) 555-0103", pin: "4444", propertyIds: ["p-1"], unit: "Garden flat" },
   { id: "vendor-1", name: "Carlos Plumbing", role: "Vendor", phone: "(310) 555-0104", pin: "5555", propertyIds: ["p-1"], trade: "Plumbing" },
   { id: "test-manager", name: "Test Manager", role: "Manager", phone: "+15555555551", pin: "1111", propertyIds: ["p-test"], managesPropertyIds: ["p-test"], accountIds: ["acct-test"] },
-  { id: "test-owner", name: "Test Owner", role: "Owner", phone: "+15555555552", pin: "2222", propertyIds: ["p-test"], accountIds: ["acct-test"] },
-  { id: "test-tenant", name: "Test Tenant", role: "Tenant", phone: "+15555555553", pin: "3333", propertyIds: ["p-test"], unit: "Test unit" }
+  { id: "test-owner", name: "Test Owner", role: "Owner", phone: "+15555555552", pin: "3333", propertyIds: ["p-test"], accountIds: ["acct-test"] },
+  { id: "test-tenant", name: "Test Tenant", role: "Tenant", phone: "+15555555553", pin: "4444", propertyIds: ["p-test"], unit: "Test unit" }
 ];
 
 const accounts = [

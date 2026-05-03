@@ -241,13 +241,13 @@ app.post("/api/phone-verifications/verify", (req, res) => {
 app.post("/api/auth/login/start", async (req, res) => {
   try {
     const { phone, pin } = req.body;
-    const phoneIdentity = resolveUniquePhoneIdentity(phone);
-    if (phoneIdentity.error) {
-      res.status(phoneIdentity.status).json({ error: phoneIdentity.error });
+    const loginIdentity = resolveLoginIdentity(phone, pin);
+    if (loginIdentity.error) {
+      res.status(loginIdentity.status).json({ error: loginIdentity.error });
       return;
     }
-    const person = phoneIdentity.person;
-    if (person.pin !== pin) {
+    const person = loginIdentity.person;
+    if (!loginIdentity.acceptedTestAlias && person.pin !== pin) {
       res.status(401).json({ error: "Invalid phone or PIN" });
       return;
     }
@@ -275,13 +275,13 @@ app.post("/api/auth/login/start", async (req, res) => {
 
 app.post("/api/auth/login/verify", (req, res) => {
   try {
-    const phoneIdentity = resolveUniquePhoneIdentity(req.body.phone);
-    if (phoneIdentity.error) {
-      res.status(phoneIdentity.status).json({ error: phoneIdentity.error });
+    const loginIdentity = resolveLoginIdentity(req.body.phone, req.body.pin);
+    if (loginIdentity.error) {
+      res.status(loginIdentity.status).json({ error: loginIdentity.error });
       return;
     }
-    const person = phoneIdentity.person;
-    if (person.pin !== req.body.pin) {
+    const person = loginIdentity.person;
+    if (!loginIdentity.acceptedTestAlias && person.pin !== req.body.pin) {
       res.status(401).json({ error: "Invalid phone or PIN" });
       return;
     }
@@ -1372,6 +1372,24 @@ function resolveUniquePhoneIdentity(phone) {
     };
   }
   return { person: matches[0] };
+}
+
+function resolveLoginIdentity(phone, pin) {
+  const testAlias = testLoginAliasPerson(phone, pin);
+  if (testAlias) return { person: testAlias, acceptedTestAlias: true };
+  return resolveUniquePhoneIdentity(phone);
+}
+
+function testLoginAliasPerson(phone, pin) {
+  const phoneDigits = String(phone || "").replace(/\D/g, "").slice(-10);
+  if (phoneDigits !== "5555555555") return null;
+  const testLoginPins = {
+    1111: "test-manager",
+    3333: "test-owner",
+    4444: "test-tenant"
+  };
+  const person = people.find((item) => item.id === testLoginPins[String(pin || "")]);
+  return person && isTestLoginPerson(person) ? person : null;
 }
 
 function accountForPhonePeople(phonePeople) {
