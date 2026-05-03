@@ -1,5 +1,6 @@
 import { getPostgresStatus, getRuntimeEnvironment, getStateId } from "./postgresState.js";
 import { getTwilioStatus } from "./twilioClient.js";
+import { getEmailStatus } from "./emailClient.js";
 import { platformSettings } from "./data.js";
 
 const productionRequired = [
@@ -22,6 +23,7 @@ export async function getReadiness() {
   if (!googlePlacesConfigured) missing.push("GOOGLE_PLACES_API_KEY");
   const database = await getPostgresStatus();
   const twilio = getTwilioStatus();
+  const email = getEmailStatus();
   const vendorCallsEnabled = process.env.ENABLE_VENDOR_CALLS === "true";
   const elevenLabsMissing = vendorCallsEnabled
     ? [
@@ -46,7 +48,8 @@ export async function getReadiness() {
       googleConfigured: googlePlacesConfigured
     },
     notifications: {
-      emailConfigured: Boolean(process.env.RESEND_API_KEY),
+      emailConfigured: email.configured,
+      emailProvider: email.provider,
       iosPushConfigured: Boolean(process.env.APNS_KEY_ID && process.env.APNS_TEAM_ID && process.env.APNS_BUNDLE_ID && process.env.APNS_PRIVATE_KEY),
       androidPushConfigured: false
     },

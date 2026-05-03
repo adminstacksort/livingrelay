@@ -284,6 +284,11 @@ Required production readiness variables:
 - `TWILIO_MESSAGING_NUMBER`
 - `ANTHROPIC_API_KEY`
 
+Email:
+
+- `TWILIO_SENDGRID_API_KEY`
+- `TWILIO_SENDGRID_FROM_EMAIL`
+
 Stripe:
 
 - `STRIPE_SECRET_KEY`

@@ -83,7 +83,7 @@ App behavior:
 
 Admins and owners should be able to choose:
 
-- Channels: email and native push. Email works for any role with an email address. iOS push uses registered APNs device tokens; Android tokens are stored with the same device shape for FCM rollout.
+- Channels: email and native push. Email uses Twilio SendGrid and works for any role with an email address. iOS push uses registered APNs device tokens; Android tokens are stored with the same device shape for FCM rollout.
 - Events: tenant logged request, vendors being contacted, vendor booked, issue resolved, owner paid, owner approval, and billing setup.
 
 The default should be:

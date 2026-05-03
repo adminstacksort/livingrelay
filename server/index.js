@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { accessRequests, accounts, auditLog, billingEvents, invoices, notifications, people, platformSettings, properties, recordAudit, referrals, saveState, vendors, waitForStatePersistence, workOrders } from "./data.js";
 import { composeActionMessage, handleInboundCommand, normalizePhone } from "./smsLogic.js";
 import { getTwilioStatus, sendSms } from "./twilioClient.js";
+import { sendEmail } from "./emailClient.js";
 import { registerTwilioCallWithElevenLabs, startVendorQuoteCalls } from "./elevenLabsCalls.js";
 import { runFullFlowDemo, selectDemoQuote, simulateVendorOutreach } from "./demoOutreach.js";
 import { createDemoScenario, listDemoScenarios } from "./demoScenarios.js";
@@ -2275,20 +2276,7 @@ function buildPublicLivingRelayInvite(body) {
 }
 
 async function sendLivingRelayInviteEmail({ to, subject, text }) {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return { sent: false, reason: "email_not_configured" };
-  const from = process.env.RESEND_FROM_EMAIL || process.env.INVITE_FROM_EMAIL || "LivingRelay <support@livingrelay.com>";
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ from, to, subject, text })
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) return { sent: false, reason: data.message || data.error || `email_failed_${response.status}` };
-  return { sent: true, id: data.id };
+  return sendEmail({ to, subject, text, from: process.env.INVITE_FROM_EMAIL });
 }
 
 function isTestLoginPerson(person) {

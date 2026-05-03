@@ -1,6 +1,7 @@
 import http2 from "node:http2";
 import { createSign, randomUUID } from "node:crypto";
 import { notifications, people, properties, recordAudit, saveState, vendors, workOrders } from "./data.js";
+import { sendEmail } from "./emailClient.js";
 
 const notificationEvents = {
   tenant_report: {
@@ -236,29 +237,17 @@ function recipientsForEvent({ event, order, property, tenant, vendor }) {
 }
 
 async function sendEmailNotification({ person, eventKey, title, body, order }) {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return deliveryResult({ person, channel: "email", eventKey, sent: false, reason: "email_not_configured" });
-  const from = process.env.RESEND_FROM_EMAIL || process.env.NOTIFICATIONS_FROM_EMAIL || "LivingRelay <support@livingrelay.com>";
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from,
-      to: person.email,
-      subject: title,
-      text: `${body}\n\n${order?.id ? `Work order: ${order.id}` : "LivingRelay"}`
-    })
+  const result = await sendEmail({
+    to: person.email,
+    subject: title,
+    text: `${body}\n\n${order?.id ? `Work order: ${order.id}` : "LivingRelay"}`
   });
-  const data = await response.json().catch(() => ({}));
   return deliveryResult({
     person,
     channel: "email",
     eventKey,
-    sent: response.ok,
-    reason: response.ok ? data.id || "sent" : data.message || data.error || `email_failed_${response.status}`
+    sent: result.sent,
+    reason: result.reason || result.id || "sent"
   });
 }
 
