@@ -2079,7 +2079,9 @@ function App() {
 
   async function loadState() {
     const response = await fetch("/api/state");
-    const data = await response.json();
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : {};
+    if (!response.ok) throw new Error(data.error || `State load failed: ${response.status}`);
     setAppData(data);
     setOrders(data.workOrders || seedOrders);
     setInvoices(data.invoices || seedInvoices);
@@ -2561,7 +2563,7 @@ function App() {
     return { open, approvals, completed, invoiceTotal, needsReply: tenantNeedsReply, ownerApprovals, quotes, scheduled, stale: visibleStaleOrders.length, unpaidInvoices };
   }, [livePropertyInvoices, tenantOrders, user?.role, vendorOrders, vendorProfile, visibleOrders, visibleStaleOrders.length]);
 
-  if (!session) {
+  if (!session || !user) {
     return (
       <LandingPage
         phone={phone}
@@ -3428,7 +3430,8 @@ function AdminQaPanel({ siteAdminToken, reloadState, setActivePropertyId, setAct
       const response = await fetch("/api/site-admin/qa/scenarios", {
         headers: { Authorization: `Bearer ${siteAdminToken}` }
       });
-      const data = await response.json();
+      const text = await response.text();
+      const data = text ? JSON.parse(text) : {};
       if (response.ok && data.scenarios?.length) setScenarios(data.scenarios);
     } catch {
       setScenarios(defaultScenarios);
@@ -3445,7 +3448,8 @@ function AdminQaPanel({ siteAdminToken, reloadState, setActivePropertyId, setAct
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${siteAdminToken}` },
         body: JSON.stringify(form)
       });
-      const data = await response.json();
+      const text = await response.text();
+      const data = text ? JSON.parse(text) : {};
       if (!response.ok) throw new Error(data.error || "QA run failed");
       setRun(data.run);
       setStatus({ state: data.run.issues?.some((issue) => issue.severity === "error") ? "error" : "ok", message: `${data.run.scenarioTitle} finished with ${data.run.issues?.length || 0} finding${data.run.issues?.length === 1 ? "" : "s"}.` });

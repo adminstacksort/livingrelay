@@ -840,7 +840,7 @@ app.get("/api/site-admin/qa/scenarios", (req, res) => {
 app.post("/api/site-admin/qa/run", async (req, res) => {
   try {
     const scenario = qaScenarios[req.body.scenarioId] || qaScenarios.leak_owner_approval;
-    const qaPhone = normalizePhone(req.body.phone || platformSettings.vendorCallTestNumber || process.env.VENDOR_CALL_TEST_NUMBER || "");
+    const qaPhone = normalizeOptionalPhone(req.body.phone || platformSettings.vendorCallTestNumber || process.env.VENDOR_CALL_TEST_NUMBER || "");
     const qaEmail = String(req.body.email || "").trim().toLowerCase();
     const property = properties.find((item) => item.id === "p-test") || properties[0];
     const tenant = people.find((person) => person.role === "Tenant" && person.propertyIds?.includes(property.id)) || people.find((person) => person.role === "Tenant");
@@ -2565,6 +2565,12 @@ function qaIssuesForRun({ scenario, order, property, qaPhone, qaEmail, deliverie
   return issues;
 }
 
+function normalizeOptionalPhone(phone = "") {
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (!digits) return "";
+  return normalizePhone(phone);
+}
+
 function safeEnvValue(key) {
   if (!process.env[key]) return "";
   if (/KEY|SECRET|TOKEN|PASSWORD|AUTH|_ID$/i.test(key)) return "configured";
@@ -3127,9 +3133,9 @@ app.post("/api/twilio/takeover-conference", (req, res) => {
     : "Please hold while LivingRelay connects you to the property manager.";
   res.type("text/xml").send(`
     <Response>
-      <Say>${escapeTwimlText(intro)}</Say>
+      <Say>${escapeXml(intro)}</Say>
       <Dial>
-        <Conference beep="false" startConferenceOnEnter="true" endConferenceOnExit="${role === "manager" ? "true" : "false"}">${escapeTwimlText(conferenceName)}</Conference>
+        <Conference beep="false" startConferenceOnEnter="true" endConferenceOnExit="${role === "manager" ? "true" : "false"}">${escapeXml(conferenceName)}</Conference>
       </Dial>
     </Response>
   `.trim());
@@ -3228,6 +3234,10 @@ function escapeXml(value) {
 function writeSse(res, event, data) {
   res.write(`event: ${event}\n`);
   res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function sanitizeConferenceName(value) {
+  return String(value || "livingrelay-takeover").replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 128);
 }
 
 function normalizeProspectingLead(input) {

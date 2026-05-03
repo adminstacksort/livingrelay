@@ -169,7 +169,7 @@ wss://YOUR-API-HOST/api/media/listen
 
 When using `twilio_register`, LivingRelay injects a Twilio `<Start><Stream track="both_tracks">` before the ElevenLabs TwiML. Twilio streams μ-law 8kHz audio into `/api/media/twilio`, and the manager `Audio` button opens `/api/media/listen` in the browser and plays the live audio. `TWILIO_MEDIA_STREAM_URL` is optional; set it only if the media relay runs on a separate host.
 
-The manager `Join` button still dials the manager as a standby/coordinator path. Browser listen-in is handled by the `Audio` button.
+The manager `Join` button still dials the manager as a standby/coordinator path. Browser listen-in is handled by the `Audio` button. The manager `Take over` button is available for Twilio-owned calls: LivingRelay redirects the active vendor call into a named Twilio conference, dials the manager into that same conference, and records the takeover state on the work order.
 
 Vendor outreach records:
 

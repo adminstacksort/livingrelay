@@ -1,6 +1,6 @@
 import { event, people, properties, recordAudit, saveState, workOrders } from "./data.js";
 import { createMediaRelayToken } from "./mediaRelay.js";
-import { callManagerForListenIn } from "./twilioClient.js";
+import { callManagerForListenIn, redirectLiveCall } from "./twilioClient.js";
 
 export function getLiveCalls(orderId) {
   const order = workOrders.find((item) => item.id === orderId);
@@ -109,27 +109,68 @@ export async function dialManagerIntoCall(orderId, callId, actorId) {
   return { order, call, join };
 }
 
-export function takeOverCall(orderId, callId, actorId) {
+export async function takeOverCall(orderId, callId, actorId) {
   const { order, call } = findCall(orderId, callId);
   if (!order || !call) return { error: "call not found" };
   const actor = people.find((person) => person.id === actorId) || people.find((person) => person.role === "Manager");
+  if (!actor?.phone) return { error: "manager phone not found" };
+  if (!call.listenInAvailable || !call.callSid) {
+    call.mode = "Takeover unavailable";
+    call.takeover = {
+      name: actor.name,
+      phone: actor.phone,
+      requestedAt: new Date().toISOString(),
+      method: "Unavailable",
+      note: "Human takeover requires a Twilio-owned live call."
+    };
+    saveState();
+    return { order, call, error: "takeover requires Twilio-owned live call" };
+  }
 
-  call.mode = "Human takeover requested";
-  call.status = "Transfer requested";
+  const baseUrl = process.env.APP_PUBLIC_URL || "http://127.0.0.1:8787";
+  const conferenceName = takeoverConferenceName(orderId, callId);
+  const vendorTwimlUrl = `${baseUrl}/api/twilio/takeover-conference?orderId=${encodeURIComponent(orderId)}&callId=${encodeURIComponent(callId)}&role=vendor&conference=${encodeURIComponent(conferenceName)}`;
+  const managerTwimlUrl = `${baseUrl}/api/twilio/takeover-conference?orderId=${encodeURIComponent(orderId)}&callId=${encodeURIComponent(callId)}&role=manager&conference=${encodeURIComponent(conferenceName)}`;
+
+  call.mode = "Human takeover connecting";
+  call.status = "Takeover connecting";
   call.takeover = {
-    name: actor?.name || "Manager",
-    phone: actor?.phone || null,
+    name: actor.name,
+    phone: actor.phone,
     requestedAt: new Date().toISOString(),
-    method: call.conversationId ? "ElevenLabs monitor command or transfer_to_number" : "Demo transfer"
+    method: "Twilio conference takeover",
+    conferenceName
+  };
+  saveState();
+
+  const redirected = await redirectLiveCall({
+    callSid: call.callSid,
+    twimlUrl: vendorTwimlUrl
+  });
+  const managerJoin = await callManagerForListenIn({
+    to: actor.phone,
+    twimlUrl: managerTwimlUrl,
+    statusCallback: `${baseUrl}/api/twilio/voice-status?orderId=${encodeURIComponent(orderId)}&callId=${encodeURIComponent(callId)}&manager=1&takeover=1`
+  });
+
+  call.mode = "Human takeover active";
+  call.status = "Manager takeover";
+  call.takeover = {
+    ...call.takeover,
+    vendorRedirectedCallSid: redirected.sid,
+    vendorRedirectStatus: redirected.status,
+    managerCallSid: managerJoin.sid,
+    managerCallStatus: managerJoin.status,
+    connectedAt: new Date().toISOString()
   };
   call.transcript = [
     ...(call.transcript || []),
     { speaker: "LivingRelay", text: `${call.takeover.name} is taking over this call.`, stamp: new Date().toISOString() }
   ];
-  order.timeline.push(event("Human takeover requested", `${call.takeover.name} requested takeover for ${call.vendorName}.`));
+  order.timeline.push(event("Human takeover started", `${call.takeover.name} was dialed into a live conference with ${call.vendorName}.`));
   saveState();
-  recordAudit(call.takeover.name, "Requested vendor call takeover", `${order.id}: ${call.vendorName}.`);
-  return { order, call };
+  recordAudit(call.takeover.name, "Started vendor call takeover", `${order.id}: ${call.vendorName}.`);
+  return { order, call, redirected, managerJoin };
 }
 
 function findCall(orderId, callId) {
@@ -154,6 +195,10 @@ function buildBrowserListenUrl(orderId, callKey) {
   const wsBase = baseUrl.replace(/^https:/, "wss:").replace(/^http:/, "ws:");
   const token = createMediaRelayToken({ orderId, callKey, role: "listener" });
   return `${wsBase}/api/media/listen?orderId=${encodeURIComponent(orderId)}&callKey=${encodeURIComponent(callKey)}&token=${encodeURIComponent(token)}`;
+}
+
+function takeoverConferenceName(orderId, callId) {
+  return `livingrelay-${orderId}-${callId}`.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 128);
 }
 
 function buildCallSummary(order, outcome) {
