@@ -239,30 +239,30 @@ app.get("/api/vendors/autocomplete", async (req, res) => {
   }
 
   try {
-    const response = await fetch("https://places.googleapis.com/v1/places:autocomplete", {
+    const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": "suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat"
+        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.internationalPhoneNumber,places.websiteUri,places.types,places.primaryType"
       },
       body: JSON.stringify({
-        input: [input, trade, property?.address].filter(Boolean).join(" "),
-        includedRegionCodes: ["us"]
+        textQuery: [input, trade, property?.address ? `near ${property.address}` : ""].filter(Boolean).join(" "),
+        maxResultCount: 6,
+        regionCode: "US"
       })
     });
     const data = await response.json();
     const googlePredictions = response.ok
-      ? (data.suggestions || [])
-        .map((suggestion) => suggestion.placePrediction)
-        .filter(Boolean)
-        .map((prediction) => ({
+      ? (data.places || [])
+        .map((place) => ({
           source: "google",
-          placeId: prediction.placeId,
-          name: prediction.structuredFormat?.mainText?.text || prediction.text?.text || "",
-          trade: trade || "General",
-          phone: "",
-          description: prediction.structuredFormat?.secondaryText?.text || prediction.text?.text || ""
+          placeId: place.id,
+          name: place.displayName?.text || "",
+          trade: inferTradeFromGoogleTypes(place.types || [], trade || "General"),
+          phone: place.nationalPhoneNumber || place.internationalPhoneNumber || "",
+          description: place.formattedAddress || "",
+          websiteUri: place.websiteUri || ""
         }))
       : [];
     res.json({ predictions: [...localPredictions, ...googlePredictions].slice(0, 10), googleConfigured: true });
@@ -1927,6 +1927,19 @@ function inferTradeFromText(text) {
     ["Handyman", ["handyman", "general repair", "door", "lock", "cabinet"]]
   ];
   return trades.find(([, words]) => words.some((word) => lower.includes(word)))?.[0] || "General";
+}
+
+function inferTradeFromGoogleTypes(types = [], fallback = "General") {
+  const text = types.join(" ").toLowerCase();
+  if (text.includes("plumber")) return "Plumbing";
+  if (text.includes("hvac") || text.includes("air_conditioning") || text.includes("heating")) return "HVAC";
+  if (text.includes("electrician")) return "Electrical";
+  if (text.includes("roof")) return "Roofing";
+  if (text.includes("painter")) return "Painting";
+  if (text.includes("landscap")) return "Landscaping";
+  if (text.includes("clean")) return "Cleaning";
+  if (text.includes("appliance")) return "Appliance";
+  return fallback || "General";
 }
 
 function inferOwnerTaxCategory(text, trade) {
