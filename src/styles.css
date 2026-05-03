@@ -2206,6 +2206,102 @@ body:has(.login-card.admin-login-card) {
   grid-column: 1 / -1;
 }
 
+.qa-progress-list {
+  border: 1px solid #e5e5e2;
+  border-radius: 8px;
+  background: #fafafa;
+  display: grid;
+  gap: 0;
+  margin-top: 12px;
+  overflow: hidden;
+}
+
+.qa-delivery-mode {
+  border: 1px solid #cdded8;
+  border-radius: 8px;
+  background: #edf8f4;
+  color: #164c44;
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+  padding: 11px 12px;
+}
+
+.qa-delivery-mode.warn {
+  border-color: #efd8b1;
+  background: #fff7e8;
+  color: #7a4d00;
+}
+
+.qa-delivery-mode strong {
+  font-size: 13px;
+}
+
+.qa-delivery-mode p {
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.qa-progress-step {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid #eeeeeb;
+  padding: 10px 12px;
+  color: #737373;
+}
+
+.qa-progress-step:first-child {
+  border-top: 0;
+}
+
+.qa-progress-step span {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #d8d8d5;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: #ffffff;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.qa-progress-step strong {
+  font-size: 13px;
+}
+
+.qa-progress-step.active {
+  color: #0a0a0a;
+}
+
+.qa-progress-step.active span {
+  border-color: #0a0a0a;
+  background: #0a0a0a;
+}
+
+.qa-progress-step.done {
+  color: #176f4a;
+}
+
+.qa-progress-step.done span {
+  border-color: #cdded8;
+  background: #edf8f4;
+  color: #176f4a;
+}
+
+.qa-progress-step.error {
+  color: #a83232;
+}
+
+.qa-progress-step.error span {
+  border-color: #f0c8bb;
+  background: #fae1d6;
+  color: #a83232;
+}
+
 .qa-scenario-summary {
   display: grid;
   gap: 10px;
@@ -2240,6 +2336,41 @@ body:has(.login-card.admin-login-card) {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.qa-message-preview {
+  border-top: 1px solid #eeeeeb;
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+}
+
+.qa-message-preview:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.qa-message-preview span {
+  color: #737373;
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.qa-message-preview strong {
+  color: #0a0a0a;
+  font-size: 13px;
+}
+
+.qa-message-preview p {
+  border: 1px solid #eeeeeb;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #26312f;
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+  padding: 10px;
+  white-space: pre-wrap;
 }
 
 .diagnostics-head,
