@@ -997,6 +997,123 @@ function GooglePlacesAddressInput({ value, onChange, onPlaceSelect, placeholder,
   );
 }
 
+function VendorAutocompleteInput({ value, onChange, onVendorSelect, trade = "", propertyId = "", placeholder = "Vendor name", required = false }) {
+  const requestIdRef = useRef(0);
+  const [predictions, setPredictions] = useState([]);
+  const [showPredictions, setShowPredictions] = useState(false);
+  const [predictionError, setPredictionError] = useState("");
+
+  useEffect(() => {
+    const query = value.trim();
+    if (query.length < 2) {
+      setPredictions([]);
+      setPredictionError("");
+      return undefined;
+    }
+    let cancelled = false;
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams({ input: query });
+      if (trade) params.set("trade", trade);
+      if (propertyId) params.set("propertyId", propertyId);
+      fetch(`/api/vendors/autocomplete?${params}`)
+        .then(async (response) => {
+          const data = await response.json().catch(() => ({ predictions: [] }));
+          return response.ok ? data : { predictions: [], error: data.error || "Vendor autocomplete is unavailable" };
+        })
+        .then((data) => {
+          if (cancelled || requestId !== requestIdRef.current) return;
+          setPredictions(Array.isArray(data.predictions) ? data.predictions : []);
+          setPredictionError(data.error || "");
+        })
+        .catch(() => {
+          if (!cancelled && requestId === requestIdRef.current) {
+            setPredictions([]);
+            setPredictionError("Vendor autocomplete is unavailable");
+          }
+        });
+    }, 160);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [value, trade, propertyId]);
+
+  async function selectPrediction(prediction) {
+    let vendor = {
+      name: prediction.name || prediction.description || value,
+      trade: prediction.trade || trade || "General",
+      phone: prediction.phone || "",
+      source: prediction.source,
+      placeId: prediction.placeId || ""
+    };
+    onChange(vendor.name);
+    setPredictions([]);
+    setShowPredictions(false);
+    if (prediction.source === "google" && prediction.placeId) {
+      try {
+        const response = await fetch(`/api/places/${encodeURIComponent(prediction.placeId)}`);
+        const place = response.ok ? await response.json() : null;
+        vendor = {
+          ...vendor,
+          name: place?.name || vendor.name,
+          phone: place?.nationalPhoneNumber || place?.internationalPhoneNumber || vendor.phone,
+          trade: inferTradeFromGoogleTypes(place?.types || [], trade),
+          websiteUri: place?.websiteUri || "",
+          address: place?.formatted_address || ""
+        };
+        onChange(vendor.name);
+      } catch {
+        // Keep the prediction-level fields when details are unavailable.
+      }
+    }
+    onVendorSelect?.(vendor);
+  }
+
+  return (
+    <span className="places-autocomplete vendor-autocomplete">
+      <input
+        required={required}
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setShowPredictions(true);
+        }}
+        onBlur={() => window.setTimeout(() => setShowPredictions(false), 140)}
+        onFocus={() => setShowPredictions(true)}
+        placeholder={placeholder}
+        autoComplete="organization"
+      />
+      {showPredictions && predictions.length > 0 && (
+        <span className="places-menu">
+          {predictions.map((prediction, index) => (
+            <button type="button" key={`${prediction.source}-${prediction.id || prediction.placeId || index}`} onMouseDown={(event) => event.preventDefault()} onClick={() => selectPrediction(prediction)}>
+              <span>{prediction.name || prediction.description}</span>
+              <small>{prediction.source === "local" ? "Saved vendor" : "Google business"}{prediction.description ? ` · ${prediction.description}` : ""}</small>
+            </button>
+          ))}
+          <em>Saved vendors first; Google when configured</em>
+        </span>
+      )}
+      {showPredictions && predictionError && <small className="places-error">{predictionError}</small>}
+    </span>
+  );
+}
+
+function inferTradeFromGoogleTypes(types = [], fallback = "General") {
+  const text = types.join(" ").toLowerCase();
+  if (text.includes("plumber")) return "Plumbing";
+  if (text.includes("hvac") || text.includes("air_conditioning") || text.includes("heating")) return "HVAC";
+  if (text.includes("electrician")) return "Electrical";
+  if (text.includes("roof")) return "Roofing";
+  if (text.includes("painter")) return "Painting";
+  if (text.includes("landscap")) return "Landscaping";
+  if (text.includes("clean")) return "Cleaning";
+  if (text.includes("appliance")) return "Appliance";
+  return fallback || "General";
+}
+
 function isTenantVisibleWorkOrder(order, user) {
   if (!order || !user) return false;
   if (!isLiveDashboardWorkOrder(order)) return false;
@@ -3689,7 +3806,7 @@ function VendorTeamOnboarding({ property, account, people, vendors, reloadState 
         <div className="vendor-wizard-grid">
           <form className="vendor-wizard-card" onSubmit={saveVendor}>
             <h3>Add a vendor</h3>
-            <label>Vendor<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Carlos Plumbing" /></label>
+            <label>Vendor<VendorAutocompleteInput required value={form.name} trade={form.trade} propertyId={property.id} onChange={(value) => setForm({ ...form, name: value })} onVendorSelect={(vendor) => setForm((current) => ({ ...current, name: vendor.name, phone: vendor.phone || current.phone, trade: vendor.trade || current.trade, notes: vendor.websiteUri ? `${current.notes ? `${current.notes}\n` : ""}${vendor.websiteUri}` : current.notes }))} placeholder="Carlos Plumbing" /></label>
             <label>Trade<select value={form.trade} onChange={(event) => setForm({ ...form, trade: event.target.value })}>{vendorOnboardingTrades.map((trade) => <option key={trade}>{trade}</option>)}</select></label>
             <label>Phone<input required value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="(310) 555-0104" /></label>
             <label>Use for<input value={form.useFor} onChange={(event) => setForm({ ...form, useFor: event.target.value })} placeholder="Water leaks under $500" /></label>
@@ -3699,12 +3816,7 @@ function VendorTeamOnboarding({ property, account, people, vendors, reloadState 
           <form className="vendor-wizard-card" onSubmit={saveTeamPlan}>
             <h3>Designate who to use</h3>
             {vendorOnboardingTrades.map((trade) => (
-              <label key={trade}>{trade}<input list={`team-vendors-${trade}`} value={form[trade] || ""} onChange={(event) => setForm({ ...form, [trade]: event.target.value })} placeholder={trade === "General" ? "Optional fallback" : "Vendor names, first choice first"} /></label>
-            ))}
-            {vendorOnboardingTrades.map((trade) => (
-              <datalist id={`team-vendors-${trade}`} key={`list-${trade}`}>
-                {vendors.filter((vendor) => vendor.trade === trade || vendor.trade === "General").map((vendor) => <option value={vendor.name} key={vendor.id} />)}
-              </datalist>
+              <label key={trade}>{trade}<VendorAutocompleteInput value={form[trade] || ""} trade={trade} propertyId={property.id} onChange={(value) => setForm({ ...form, [trade]: value })} onVendorSelect={(vendor) => setForm((current) => ({ ...current, [trade]: addVendorPreference(current[trade], vendor.name) }))} placeholder={trade === "General" ? "Optional fallback" : "Vendor names, first choice first"} /></label>
             ))}
             <button className="secondary wide" type="submit"><ClipboardList size={16} /> Save assignments</button>
           </form>
@@ -3730,6 +3842,13 @@ function preferredVendorTeam(property, vendors = []) {
       return { trade, names: merged };
     })
     .filter((item) => item.names.length);
+}
+
+function addVendorPreference(current = "", name = "") {
+  const nextName = String(name || "").trim();
+  if (!nextName) return current || "";
+  const names = String(current || "").split(",").map((item) => item.trim()).filter(Boolean);
+  return [nextName, ...names.filter((item) => item.toLowerCase() !== nextName.toLowerCase())].join(", ");
 }
 
 function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice, sendSms, sendStatus, people, vendors, auditLog, staleOrders, demoScenarios, demoStatus, demoExperienceAvailable, reloadState, runDemoOutreach, selectDemoQuote, runFullFlowDemo, createDemoScenario, nudgeOrder, nudgeStaleOrders, updateLiveCall, startVendorOutreach, selectVendorOutcome, recordCompletionPackage, bookVendor, setAdminSection }) {
@@ -4036,7 +4155,7 @@ function AdminTools({ property, people, vendors, auditLog, reloadState }) {
       </form>
 
       <form className="compact-form" onSubmit={addVendor}>
-        <input placeholder="Vendor" value={vendorForm.name} onChange={(event) => setVendorForm({ ...vendorForm, name: event.target.value })} />
+        <VendorAutocompleteInput value={vendorForm.name} trade={vendorForm.trade} propertyId={property.id} onChange={(value) => setVendorForm({ ...vendorForm, name: value })} onVendorSelect={(vendor) => setVendorForm((current) => ({ ...current, name: vendor.name, phone: vendor.phone || current.phone, trade: vendor.trade || current.trade }))} placeholder="Vendor" />
         <input placeholder="Trade" value={vendorForm.trade} onChange={(event) => setVendorForm({ ...vendorForm, trade: event.target.value })} />
         <input placeholder="Phone" value={vendorForm.phone} onChange={(event) => setVendorForm({ ...vendorForm, phone: event.target.value })} />
         <button className="secondary" type="submit"><Wrench size={15} /> Add vendor</button>
@@ -4730,7 +4849,7 @@ function OwnerView({ property, account, orders, invoices, patchInvoice, reloadSt
           emailBundle={emailBundle}
           startOwnerSubscription={startOwnerSubscription}
         />
-        <OwnerExpenseUpload form={expenseForm} setForm={setExpenseForm} onSubmit={uploadOwnerExpense} />
+        <OwnerExpenseUpload form={expenseForm} setForm={setExpenseForm} onSubmit={uploadOwnerExpense} property={property} />
         {invoices.map((invoice) => (
           <InvoiceRow key={invoice.id} invoice={invoice} onPaid={() => patchInvoice(invoice.id, "Paid")} />
         ))}
@@ -4853,12 +4972,12 @@ function TaxPacketPanel({ property, account, year, setYear, summary, emailBundle
   );
 }
 
-function OwnerExpenseUpload({ form, setForm, onSubmit }) {
+function OwnerExpenseUpload({ form, setForm, onSubmit, property }) {
   return (
     <form className="tax-panel stack" onSubmit={onSubmit}>
       <SectionTitle icon={<Upload size={18} />} title="Upload bill" eyebrow="Free owner records" />
       <div className="form-grid">
-        <label>Vendor or biller<input value={form.vendor} onChange={(event) => setForm({ ...form, vendor: event.target.value })} placeholder="Example: Carlos Plumbing" required /></label>
+        <label>Vendor or biller<VendorAutocompleteInput value={form.vendor} propertyId={property?.id || ""} onChange={(value) => setForm({ ...form, vendor: value })} onVendorSelect={(vendor) => setForm((current) => ({ ...current, vendor: vendor.name, taxCategory: ["Cleaning", "Landscaping"].includes(vendor.trade) ? "cleaningMaintenance" : current.taxCategory }))} placeholder="Example: Carlos Plumbing" required /></label>
         <label>Amount<input type="number" min="0" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} required /></label>
         <label>Tax year<select value={form.taxYear} onChange={(event) => setForm({ ...form, taxYear: event.target.value })}><option>2026</option><option>2025</option><option>2024</option></select></label>
         <label>Category<select value={form.taxCategory} onChange={(event) => setForm({ ...form, taxCategory: event.target.value })}><option value="repairs">Repairs</option><option value="cleaningMaintenance">Cleaning and maintenance</option><option value="supplies">Supplies</option><option value="utilities">Utilities</option><option value="insurance">Insurance</option><option value="taxes">Taxes</option><option value="managementFees">Management fees</option><option value="legalProfessional">Professional fees</option><option value="depreciation">Depreciation / capital item</option><option value="other">Other</option></select></label>
