@@ -83,6 +83,35 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
   }
 });
 
+app.post("/api/ses/notifications", express.text({ type: ["text/plain", "application/json"] }), async (req, res) => {
+  try {
+    if (!verifySesSnsWebhook(req)) {
+      res.status(403).json({ error: "invalid SES notification token" });
+      return;
+    }
+    const body = parseSnsRequestBody(req.body);
+    const sns = parseSnsMessage(body);
+    if (!(await verifySnsSignature(body))) {
+      res.status(403).json({ error: "invalid SNS signature" });
+      return;
+    }
+    if (sns.type === "SubscriptionConfirmation") {
+      await maybeConfirmSnsSubscription(sns.subscribeUrl);
+      res.json({ received: true, type: sns.type });
+      return;
+    }
+    if (sns.type !== "Notification") {
+      res.json({ received: true, type: sns.type || "unknown" });
+      return;
+    }
+    const result = recordSesNotification(sns.message);
+    await waitForStatePersistence();
+    res.json({ received: true, ...result });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 app.use(express.json({
   limit: "90mb",
   verify: (req, res, buffer) => {
@@ -118,34 +147,6 @@ app.use((req, res, next) => {
     next();
   } catch (error) {
     res.status(error.statusCode || 400).json({ error: error.message });
-  }
-});
-
-app.post("/api/ses/notifications", async (req, res) => {
-  try {
-    if (!verifySesSnsWebhook(req)) {
-      res.status(403).json({ error: "invalid SES notification token" });
-      return;
-    }
-    const sns = parseSnsMessage(req.body);
-    if (!(await verifySnsSignature(req.body))) {
-      res.status(403).json({ error: "invalid SNS signature" });
-      return;
-    }
-    if (sns.type === "SubscriptionConfirmation") {
-      await maybeConfirmSnsSubscription(sns.subscribeUrl);
-      res.json({ received: true, type: sns.type });
-      return;
-    }
-    if (sns.type !== "Notification") {
-      res.json({ received: true, type: sns.type || "unknown" });
-      return;
-    }
-    const result = recordSesNotification(sns.message);
-    await waitForStatePersistence();
-    res.json({ received: true, ...result });
-  } catch (error) {
-    res.status(400).json({ error: error.message });
   }
 });
 
@@ -3002,6 +3003,11 @@ function verifySesSnsWebhook(req) {
   if (!secret) return process.env.NODE_ENV !== "production";
   const provided = String(req.query.token || req.headers["x-livingrelay-ses-token"] || "");
   return safeEqual(provided, secret);
+}
+
+function parseSnsRequestBody(body) {
+  if (typeof body === "string") return JSON.parse(body);
+  return body || {};
 }
 
 function parseSnsMessage(body = {}) {
