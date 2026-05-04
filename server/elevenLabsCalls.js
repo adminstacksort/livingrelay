@@ -214,16 +214,33 @@ export async function registerTwilioCallWithElevenLabs({ fromNumber, toNumber, o
       }
     })
   });
-  const twiml = await response.text();
+  const responseBody = await response.text();
   if (!response.ok) {
-    throw new Error(twiml || `ElevenLabs register-call failed: ${response.status}`);
+    throw new Error(responseBody || `ElevenLabs register-call failed: ${response.status}`);
   }
+  const twiml = normalizeElevenLabsTwiml(responseBody);
   return injectMonitorStream(twiml, { orderId: order?.id, callKey });
+}
+
+export function normalizeElevenLabsTwiml(responseBody = "") {
+  const body = String(responseBody || "").trim();
+  if (!body) return body;
+  if (body.startsWith("<")) return body;
+  try {
+    const parsed = JSON.parse(body);
+    if (typeof parsed === "string") return parsed.trim();
+    if (typeof parsed?.twiml === "string") return parsed.twiml.trim();
+  } catch {
+    // Fall through and let the XML validation below produce the actionable error.
+  }
+  throw new Error(`ElevenLabs register-call returned non-TwiML response: ${body.slice(0, 160)}`);
 }
 
 function injectMonitorStream(twiml, { orderId = "", callKey = "" } = {}) {
   if (!twiml.includes("<Response>")) return twiml;
-  const startStream = `<Start><Stream url="${escapeXml(mediaStreamUrl({ orderId, callKey }))}" track="both_tracks" /></Start>`;
+  const streamUrl = mediaStreamUrl({ orderId, callKey });
+  if (!streamUrl.startsWith("wss://")) return twiml;
+  const startStream = `<Start><Stream url="${escapeXml(streamUrl)}" track="both_tracks" /></Start>`;
   return twiml.replace("<Response>", `<Response>${startStream}`);
 }
 

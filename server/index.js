@@ -4260,7 +4260,8 @@ app.post("/api/twilio/elevenlabs/outbound", async (req, res) => {
     }
     res.type("text/xml").send(twiml);
   } catch (error) {
-    res.type("text/xml").status(500).send(`
+    console.error(`[Twilio ElevenLabs outbound failed] ${error.message}`);
+    res.type("text/xml").status(200).send(`
       <Response>
         <Say>LivingRelay could not connect the AI coordinator. A manager will follow up.</Say>
         <Hangup />
