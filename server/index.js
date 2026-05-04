@@ -83,7 +83,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
   }
 });
 
-app.post("/api/ses/notifications", express.text({ type: ["text/plain", "application/json"] }), async (req, res) => {
+app.post(["/api/ses/notifications", "/api/ses/notifications/:token"], express.text({ type: ["text/plain", "application/json"] }), async (req, res) => {
   try {
     if (!verifySesSnsWebhook(req)) {
       res.status(403).json({ error: "invalid SES notification token" });
@@ -3001,7 +3001,7 @@ function verifyStripeSignature(req) {
 function verifySesSnsWebhook(req) {
   const secret = process.env.SES_SNS_WEBHOOK_SECRET || "";
   if (!secret) return process.env.NODE_ENV !== "production";
-  const provided = String(req.query.token || req.headers["x-livingrelay-ses-token"] || "");
+  const provided = String(req.params?.token || req.query.token || req.headers["x-livingrelay-ses-token"] || "");
   return safeEqual(provided, secret);
 }
 
