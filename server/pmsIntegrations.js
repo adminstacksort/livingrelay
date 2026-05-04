@@ -382,7 +382,7 @@ function buildWorkOrderExportPayload(connection, order) {
     && mapping.internalType === "work_order"
     && mapping.internalId === order.id
   );
-  return {
+  const payload = {
     exportState: existingMapping ? "mapped" : "pending",
     provider: connection.provider,
     externalId: existingMapping?.externalId || "",
@@ -429,6 +429,10 @@ function buildWorkOrderExportPayload(connection, order) {
         at: event.stamp || event.createdAt || ""
       }))
     }
+  };
+  return {
+    ...payload,
+    providerRequest: buildProviderWorkOrderRequest(connection.provider, payload)
   };
 }
 
@@ -761,6 +765,62 @@ function mapWorkOrderPriority(severity = "") {
 function truncate(value = "", maxLength = 80) {
   const text = String(value || "");
   return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
+}
+
+function buildProviderWorkOrderRequest(provider, payload) {
+  const workOrder = payload.workOrder || {};
+  const base = {
+    provider,
+    operation: payload.externalId ? "update_work_order" : "create_work_order",
+    externalId: payload.externalId || undefined,
+    idempotencyKey: `livingrelay:${payload.internalId}`,
+    body: workOrder
+  };
+  if (provider === "buildium") {
+    return {
+      ...base,
+      endpoint: payload.externalId ? `/v1/tasks/${payload.externalId}` : "/v1/tasks",
+      method: payload.externalId ? "PUT" : "POST",
+      body: {
+        subject: workOrder.title,
+        description: workOrder.description,
+        priority: workOrder.priority,
+        status: workOrder.status,
+        propertyId: workOrder.property?.externalId || workOrder.property?.internalId,
+        unitNumber: workOrder.property?.unit,
+        vendorId: workOrder.vendor?.externalId || undefined,
+        customFields: {
+          livingRelayWorkOrderId: payload.internalId,
+          trade: workOrder.trade,
+          estimate: workOrder.estimate,
+          accessNotes: workOrder.accessNotes
+        }
+      }
+    };
+  }
+  if (provider === "doorloop") {
+    return {
+      ...base,
+      endpoint: payload.externalId ? `/api/work-orders/${payload.externalId}` : "/api/work-orders",
+      method: payload.externalId ? "PATCH" : "POST",
+      body: {
+        title: workOrder.title,
+        description: workOrder.description,
+        status: workOrder.status,
+        priority: workOrder.priority,
+        property: workOrder.property?.externalId || workOrder.property?.internalId,
+        unit: workOrder.property?.unit,
+        assigneeVendor: workOrder.vendor?.externalId || undefined,
+        metadata: {
+          livingRelayWorkOrderId: payload.internalId,
+          trade: workOrder.trade,
+          approval: workOrder.approval,
+          timelineSummary: workOrder.timelineSummary
+        }
+      }
+    };
+  }
+  return base;
 }
 
 function accessibleAccountIds(user) {

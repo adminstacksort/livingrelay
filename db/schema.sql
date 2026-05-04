@@ -154,6 +154,7 @@ create table if not exists work_orders (
   access_notes text,
   service_window text,
   tenant_availability jsonb not null default '{}'::jsonb,
+  media_review jsonb not null default '{}'::jsonb,
   manager_approved boolean not null default false,
   owner_approved boolean not null default false,
   dispatch_fee_status text not null default 'not_charged',

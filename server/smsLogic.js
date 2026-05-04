@@ -4,6 +4,7 @@ import { buildInitialGuidance, handleTenantTroubleshootingReply, needsImmediateM
 import { defaultNotifyForRole } from "./notifications.js";
 import { buildInvoiceDeliveryInstructions } from "./vendorWorkflow.js";
 import { buildTenantAvailability, ensureWorkOrderDispatchFields, shouldAutoStartVendorOutreach } from "./vendorWorkflow.js";
+import { reviewIssueMedia } from "./issueMediaReview.js";
 
 export function normalizePhone(value = "") {
   const digits = String(value).replace(/\D/g, "");
@@ -147,6 +148,23 @@ export async function createWorkOrderFromTenant({ tenant, body, mediaItems = [] 
     ],
     media: mediaItems
   };
+  if (mediaItems.length) {
+    order.timeline.push(event("Tenant sent media", `${mediaItems.length} image/video file${mediaItems.length === 1 ? "" : "s"} received by SMS.`));
+    try {
+      order.mediaReview = await reviewIssueMedia({ order, mediaItems });
+      const status = order.mediaReview?.status === "reviewed" ? "completed" : `skipped: ${order.mediaReview?.reason || "not available"}`;
+      order.timeline.push(event("AI media review", `${mediaItems.length} SMS attachment${mediaItems.length === 1 ? "" : "s"} ${status}.`));
+    } catch (error) {
+      order.mediaReview = {
+        provider: process.env.ISSUE_MEDIA_AI_PROVIDER || "anthropic",
+        status: "error",
+        reason: error.message,
+        reviewedAt: new Date().toISOString(),
+        mediaCount: mediaItems.length
+      };
+      order.timeline.push(event("AI media review failed", error.message));
+    }
+  }
   const guidance = buildInitialGuidance({ order, tenant, mediaItems });
   order.messages.push(message("relay", guidance));
   order.troubleshooting = {

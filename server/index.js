@@ -22,6 +22,7 @@ import { consumeVerifiedPhoneToken, createPhoneChallenge, verifyPhoneChallenge }
 import { defaultNotifyForRole, dispatchNotification, getPushStatus, mergeNotifySettings, notificationCatalog, registerPushDevice } from "./notifications.js";
 import { decryptTransitFields, getTransitPublicKey } from "./transitEncryption.js";
 import { createIntegrationConnection, deleteIntegrationConnection, dryRunIntegrationSync, importDirectoryCsv, listIntegrationSummary, pmsProviders, previewWorkOrderExport, updateIntegrationConnection } from "./pmsIntegrations.js";
+import { normalizeIssueMediaAttachments, reviewIssueMedia } from "./issueMediaReview.js";
 import {
   buildTenantAvailability,
   buildInvoiceDeliveryInstructions,
@@ -82,6 +83,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
 });
 
 app.use(express.json({
+  limit: "30mb",
   verify: (req, res, buffer) => {
     req.rawBody = buffer;
   }
@@ -1270,10 +1272,17 @@ app.patch("/api/site-admin/prospecting-leads/:id", (req, res) => {
     res.status(404).json({ error: "Prospecting lead not found" });
     return;
   }
-  const allowed = ["notes", "fit", "contactName", "contactRole", "email", "phone", "website", "listingUrl", "rentalAddress", "market", "unitCount", "sourceName"];
+  const allowed = ["notes", "fit", "contactName", "contactRole", "email", "phone", "website", "listingUrl", "rentalAddress", "market", "unitCount", "sourceName", "maintenancePainSignals", "recommendedAngle"];
   for (const key of allowed) {
     if (Object.hasOwn(req.body, key)) lead[key] = sanitizeText(req.body[key]);
   }
+  if (Object.hasOwn(req.body, "unitRange")) lead.unitRange = normalizeLeadUnitRange(req.body.unitRange);
+  if (Object.hasOwn(req.body, "activeVacancy")) lead.activeVacancy = normalizeLeadChoice(req.body.activeVacancy, ["Yes", "Likely", "Unknown", "No"], "Unknown");
+  if (Object.hasOwn(req.body, "publicPhonePresent")) lead.publicPhonePresent = normalizeLeadBoolean(req.body.publicPhonePresent, Boolean(lead.phone));
+  if (Object.hasOwn(req.body, "ownerOperatorConfidence")) lead.ownerOperatorConfidence = normalizeLeadChoice(req.body.ownerOperatorConfidence, ["High", "Medium", "Low"], "Medium");
+  if (Object.hasOwn(req.body, "pmsComplexity")) lead.pmsComplexity = normalizeLeadChoice(req.body.pmsComplexity, ["None visible", "Lightweight", "Complex", "Unknown"], "Unknown");
+  if (Object.hasOwn(req.body, "sourceType")) lead.sourceType = normalizeLeadChoice(req.body.sourceType, ["By-owner listing", "Small multifamily", "Apartment site", "Directory", "Small PM", "Other"], "Other");
+  if (Object.hasOwn(req.body, "leadScore")) lead.leadScore = normalizeLeadScore(req.body.leadScore);
   if (Object.hasOwn(req.body, "status")) lead.status = normalizeLeadStatus(req.body.status);
   if (Object.hasOwn(req.body, "priority")) lead.priority = normalizeLeadPriority(req.body.priority);
   lead.updatedAt = new Date().toISOString();
@@ -1726,6 +1735,13 @@ app.post("/api/admin/work-orders", async (req, res) => {
     res.status(400).json({ error: "propertyId, unit, and issue are required" });
     return;
   }
+  let mediaItems = [];
+  try {
+    mediaItems = normalizeIssueMediaAttachments(req.body.mediaAttachments || []);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+    return;
+  }
   const notifyManager = req.body.notifyManager !== false;
   const requestVendorOutreach = req.body.requestVendorOutreach === true;
   const effectiveStatus = notifyManager ? status : "Tenant troubleshooting";
@@ -1775,8 +1791,26 @@ app.post("/api/admin/work-orders", async (req, res) => {
         stamp: new Date().toISOString()
       }
     ],
-    messages: []
+    messages: [],
+    media: mediaItems
   };
+  if (mediaItems.length) {
+    order.timeline.push(event("Tenant attached media", `${mediaItems.length} image/video file${mediaItems.length === 1 ? "" : "s"} added for AI review.`));
+    try {
+      order.mediaReview = await reviewIssueMedia({ order, mediaItems });
+      const status = order.mediaReview?.status === "reviewed" ? "completed" : `skipped: ${order.mediaReview?.reason || "not available"}`;
+      order.timeline.push(event("AI media review", `${mediaItems.length} attachment${mediaItems.length === 1 ? "" : "s"} ${status}.`));
+    } catch (error) {
+      order.mediaReview = {
+        provider: process.env.ISSUE_MEDIA_AI_PROVIDER || "anthropic",
+        status: "error",
+        reason: error.message,
+        reviewedAt: new Date().toISOString(),
+        mediaCount: mediaItems.length
+      };
+      order.timeline.push(event("AI media review failed", error.message));
+    }
+  }
   if (!notifyManager) {
     order.troubleshooting = {
       status: "Active",
@@ -4278,6 +4312,15 @@ function normalizeProspectingLead(input) {
     rentalAddress: sanitizeText(input.rentalAddress || input.address),
     market: sanitizeText(input.market || input.city),
     unitCount: sanitizeText(input.unitCount || input.portfolioSize),
+    unitRange: normalizeLeadUnitRange(input.unitRange || input.unitCount || input.portfolioSize),
+    activeVacancy: normalizeLeadChoice(input.activeVacancy, ["Yes", "Likely", "Unknown", "No"], "Unknown"),
+    publicPhonePresent: normalizeLeadBoolean(input.publicPhonePresent, Boolean(phone)),
+    ownerOperatorConfidence: normalizeLeadChoice(input.ownerOperatorConfidence, ["High", "Medium", "Low"], "Medium"),
+    pmsComplexity: normalizeLeadChoice(input.pmsComplexity, ["None visible", "Lightweight", "Complex", "Unknown"], "Unknown"),
+    sourceType: normalizeLeadChoice(input.sourceType, ["By-owner listing", "Small multifamily", "Apartment site", "Directory", "Small PM", "Other"], "Other"),
+    maintenancePainSignals: sanitizeText(input.maintenancePainSignals || input.painSignals),
+    recommendedAngle: sanitizeText(input.recommendedAngle || input.outreachAngle),
+    leadScore: normalizeLeadScore(input.leadScore),
     notes: sanitizeText(input.notes),
     firstSeenAt: sanitizeText(input.firstSeenAt) || now,
     createdAt: sanitizeText(input.createdAt) || now,
@@ -4400,6 +4443,36 @@ function normalizeLeadPriority(value) {
   const allowed = new Set(["High", "Medium", "Low"]);
   const text = sanitizeText(value);
   return allowed.has(text) ? text : "Medium";
+}
+
+function normalizeLeadChoice(value, choices, fallback) {
+  const text = sanitizeText(value);
+  return choices.includes(text) ? text : fallback;
+}
+
+function normalizeLeadUnitRange(value) {
+  const text = sanitizeText(value);
+  if (["1", "2-4", "5-10", "10+", "Unknown"].includes(text)) return text;
+  const numeric = Number(String(text).match(/\d+/)?.[0] || 0);
+  if (numeric === 1) return "1";
+  if (numeric >= 2 && numeric <= 4) return "2-4";
+  if (numeric >= 5 && numeric <= 10) return "5-10";
+  if (numeric > 10) return "10+";
+  return "Unknown";
+}
+
+function normalizeLeadBoolean(value, fallback = false) {
+  if (typeof value === "boolean") return value;
+  const text = sanitizeText(value).toLowerCase();
+  if (["true", "yes", "y", "1"].includes(text)) return true;
+  if (["false", "no", "n", "0"].includes(text)) return false;
+  return fallback;
+}
+
+function normalizeLeadScore(value) {
+  const score = Number(value);
+  if (!Number.isFinite(score)) return 0;
+  return Math.max(0, Math.min(Math.round(score), 100));
 }
 
 function isValidEmail(value = "") {

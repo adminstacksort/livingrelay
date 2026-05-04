@@ -3636,6 +3636,64 @@ body:has(.login-card.admin-login-card) {
   margin-top: 2px;
 }
 
+.issue-media-picker {
+  display: grid;
+  gap: 9px;
+}
+
+.issue-media-picker.compact {
+  grid-column: 1 / -1;
+}
+
+.issue-media-meta {
+  display: grid;
+  gap: 5px;
+}
+
+.issue-media-meta span {
+  align-items: center;
+  color: #26312f;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 850;
+  gap: 6px;
+}
+
+.issue-media-meta small {
+  color: #6c7774;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.issue-media-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.issue-media-chips span {
+  align-items: center;
+  background: #eef6f2;
+  border: 1px solid #d8e7df;
+  border-radius: 8px;
+  color: #26312f;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 760;
+  gap: 5px;
+  max-width: 100%;
+  min-height: 30px;
+  overflow-wrap: anywhere;
+  padding: 0 8px;
+}
+
+.form-error {
+  color: #a13925;
+  font-size: 12px;
+  font-weight: 780;
+  margin: 0;
+}
+
 .tenant-empty-state {
   display: grid;
   place-items: center;
@@ -4656,6 +4714,73 @@ body:has(.login-card.admin-login-card) {
   white-space: pre-wrap;
 }
 
+.media-review-box {
+  border: 1px solid #d8e7df;
+  border-radius: 8px;
+  background: #f5fbf8;
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px;
+}
+
+.media-review-head {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.media-review-head .eyebrow {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+}
+
+.media-review-head small {
+  color: #5e6a66;
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.media-review-box p {
+  color: #4f5d59;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.media-review-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.media-review-grid div {
+  border: 1px solid #d8e7df;
+  border-radius: 8px;
+  background: #fffdfa;
+  padding: 9px;
+}
+
+.media-review-grid strong,
+.media-review-grid span {
+  display: block;
+}
+
+.media-review-grid strong {
+  color: #26312f;
+  font-size: 12px;
+}
+
+.media-review-grid span {
+  color: #4f5d59;
+  font-size: 12px;
+  line-height: 1.35;
+  margin-top: 3px;
+}
+
 .media-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5147,7 +5272,8 @@ body:has(.login-card.admin-login-card) {
     grid-template-columns: 1fr;
   }
 
-  .media-list {
+  .media-list,
+  .media-review-grid {
     grid-template-columns: 1fr;
   }
 

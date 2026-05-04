@@ -251,7 +251,8 @@ const defaultRequest = {
   unit: "Garden flat",
   issue: "",
   access: "",
-  photos: "",
+  mediaFiles: [],
+  mediaError: "",
   escalationChoice: "self_solve",
   useDefaultAvailability: true,
   saveDefaultAvailability: false,
@@ -1764,6 +1765,32 @@ function tenantSelfSolveGuidance(issue = "", property) {
   };
 }
 
+async function prepareIssueMediaAttachments(files = []) {
+  const selected = Array.from(files || []);
+  if (selected.length > 10) throw new Error("Attach up to 10 images or videos.");
+  const invalid = selected.find((file) => !/^(image|video)\//.test(file.type));
+  if (invalid) throw new Error("Only image and video files can be attached.");
+  const oversized = selected.find((file) => file.size > 5 * 1024 * 1024);
+  if (oversized) throw new Error("Each image or video must be 5 MB or smaller.");
+  return Promise.all(selected.map(async (file, index) => ({
+    id: `media-${Date.now()}-${index + 1}`,
+    name: file.name,
+    contentType: file.type,
+    size: file.size,
+    dataUrl: await readFileAsDataUrl(file),
+    receivedAt: new Date().toISOString()
+  })));
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Could not read one of the selected files."));
+    reader.readAsDataURL(file);
+  });
+}
+
 function PublicSiteRouter() {
   const page = publicSitePageFor();
 
@@ -2719,6 +2746,11 @@ const siteAdminTokenStorageKey = "livingrelay.siteAdminToken";
 const siteAdminRememberStorageKey = "livingrelay.siteAdminRemember";
 const sessionUserStorageKey = "livingrelay.sessionUserId";
 const prospectingTargetMarkets = ["San Francisco", "Oakland", "San Jose", "Los Angeles", "San Diego"];
+const prospectingUnitRanges = ["Unknown", "1", "2-4", "5-10", "10+"];
+const prospectingVacancyStates = ["Unknown", "Yes", "Likely", "No"];
+const prospectingOwnerConfidence = ["Medium", "High", "Low"];
+const prospectingPmsComplexity = ["Unknown", "None visible", "Lightweight", "Complex"];
+const prospectingSourceTypes = ["Other", "By-owner listing", "Small multifamily", "Apartment site", "Directory", "Small PM"];
 
 function storedSessionValue(key) {
   return window.localStorage.getItem(key) || window.sessionStorage.getItem(key) || "";
@@ -3115,6 +3147,13 @@ function App() {
   async function createOrder(submitEvent) {
     submitEvent.preventDefault();
     const triage = classifyIssue(request.issue);
+    let mediaAttachments = [];
+    try {
+      mediaAttachments = await prepareIssueMediaAttachments(request.mediaFiles || []);
+    } catch (error) {
+      setRequest((current) => ({ ...current, mediaError: error.message }));
+      return;
+    }
     const unit = propertyLocationLabel(activeProperty);
     const tenant = user?.role === "Tenant"
       ? user
@@ -3141,6 +3180,7 @@ function App() {
           vendorId: vendor?.id || "",
           issue: request.issue,
           access,
+          mediaAttachments,
           notifyManager,
           requestVendorOutreach,
           tenantDefaultAvailability: request.saveDefaultAvailability ? tenantDefaultAvailability || access : undefined,
@@ -3184,7 +3224,8 @@ function App() {
       messages: [
         sms(user?.role === "Tenant" ? "tenant" : "relay", request.issue),
         sms("relay", `Thanks. LivingRelay classified this as ${triage.trade}. ${notifyManager ? "Manager review is next." : "Try the self-solve steps first; escalate if it still needs help."}`)
-      ]
+      ],
+      media: mediaAttachments
     };
     setOrders((current) => [order, ...current]);
     setActiveOrderId(id);
@@ -4955,10 +4996,11 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
   const [statusFilter, setStatusFilter] = useState("All");
   const [segmentFilter, setSegmentFilter] = useState("All");
   const [cityFilter, setCityFilter] = useState("San Francisco");
+  const [fitFilter, setFitFilter] = useState("Owner 1-5 + vacancy + phone");
   const [refreshStatus, setRefreshStatus] = useState({ state: "idle", message: "" });
   const [form, setForm] = useState({
     name: "",
-    segment: "Property manager",
+    segment: "Small owner",
     priority: "Medium",
     status: "New",
     contactName: "",
@@ -4970,6 +5012,15 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
     rentalAddress: "",
     market: "",
     unitCount: "",
+    unitRange: "Unknown",
+    activeVacancy: "Unknown",
+    publicPhonePresent: false,
+    ownerOperatorConfidence: "Medium",
+    pmsComplexity: "Unknown",
+    sourceType: "Other",
+    maintenancePainSignals: "",
+    recommendedAngle: "",
+    leadScore: 0,
     sourceName: "",
     fit: "",
     notes: ""
@@ -4990,9 +5041,21 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
     lead.rentalAddress,
     lead.market,
     lead.unitCount,
+    lead.unitRange,
+    lead.activeVacancy,
+    lead.ownerOperatorConfidence,
+    lead.pmsComplexity,
+    lead.sourceType,
+    lead.maintenancePainSignals,
+    lead.recommendedAngle,
+    lead.leadScore,
     lead.sourceName,
     lead.notes
   ].join(" ").toLowerCase();
+  const isOwnerOneToFive = (lead) => ["Small owner", "Small landlord"].includes(lead.segment || "") && ["1", "2-4", "5-10"].includes(lead.unitRange || "") && (lead.unitRange !== "5-10" || String(lead.unitCount || "").match(/\b5\b/));
+  const hasVacancy = (lead) => ["Yes", "Likely"].includes(lead.activeVacancy || "");
+  const hasPublicPhone = (lead) => Boolean(lead.publicPhonePresent || lead.phone);
+  const lowComplexity = (lead) => !["Complex"].includes(lead.pmsComplexity || "");
   const leadCity = (lead) => String(lead.market || lead.city || "").trim();
   const cityOptions = Array.from(new Set([
     ...prospectingTargetMarkets,
@@ -5002,10 +5065,18 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
     .filter((lead) => statusFilter === "All" || (lead.status || "New") === statusFilter)
     .filter((lead) => segmentFilter === "All" || (lead.segment || "Property manager") === segmentFilter)
     .filter((lead) => cityFilter === "All" || leadCity(lead).toLowerCase() === cityFilter.toLowerCase())
+    .filter((lead) => {
+      if (fitFilter === "All") return true;
+      if (fitFilter === "Owner 1-5 + vacancy + phone") return isOwnerOneToFive(lead) && hasVacancy(lead) && hasPublicPhone(lead) && lowComplexity(lead);
+      if (fitFilter === "Has maintenance signals") return Boolean(lead.maintenancePainSignals);
+      if (fitFilter === "No complex PMS") return lowComplexity(lead);
+      if (fitFilter === "Small PM mix") return (lead.segment || "") === "Property manager" && lowComplexity(lead);
+      return true;
+    })
     .filter((lead) => searchable(lead).includes(query.toLowerCase()))
     .sort((left, right) => {
       const priorityOrder = { High: 0, Medium: 1, Low: 2 };
-      return (priorityOrder[left.priority] ?? 1) - (priorityOrder[right.priority] ?? 1) || new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0);
+      return (priorityOrder[left.priority] ?? 1) - (priorityOrder[right.priority] ?? 1) || Number(right.leadScore || 0) - Number(left.leadScore || 0) || new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0);
     });
 
   async function addLead(event) {
@@ -5017,7 +5088,7 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${siteAdminToken}` },
         body: JSON.stringify(await encryptContactTransitFields(form))
       });
-      setForm({ ...form, name: "", contactName: "", email: "", phone: "", website: "", listingUrl: "", rentalAddress: "", fit: "", notes: "" });
+      setForm({ ...form, name: "", contactName: "", email: "", phone: "", website: "", listingUrl: "", rentalAddress: "", unitCount: "", unitRange: "Unknown", activeVacancy: "Unknown", publicPhonePresent: false, maintenancePainSignals: "", recommendedAngle: "", leadScore: 0, fit: "", notes: "" });
       setSaveStatus("Lead saved");
       await reloadState?.();
     } catch (error) {
@@ -5094,6 +5165,7 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
       <SectionTitle icon={<Target />} title="Prospecting pipeline" eyebrow="Public rental leads" />
       <div className="admin-overview">
         <Metric icon={<Target />} label="Total leads" value={prospectingLeads.length} />
+        <Metric icon={<Home />} label="Owner 1-5 fit" value={prospectingLeads.filter((lead) => isOwnerOneToFive(lead) && hasVacancy(lead) && hasPublicPhone(lead) && lowComplexity(lead)).length} />
         <Metric icon={<Bell />} label="Ready to contact" value={prospectingLeads.filter((lead) => lead.status === "Ready to contact").length} />
         <Metric icon={<Check />} label="Contacted" value={prospectingLeads.filter((lead) => lead.status === "Contacted").length} />
       </div>
@@ -5128,17 +5200,25 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
           <button key={segment} className={segmentFilter === segment ? "active" : ""} onClick={() => setSegmentFilter(segment)}>{segment}</button>
         ))}
       </div>
+      <div className="role-section-tabs prospecting-filters">
+        {["Owner 1-5 + vacancy + phone", "Has maintenance signals", "No complex PMS", "Small PM mix", "All"].map((filter) => (
+          <button key={filter} className={fitFilter === filter ? "active" : ""} onClick={() => setFitFilter(filter)}>{filter}</button>
+        ))}
+      </div>
       <div className="admin-card-list">
         {filteredLeads.length === 0 && <p className="form-note">No prospecting leads match this view yet.</p>}
         {filteredLeads.map((lead) => (
           <article className="admin-record prospecting-record" key={lead.id}>
             <div>
-              <span>{lead.segment || "Property manager"} · {lead.priority || "Medium"} priority · {lead.status || "New"}</span>
+              <span>{lead.segment || "Property manager"} · {lead.priority || "Medium"} priority · {lead.status || "New"} · Score {lead.leadScore || 0}</span>
               <strong>{lead.name}</strong>
               <div className="prospecting-summary">
                 <ProspectingDetail label="Found via" value={[lead.sourceName, lead.website || lead.listingUrl].filter(Boolean).join(" · ")} />
                 <ProspectingDetail label="Portfolio / properties" value={[lead.market, lead.rentalAddress, lead.unitCount].filter(Boolean).join(" · ") || "Portfolio details pending"} />
+                <ProspectingDetail label="Owner/vacancy fit" value={[`Units: ${lead.unitRange || "Unknown"}`, `Vacancy: ${lead.activeVacancy || "Unknown"}`, `Phone: ${hasPublicPhone(lead) ? "Yes" : "No"}`, `Owner confidence: ${lead.ownerOperatorConfidence || "Medium"}`, `PMS: ${lead.pmsComplexity || "Unknown"}`, lead.sourceType].filter(Boolean).join(" · ")} />
                 <ProspectingDetail label="Public contact" value={[lead.contactName, lead.contactRole, lead.email, lead.phone].filter(Boolean).join(" · ") || "Public contact details pending"} />
+                <ProspectingDetail label="Maintenance signals" value={lead.maintenancePainSignals} />
+                <ProspectingDetail label="Suggested angle" value={lead.recommendedAngle} />
                 <ProspectingDetail label="Why LivingRelay may help" value={lead.fit} />
                 <ProspectingDetail label="Source notes" value={lead.notes} />
               </div>
@@ -5172,8 +5252,17 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
         <datalist id="prospecting-target-markets">{prospectingTargetMarkets.map((city) => <option value={city} key={city} />)}</datalist>
         <label>Rental address<input value={form.rentalAddress} onChange={(event) => setForm({ ...form, rentalAddress: event.target.value })} /></label>
         <label>Unit count<input value={form.unitCount} onChange={(event) => setForm({ ...form, unitCount: event.target.value })} /></label>
+        <label>Unit range<select value={form.unitRange} onChange={(event) => setForm({ ...form, unitRange: event.target.value })}>{prospectingUnitRanges.map((range) => <option key={range}>{range}</option>)}</select></label>
+        <label>Active vacancy<select value={form.activeVacancy} onChange={(event) => setForm({ ...form, activeVacancy: event.target.value })}>{prospectingVacancyStates.map((state) => <option key={state}>{state}</option>)}</select></label>
+        <label>Public phone<select value={form.publicPhonePresent ? "Yes" : "No"} onChange={(event) => setForm({ ...form, publicPhonePresent: event.target.value === "Yes" })}><option>Yes</option><option>No</option></select></label>
+        <label>Owner confidence<select value={form.ownerOperatorConfidence} onChange={(event) => setForm({ ...form, ownerOperatorConfidence: event.target.value })}>{prospectingOwnerConfidence.map((confidence) => <option key={confidence}>{confidence}</option>)}</select></label>
+        <label>PMS complexity<select value={form.pmsComplexity} onChange={(event) => setForm({ ...form, pmsComplexity: event.target.value })}>{prospectingPmsComplexity.map((complexity) => <option key={complexity}>{complexity}</option>)}</select></label>
+        <label>Source type<select value={form.sourceType} onChange={(event) => setForm({ ...form, sourceType: event.target.value })}>{prospectingSourceTypes.map((sourceType) => <option key={sourceType}>{sourceType}</option>)}</select></label>
+        <label>Lead score<input type="number" min="0" max="100" value={form.leadScore} onChange={(event) => setForm({ ...form, leadScore: event.target.value })} /></label>
         <label>Source<input value={form.sourceName} onChange={(event) => setForm({ ...form, sourceName: event.target.value })} /></label>
         <label className="span-2">Fit<input value={form.fit} onChange={(event) => setForm({ ...form, fit: event.target.value })} /></label>
+        <label className="span-2">Maintenance signals<input value={form.maintenancePainSignals} onChange={(event) => setForm({ ...form, maintenancePainSignals: event.target.value })} /></label>
+        <label className="span-2">Suggested angle<input value={form.recommendedAngle} onChange={(event) => setForm({ ...form, recommendedAngle: event.target.value })} /></label>
         <label className="span-2">Notes<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
         <button className="primary" type="submit"><Plus size={16} /> Save lead</button>
         {saveStatus && <p className="form-note">{saveStatus}</p>}
@@ -6896,7 +6985,8 @@ function DemoOutreachPanel({ order, selectDemoQuote }) {
 function TroubleshootingPanel({ order }) {
   const tenantMessages = (order.messages || []).filter((item) => ["tenant", "relay"].includes(item.from)).slice(-6);
   const mediaItems = order.media || [];
-  if (!order.troubleshooting && !mediaItems.length && !tenantMessages.length) return null;
+  const mediaReview = order.mediaReview;
+  if (!order.troubleshooting && !mediaItems.length && !tenantMessages.length && !mediaReview) return null;
 
   return (
     <div className="troubleshooting-panel">
@@ -6915,15 +7005,46 @@ function TroubleshootingPanel({ order }) {
           </div>
         ))}
       </div>
+      {mediaReview && (
+        <div className="media-review-box">
+          <div className="media-review-head">
+            <span className="eyebrow"><Sparkles size={13} /> AI media review</span>
+            <small>{mediaReview.provider || "ai"} · {mediaReview.status}</small>
+          </div>
+          {mediaReview.insights ? (
+            <div className="media-review-grid">
+              <MediaReviewItem label="Summary" value={mediaReview.insights.summary} />
+              <MediaReviewItem label="Conditions" value={mediaReview.insights.observedConditions} />
+              <MediaReviewItem label="Urgency" value={mediaReview.insights.urgencySignals} />
+              <MediaReviewItem label="Follow-ups" value={mediaReview.insights.suggestedFollowUps} />
+              <MediaReviewItem label="Safety" value={mediaReview.insights.safetyNotes} />
+              <MediaReviewItem label="Vendor prep" value={mediaReview.insights.vendorPrep} />
+            </div>
+          ) : (
+            <p>{mediaReview.rawSummary || mediaReview.reason || "Media is attached; AI review has not produced a summary yet."}</p>
+          )}
+        </div>
+      )}
       {!!mediaItems.length && (
         <div className="media-list">
           {mediaItems.map((item, index) => (
-            <a href={item.url} target="_blank" rel="noreferrer" key={`${item.url}-${index}`}>
-              <FileText size={15} /> {item.contentType || "Media"} · {index + 1}
+            <a href={item.url} target="_blank" rel="noreferrer" key={`${item.url || item.name}-${index}`}>
+              <FileText size={15} /> {item.name || item.contentType || "Media"} · {index + 1}
             </a>
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function MediaReviewItem({ label, value }) {
+  if (!value || (Array.isArray(value) && !value.length)) return null;
+  const text = Array.isArray(value) ? value.join("; ") : String(value);
+  return (
+    <div>
+      <strong>{label}</strong>
+      <span>{text}</span>
     </div>
   );
 }
@@ -7454,6 +7575,42 @@ function OwnerExpenseUpload({ form, setForm, onSubmit, property }) {
   );
 }
 
+function IssueMediaPicker({ request, setRequest, compact = false }) {
+  const files = Array.from(request.mediaFiles || []);
+  const onFilesSelected = (event) => {
+    const selected = Array.from(event.target.files || []);
+    const next = selected.slice(0, 10);
+    setRequest({
+      ...request,
+      mediaFiles: next,
+      mediaError: selected.length > 10 ? "Only the first 10 files will be attached." : ""
+    });
+  };
+
+  return (
+    <div className={compact ? "issue-media-picker compact" : "issue-media-picker"}>
+      <label>
+        Photos/videos
+        <input type="file" accept="image/*,video/*" multiple onChange={onFilesSelected} />
+      </label>
+      <div className="issue-media-meta">
+        <span><Upload size={14} /> {files.length ? `${files.length}/10 selected` : "Up to 10 files"}</span>
+        <small>Images can be reviewed by AI for added triage perspective. Videos stay attached to the work order.</small>
+      </div>
+      {!!files.length && (
+        <div className="issue-media-chips">
+          {files.map((file, index) => (
+            <span key={`${file.name}-${file.size}-${index}`}>
+              <FileText size={13} /> {file.name}
+            </span>
+          ))}
+        </div>
+      )}
+      {request.mediaError && <p className="form-error">{request.mediaError}</p>}
+    </div>
+  );
+}
+
 function IssueCreatePanel({ request, setRequest, createOrder, property, user }) {
   return (
     <section className="panel issue-create-panel">
@@ -7467,6 +7624,7 @@ function IssueCreatePanel({ request, setRequest, createOrder, property, user }) 
           Access notes
           <input value={request.access} onChange={(event) => setRequest({ ...request, access: event.target.value })} placeholder="Best entry window or contact note" />
         </label>
+        <IssueMediaPicker request={request} setRequest={setRequest} compact />
         <button className="primary" type="submit"><Send size={16} /> Create issue</button>
       </form>
     </section>
@@ -7506,7 +7664,7 @@ function TenantView({ request, setRequest, createOrder, orders, property, user }
             <Sparkles size={18} />
             <div>
               <h3>{hasOrders ? "Need something new fixed?" : "Filing the first issue is easy"}</h3>
-              <p>Pick a common starter or write it in your own words. Photos can come later by SMS.</p>
+              <p>Pick a common starter or write it in your own words, then attach helpful photos or videos.</p>
             </div>
           </div>
         )}
@@ -7575,10 +7733,7 @@ function TenantView({ request, setRequest, createOrder, orders, property, user }
             <input type="checkbox" checked={request.saveDefaultAvailability} onChange={(event) => setRequest({ ...request, saveDefaultAvailability: event.target.checked })} />
             Save this as my default availability
           </label>
-          <label>
-            Photos/videos
-            <input value={request.photos} onChange={(event) => setRequest({ ...request, photos: event.target.value })} placeholder="Attach later by SMS in v1" />
-          </label>
+          <IssueMediaPicker request={request} setRequest={setRequest} />
           <button className="primary wide" type="submit"><Send size={16} /> {request.escalationChoice === "self_solve" ? "Start self-solve thread" : request.escalationChoice === "vendor_outreach" ? "Send and request vendor outreach" : "Send to manager"}</button>
         </form>
       </div>
