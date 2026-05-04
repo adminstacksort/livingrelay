@@ -2521,9 +2521,9 @@ function PublicCard({ icon, title, text }) {
   );
 }
 
-function SalesLeadEmbed({ context, compact = false }) {
+function SalesLeadEmbed({ context, compact = false, id }) {
   return (
-    <section className={compact ? "sales-lead-band compact" : "sales-lead-band"} aria-label="Talk to LivingRelay">
+    <section id={id} className={compact ? "sales-lead-band compact" : "sales-lead-band"} aria-label="Talk to LivingRelay">
       <div>
         <span className="eyebrow">For owners and managers</span>
         <h2>Want to see whether LivingRelay fits your rental workflow?</h2>
@@ -2628,6 +2628,7 @@ function PublicFooter() {
         </div>
         <div>
           <h2>Product</h2>
+          <a href="/sales">Talk to sales</a>
           <a href="/ios">iOS app download</a>
           <a href="/referral-program">Referral program</a>
           <a href="/resources">Maintenance resources</a>
@@ -4006,6 +4007,7 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
           <button className="primary wide" onClick={() => setLandingMode("create")}><Building2 size={16} /> Setup property</button>
         </article>
       </section>
+      <SalesLeadEmbed context="Homepage" compact />
       <PublicFooter />
     </main>
   );

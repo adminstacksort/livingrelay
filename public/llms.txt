@@ -20,6 +20,7 @@ LivingRelay is SMS-first rental repair coordination software for small property 
 ## Key Pages
 
 - Marketing: https://livingrelay.com/marketing
+- Sales inquiry: https://livingrelay.com/sales
 - About: https://livingrelay.com/about
 - Support: https://livingrelay.com/support
 - Maintenance resources: https://livingrelay.com/resources
