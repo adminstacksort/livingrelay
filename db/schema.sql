@@ -90,6 +90,55 @@ create table if not exists vendors (
   created_at timestamptz not null default now()
 );
 
+create table if not exists integration_connections (
+  id uuid primary key default gen_random_uuid(),
+  account_id uuid references accounts(id) on delete cascade,
+  provider text not null,
+  provider_name text not null,
+  status text not null default 'Draft',
+  auth_mode text not null default 'api_key',
+  credential_ref text,
+  scopes jsonb not null default '[]'::jsonb,
+  sync jsonb not null default '{"importDirectory":true,"importMaintenanceRequests":false,"exportWorkOrders":true,"exportInvoices":true}'::jsonb,
+  counts jsonb not null default '{"importedProperties":0,"importedPeople":0,"importedVendors":0,"exportedWorkOrders":0}'::jsonb,
+  last_sync_at timestamptz,
+  last_error text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (account_id, provider)
+);
+
+create table if not exists external_mappings (
+  id uuid primary key default gen_random_uuid(),
+  connection_id uuid references integration_connections(id) on delete cascade,
+  account_id uuid references accounts(id) on delete cascade,
+  provider text not null,
+  external_type text not null,
+  external_id text not null,
+  internal_type text not null,
+  internal_id text not null,
+  sync_direction text not null default 'two_way',
+  last_seen_hash text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (connection_id, external_type, external_id)
+);
+
+create table if not exists integration_events (
+  id uuid primary key default gen_random_uuid(),
+  connection_id uuid references integration_connections(id) on delete set null,
+  account_id uuid references accounts(id) on delete cascade,
+  provider text not null,
+  direction text not null check (direction in ('inbound', 'outbound', 'internal')),
+  object_type text not null,
+  object_id text,
+  action text not null,
+  status text not null,
+  summary text not null default '',
+  retry jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists work_orders (
   id text primary key,
   property_id uuid references properties(id) on delete cascade,
@@ -110,6 +159,7 @@ create table if not exists work_orders (
   dispatch_fee_status text not null default 'not_charged',
   dispatch_fee_amount numeric(10, 2) not null default 25,
   troubleshooting jsonb not null default '{}'::jsonb,
+  external_source jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -283,6 +333,7 @@ create table if not exists invoices (
   source text not null default 'vendor_invoice',
   document_name text,
   capital_improvement_candidate boolean not null default false,
+  external_source jsonb not null default '{}'::jsonb,
   note text,
   received_at date,
   paid_at timestamptz,
@@ -305,6 +356,9 @@ create index if not exists idx_work_orders_property_status on work_orders(proper
 create index if not exists idx_billing_events_property on billing_events(property_id, created_at);
 create index if not exists idx_messages_work_order on messages(work_order_id, created_at);
 create index if not exists idx_invoices_property_year on invoices(property_id, tax_year);
+create index if not exists idx_integration_connections_account on integration_connections(account_id, provider);
+create index if not exists idx_external_mappings_internal on external_mappings(internal_type, internal_id);
+create index if not exists idx_integration_events_connection on integration_events(connection_id, created_at);
 create index if not exists idx_referrals_referrer_account on referrals(referrer_account_id, created_at);
 create index if not exists idx_referrals_referred_account on referrals(referred_account_id, created_at);
 create index if not exists idx_vendor_completion_work_order on vendor_completion_packages(work_order_id, created_at);

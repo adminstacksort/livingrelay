@@ -300,6 +300,13 @@ function formatMoney(value) {
   return `$${value.toLocaleString()}`;
 }
 
+function formatDateTime(value) {
+  if (!value) return "Not yet";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
 function referralTokenFromLocation() {
   const params = new URLSearchParams(window.location.search);
   const queryToken = params.get("ref") || params.get("referral") || params.get("referral_code") || "";
@@ -1165,6 +1172,8 @@ function sectionFromRoutePage(role, page) {
       qa: "qa",
       billing: "billing",
       revenue: "billing",
+      integrations: "integrations",
+      pms: "integrations",
       diagnostics: "diagnostics",
       audit: "audit"
     }[page] || "accounts";
@@ -1190,6 +1199,7 @@ function pageFromSection(role, section) {
       workOrders: "support",
       qa: "qa",
       billing: "revenue",
+      integrations: "integrations",
       diagnostics: "diagnostics",
       audit: "audit"
     }[section] || "dashboard";
@@ -2748,6 +2758,9 @@ function App() {
   const billingEventsData = appData?.billingEvents || seedBillingEvents;
   const referralsData = appData?.referrals || [];
   const prospectingLeadsData = appData?.prospectingLeads || [];
+  const integrationConnectionsData = appData?.integrationConnections || [];
+  const integrationEventsData = appData?.integrationEvents || [];
+  const pmsProvidersData = appData?.pmsProviders || [];
   const accessRequestsData = appData?.accessRequests || [];
   const platformSettings = appData?.platformSettings || { vendorCallTestMode: true, productionVendorCallsEnabled: true, vendorCallTestNumber: "" };
   const stripeData = appData?.stripe || { configured: false, missing: ["STRIPE_SECRET_KEY", "APP_PUBLIC_URL"], dispatchFeeCents: 2500 };
@@ -3495,6 +3508,9 @@ function App() {
           referrals={referralsData}
           prospectingLeads={prospectingLeadsData}
           accessRequests={accessRequestsData}
+          integrationConnections={integrationConnectionsData}
+          integrationEvents={integrationEventsData}
+          pmsProviders={pmsProvidersData}
           auditLog={auditData}
           platformSettings={platformSettings}
           reloadState={loadState}
@@ -4167,6 +4183,7 @@ function AdminConsoleNav({ active, setActive }) {
     ["workOrders", ClipboardList, "Support"],
     ["qa", ShieldCheck, "QA"],
     ["billing", DollarSign, "Revenue"],
+    ["integrations", Database, "Integrations"],
     ["diagnostics", Bot, "Diagnostics"],
     ["audit", Database, "Audit"]
   ];
@@ -4421,7 +4438,7 @@ function AccountSettingsPanel({ user, account, property, properties, authHeaders
   );
 }
 
-function AdminConsole({ active, accounts, people, properties, vendors, orders, invoices, billingEvents, referrals = [], prospectingLeads = [], accessRequests = [], auditLog, platformSettings, reloadState, siteAdminToken, onSiteAdminAuthExpired, setActivePropertyId, setActiveOrderId, setAdminSection }) {
+function AdminConsole({ active, accounts, people, properties, vendors, orders, invoices, billingEvents, referrals = [], prospectingLeads = [], accessRequests = [], integrationConnections = [], integrationEvents = [], pmsProviders = [], auditLog, platformSettings, reloadState, siteAdminToken, onSiteAdminAuthExpired, setActivePropertyId, setActiveOrderId, setAdminSection }) {
   const activeProperties = properties.length;
   const pendingInvoices = invoices.filter((invoice) => !String(invoice.status).toLowerCase().includes("paid")).length;
   const openOrders = orders.filter((order) => order.status !== "Closed").length;
@@ -4446,6 +4463,7 @@ function AdminConsole({ active, accounts, people, properties, vendors, orders, i
       {active === "workOrders" && <AdminWorkOrders orders={orders} properties={properties} people={people} vendors={vendors} accounts={accounts} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setActiveOrderId={setActiveOrderId} setAdminSection={setAdminSection} />}
       {active === "qa" && <AdminQaPanel siteAdminToken={siteAdminToken} onSiteAdminAuthExpired={onSiteAdminAuthExpired} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setActiveOrderId={setActiveOrderId} setAdminSection={setAdminSection} />}
       {active === "billing" && <AdminBilling accounts={accounts} properties={properties} invoices={invoices} billingEvents={billingEvents} activeProperties={activeProperties} pendingInvoices={pendingInvoices} reloadState={reloadState} />}
+      {active === "integrations" && <AdminIntegrations accounts={accounts} properties={properties} orders={orders} connections={integrationConnections} events={integrationEvents} providers={pmsProviders} reloadState={reloadState} siteAdminToken={siteAdminToken} />}
       {active === "diagnostics" && <AdminDiagnostics siteAdminToken={siteAdminToken} platformSettings={platformSettings} />}
       {active === "audit" && <AdminAudit auditLog={auditLog} />}
     </section>
@@ -5632,6 +5650,120 @@ function AdminWorkOrders({ orders, properties, people, vendors, accounts, reload
           <label className="span-2">Access notes<textarea rows="3" value={form.access} onChange={(event) => setForm({ ...form, access: event.target.value })} /></label>
           <button className="primary wide" type="submit"><ClipboardList size={16} /> Create work order</button>
         </form>
+      </section>
+    </div>
+  );
+}
+
+function AdminIntegrations({ accounts, properties, orders, connections, events, providers, reloadState, siteAdminToken }) {
+  const firstAccountId = accounts[0]?.id || "";
+  const firstProviderId = providers.find((provider) => ["doorloop", "buildium"].includes(provider.id))?.id || providers[0]?.id || "doorloop";
+  const [form, setForm] = useState({ accountId: firstAccountId, provider: firstProviderId, credentialRef: "" });
+  const [status, setStatus] = useState({ state: "idle", message: "" });
+  const headers = siteAdminToken ? { Authorization: `Bearer ${siteAdminToken}` } : {};
+
+  async function createConnection(event) {
+    event.preventDefault();
+    setStatus({ state: "saving", message: "Creating integration connection..." });
+    const response = await fetch("/api/integrations", {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify(form)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setStatus({ state: "error", message: data.error || "Could not create integration connection." });
+      return;
+    }
+    setStatus({ state: "ok", message: "Integration connection created." });
+    setForm({ ...form, credentialRef: "" });
+    await reloadState();
+  }
+
+  async function dryRun(connection) {
+    setStatus({ state: "saving", message: `Preparing ${connection.providerName || connection.provider} dry run...` });
+    const response = await fetch(`/api/integrations/${connection.id}/dry-run`, {
+      method: "POST",
+      headers
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setStatus({ state: "error", message: data.error || "Dry run failed." });
+      return;
+    }
+    setStatus({ state: "ok", message: `${data.connection.providerName || data.connection.provider} dry run updated.` });
+    await reloadState();
+  }
+
+  const connectionAccount = (connection) => accounts.find((account) => account.id === connection.accountId);
+  const providerFor = (connection) => providers.find((provider) => provider.id === connection.provider);
+
+  return (
+    <div className="admin-grid">
+      <section className="panel">
+        <SectionTitle icon={<Database />} title="PMS connections" eyebrow="Maintenance sync spine" />
+        <div className="admin-card-list">
+          {connections.map((connection) => {
+            const counts = connection.counts || {};
+            return (
+              <article className="admin-record" key={connection.id}>
+                <div>
+                  <span>{connection.status} · {connectionAccount(connection)?.name || connection.accountId}</span>
+                  <strong>{connection.providerName || connection.provider}</strong>
+                  <p>{providerFor(connection)?.notes || "Provider-neutral connection ready for importer and writeback work."}</p>
+                  <p>{counts.importedProperties || 0} properties · {counts.importedPeople || 0} people · {counts.importedVendors || 0} vendors · {counts.exportedWorkOrders || 0} work orders</p>
+                  {connection.lastError && <p className="integration-status error">{connection.lastError}</p>}
+                </div>
+                <div className="record-actions">
+                  <button className="ghost" onClick={() => dryRun(connection)}><Database size={15} /> Dry run</button>
+                </div>
+              </article>
+            );
+          })}
+          {!connections.length && <p className="muted">No PMS connections yet. Start with DoorLoop or Buildium once a customer has credentials ready.</p>}
+        </div>
+      </section>
+
+      <section className="panel">
+        <SectionTitle icon={<Plus />} title="Add connector" eyebrow="No live API calls yet" />
+        <form className="admin-form" onSubmit={createConnection}>
+          <label>Account<select value={form.accountId} onChange={(event) => setForm({ ...form, accountId: event.target.value })}>{accounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select></label>
+          <label>Provider<select value={form.provider} onChange={(event) => setForm({ ...form, provider: event.target.value })}>{providers.map((provider) => <option value={provider.id} key={provider.id}>{provider.name}</option>)}</select></label>
+          <label className="span-2">Credential reference<input value={form.credentialRef} onChange={(event) => setForm({ ...form, credentialRef: event.target.value })} placeholder="Secret manager key, sandbox label, or leave blank" /></label>
+          <button className="primary wide" type="submit"><Database size={16} /> Create connection</button>
+        </form>
+        {status.message && <p className={`integration-status ${status.state === "error" ? "error" : status.state === "ok" ? "ok" : "idle"}`}>{status.message}</p>}
+      </section>
+
+      <section className="panel span-2">
+        <SectionTitle icon={<ClipboardList />} title="Provider shortlist" eyebrow="Build order" />
+        <DataTable
+          columns={["Provider", "Readiness", "Auth", "Useful first sync"]}
+          rows={providers.map((provider) => [
+            provider.name,
+            provider.readiness,
+            provider.authMode,
+            [
+              provider.supported?.importDirectory ? "directory import" : "",
+              provider.supported?.importMaintenanceRequests ? "request ingest" : "",
+              provider.supported?.exportWorkOrders ? "work-order writeback" : ""
+            ].filter(Boolean).join(", ") || "manual"
+          ])}
+        />
+      </section>
+
+      <section className="panel span-2">
+        <SectionTitle icon={<Database />} title="Recent integration events" eyebrow={`${orders.length} current work orders can be mapped later`} />
+        <DataTable
+          columns={["When", "Provider", "Action", "Status", "Summary"]}
+          rows={events.slice(0, 8).map((event) => [
+            formatDateTime(event.createdAt),
+            event.provider,
+            event.action,
+            event.status,
+            event.summary
+          ])}
+        />
       </section>
     </div>
   );

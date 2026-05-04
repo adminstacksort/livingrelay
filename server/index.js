@@ -2360,6 +2360,10 @@ function deleteAccountState(accountId) {
   const deletedPeople = removeWhere(people, (person) => person.role !== "Site Admin" && accountPersonIds.has(person.id));
   const deletedVendors = removeWhere(vendors, (vendor) => vendor.accountId === accountId || accountPersonIds.has(vendor.personId));
   const deletedAccountBillingEvents = removeWhere(billingEvents, (event) => event.accountId === accountId);
+  const deletedIntegrationIds = new Set(integrationConnections.filter((connection) => connection.accountId === accountId).map((connection) => connection.id));
+  const deletedIntegrations = removeWhere(integrationConnections, (connection) => connection.accountId === accountId);
+  removeWhere(externalMappings, (mapping) => deletedIntegrationIds.has(mapping.connectionId) || mapping.accountId === accountId);
+  removeWhere(integrationEvents, (event) => deletedIntegrationIds.has(event.connectionId) || event.accountId === accountId);
   removeWhere(accounts, (account) => account.id === accountId);
   return propertySummaries.reduce((summary, propertySummary) => ({
     properties: summary.properties + 1,
@@ -2367,14 +2371,16 @@ function deleteAccountState(accountId) {
     vendors: summary.vendors,
     workOrders: summary.workOrders + propertySummary.workOrders,
     invoices: summary.invoices + propertySummary.invoices,
-    billingEvents: summary.billingEvents + propertySummary.billingEvents
+    billingEvents: summary.billingEvents + propertySummary.billingEvents,
+    integrations: summary.integrations
   }), {
     properties: 0,
     people: deletedPeople,
     vendors: deletedVendors,
     workOrders: 0,
     invoices: 0,
-    billingEvents: deletedAccountBillingEvents
+    billingEvents: deletedAccountBillingEvents,
+    integrations: deletedIntegrations
   });
 }
 
@@ -2429,6 +2435,10 @@ function deleteUserDataState(user, requestedAccountId = "") {
     || propertyIdSet.has(event.propertyId)
     || deletedWorkOrderIds.has(event.orderId || event.workOrderId)
   ));
+  const deletedIntegrationIds = new Set(accountId ? integrationConnections.filter((connection) => connection.accountId === accountId).map((connection) => connection.id) : []);
+  const deletedIntegrations = accountId ? removeWhere(integrationConnections, (connection) => connection.accountId === accountId) : 0;
+  removeWhere(externalMappings, (mapping) => deletedIntegrationIds.has(mapping.connectionId) || (accountId && mapping.accountId === accountId));
+  removeWhere(integrationEvents, (event) => deletedIntegrationIds.has(event.connectionId) || (accountId && event.accountId === accountId));
   const deletedVendors = removeWhere(vendors, (vendor) => (
     (accountId && vendor.accountId === accountId)
     || identityIds.has(vendor.personId)
@@ -2447,7 +2457,8 @@ function deleteUserDataState(user, requestedAccountId = "") {
     vendors: deletedVendors,
     workOrders: deletedWorkOrders,
     invoices: deletedInvoices,
-    billingEvents: deletedBillingEvents
+    billingEvents: deletedBillingEvents,
+    integrations: deletedIntegrations
   };
 }
 
