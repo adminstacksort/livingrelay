@@ -3074,13 +3074,17 @@ function qaIssuesForRun({ scenario, order, property, qaPhone, qaEmail, deliverie
   const emailDelivery = deliveries.find((item) => item.channel === "email");
   if (qaEmail && !emailDelivery) add("error", "Email", "Email delivery was requested but no email attempt was recorded.");
   if (emailDelivery && !emailDelivery.sent) add("warn", "Email", emailDelivery.reason || "Email provider reported failure.");
-  const lifecycleDeliveries = deliveries.filter((item) => String(item.channel || "").startsWith("lifecycle_"));
+  const lifecycleDeliveries = deliveries.filter((item) => ["lifecycle_sms", "lifecycle_email"].includes(String(item.channel || "")));
+  const lifecyclePushPreviews = deliveries.filter((item) => String(item.channel || "") === "lifecycle_push");
   const lifecycleFailed = lifecycleDeliveries.filter((item) => !item.sent && !item.skipped);
   const lifecycleSkipped = lifecycleDeliveries.filter((item) => item.skipped);
   if (lifecycleDeliveries.length) {
-    if (lifecycleFailed.length) add("warn", "Lifecycle notifications", `${lifecycleFailed.length}/${lifecycleDeliveries.length} lifecycle notification attempts failed. See Messages for step-level details.`);
-    else if (lifecycleSkipped.length) add("warn", "Lifecycle notifications", `${lifecycleSkipped.length}/${lifecycleDeliveries.length} lifecycle notifications were preview-only.`);
-    else add("ok", "Lifecycle notifications", `${lifecycleDeliveries.length} lifecycle notifications were attempted successfully.`);
+    if (lifecycleFailed.length) add("warn", "Lifecycle notifications", `${lifecycleFailed.length}/${lifecycleDeliveries.length} lifecycle SMS/email attempts failed. See Messages for step-level details.`);
+    else if (lifecycleSkipped.length) add("warn", "Lifecycle notifications", `${lifecycleSkipped.length}/${lifecycleDeliveries.length} lifecycle SMS/email notifications were preview-only.`);
+    else add("ok", "Lifecycle notifications", `${lifecycleDeliveries.length} lifecycle SMS/email notifications were attempted successfully.`);
+  }
+  if (lifecyclePushPreviews.length) {
+    add("ok", "Push previews", `${lifecyclePushPreviews.length} role-scoped push notification previews were generated.`);
   }
   if (callResult?.skipped) {
     add("warn", "Vendor calls", callResult.reason || "Vendor call skipped for environment consistency.");

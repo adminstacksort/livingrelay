@@ -3169,6 +3169,12 @@ body:has(.login-card.admin-login-card) {
   font-size: 13px;
 }
 
+.qa-message-preview small {
+  color: #737373;
+  font-size: 11px;
+  font-weight: 760;
+}
+
 .qa-message-preview p {
   border: 1px solid #eeeeeb;
   border-radius: 8px;
@@ -3179,6 +3185,21 @@ body:has(.login-card.admin-login-card) {
   margin: 0;
   padding: 10px;
   white-space: pre-wrap;
+}
+
+.qa-message-preview.ok p {
+  border-color: #bfe4d6;
+  background: #f5fffa;
+}
+
+.qa-message-preview.warn p {
+  border-color: #efd7a8;
+  background: #fffaf0;
+}
+
+.qa-message-preview.error p {
+  border-color: #f3c7bb;
+  background: #fff6f2;
 }
 
 .qa-persona-preview {
