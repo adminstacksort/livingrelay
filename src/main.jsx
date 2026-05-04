@@ -2013,6 +2013,28 @@ function MarketingContent() {
   );
 }
 
+function SalesPageContent() {
+  return (
+    <>
+      <section className="answer-strip" aria-label="Sales lead summary">
+        <div>
+          <span className="eyebrow">Owners and managers</span>
+          <h2>A quick way to start a real conversation.</h2>
+        </div>
+        <p>Use this page when you want to learn whether LivingRelay can help with maintenance requests, vendor calls, owner approval loops, repair history, or cleaner communication across a small rental portfolio.</p>
+      </section>
+
+      <section className="public-grid three">
+        <PublicCard icon={<MessageSquare />} title="Tenant intake" text="Talk through how repair requests arrive today and what details are missing before dispatch." />
+        <PublicCard icon={<Phone />} title="Vendor coordination" text="Review where AI vendor calls, availability checks, and booking notes could reduce manual follow-up." />
+        <PublicCard icon={<ShieldCheck />} title="Owner approvals" text="Map approval thresholds, owner visibility, and invoice records to the way your rentals already operate." />
+      </section>
+
+      <SalesLeadEmbed context="Standalone sales page" id="sales-lead-form" />
+    </>
+  );
+}
+
 function AboutContent() {
   return (
     <>
