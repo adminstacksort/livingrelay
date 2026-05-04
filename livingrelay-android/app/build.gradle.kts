@@ -76,6 +76,10 @@ android {
     }
 }
 
+configurations.configureEach {
+    exclude(group = "androidx.graphics", module = "graphics-path")
+}
+
 kotlin {
     jvmToolchain(17)
 }
