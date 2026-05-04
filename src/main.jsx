@@ -4176,6 +4176,7 @@ const LandingPage = LandingPageUnused;
 function AdminConsoleNav({ active, setActive }) {
   const items = [
     ["accounts", LayoutDashboard, "Customers"],
+    ["inboundLeads", Mail, "Inbound"],
     ["prospecting", Target, "Prospecting"],
     ["accessRequests", Send, "Access"],
     ["directory", Users, "People"],
@@ -4208,6 +4209,7 @@ function SiteOwnerHero({ accounts, people, properties, orders, billingEvents, ac
     return createdAt && Date.now() - createdAt < 1000 * 60 * 60 * 24 * 30;
   }).length;
   const newProspectingLeads = prospectingLeads.filter((lead) => ["New", "Ready to contact"].includes(lead.status || "New")).length;
+  const inboundSalesLeads = prospectingLeads.filter(isInboundSalesLead).length;
   return (
     <section className="owner-console-hero">
       <div>
@@ -4220,6 +4222,7 @@ function SiteOwnerHero({ accounts, people, properties, orders, billingEvents, ac
         <MiniRow icon={<DollarSign />} label="Dispatch revenue" value={formatMoney(dispatchRevenue)} />
         <MiniRow icon={<ClipboardList />} label="Open support load" value={openOrders} />
         <MiniRow icon={<Send />} label="Access referrals" value={recentAccessRequests || accessRequests.length} />
+        <MiniRow icon={<Mail />} label="Inbound leads" value={inboundSalesLeads} />
         <MiniRow icon={<Target />} label="Prospecting" value={newProspectingLeads || prospectingLeads.length} />
         <MiniRow icon={<Users />} label="Owner users" value={ownerUsers} />
         <MiniRow icon={<CreditCard />} label="Stripe" value={stripe.configured ? "Ready" : "Needs keys"} />
@@ -4443,10 +4446,13 @@ function AdminConsole({ active, accounts, people, properties, vendors, orders, i
   const pendingInvoices = invoices.filter((invoice) => !String(invoice.status).toLowerCase().includes("paid")).length;
   const openOrders = orders.filter((order) => order.status !== "Closed").length;
   const dispatchRevenue = billingEvents.reduce((sum, event) => sum + Number(event.amount || 0), 0);
+  const inboundLeads = prospectingLeads.filter(isInboundSalesLead);
+  const openInboundLeads = inboundLeads.filter((lead) => ["New", "Researching", "Ready to contact"].includes(lead.status || "New")).length;
   return (
     <section className="admin-console">
       <div className="admin-overview">
         <Metric icon={<LayoutDashboard />} label="Customer accounts" value={accounts.length} />
+        <Metric icon={<Mail />} label="Inbound leads" value={openInboundLeads || inboundLeads.length} />
         <Metric icon={<Target />} label="Prospecting leads" value={prospectingLeads.length} />
         <Metric icon={<Send />} label="Access requests" value={accessRequests.length} />
         <Metric icon={<DollarSign />} label="Dispatch fees" value={formatMoney(dispatchRevenue)} />
@@ -4456,6 +4462,7 @@ function AdminConsole({ active, accounts, people, properties, vendors, orders, i
         <PlatformVendorCallSettings platformSettings={platformSettings} reloadState={reloadState} siteAdminToken={siteAdminToken} />
         <SiteAccounts accounts={accounts} properties={properties} people={people} orders={orders} invoices={invoices} reloadState={reloadState} siteAdminToken={siteAdminToken} />
       </>}
+      {active === "inboundLeads" && <AdminInboundLeads prospectingLeads={prospectingLeads} reloadState={reloadState} siteAdminToken={siteAdminToken} />}
       {active === "prospecting" && <AdminProspecting prospectingLeads={prospectingLeads} reloadState={reloadState} siteAdminToken={siteAdminToken} onSiteAdminAuthExpired={onSiteAdminAuthExpired} />}
       {active === "accessRequests" && <AdminAccessRequests accessRequests={accessRequests} referrals={referrals} reloadState={reloadState} siteAdminToken={siteAdminToken} />}
       {active === "directory" && <AdminDirectory people={people} properties={properties} accounts={accounts} reloadState={reloadState} />}
@@ -5135,6 +5142,111 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
       </form>
     </section>
   );
+}
+
+function AdminInboundLeads({ prospectingLeads = [], reloadState, siteAdminToken }) {
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("Open");
+  const inboundLeads = prospectingLeads
+    .filter(isInboundSalesLead)
+    .filter((lead) => statusFilter === "All" || (
+      statusFilter === "Open"
+        ? ["New", "Researching", "Ready to contact"].includes(lead.status || "New")
+        : (lead.status || "New") === statusFilter
+    ))
+    .filter((lead) => [
+      lead.name,
+      lead.contactName,
+      lead.contactRole,
+      lead.email,
+      lead.phone,
+      lead.market,
+      lead.unitCount,
+      lead.notes,
+      lead.fit,
+      lead.sourceName
+    ].join(" ").toLowerCase().includes(query.toLowerCase()))
+    .sort((left, right) => new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0));
+  const openCount = prospectingLeads.filter((lead) => isInboundSalesLead(lead) && ["New", "Researching", "Ready to contact"].includes(lead.status || "New")).length;
+  const contactedCount = prospectingLeads.filter((lead) => isInboundSalesLead(lead) && ["Contacted", "Replied"].includes(lead.status || "")).length;
+
+  async function updateLead(lead, updates) {
+    await fetch(`/api/site-admin/prospecting-leads/${lead.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${siteAdminToken}` },
+      body: JSON.stringify(await encryptContactTransitFields(updates))
+    });
+    await reloadState?.();
+  }
+
+  return (
+    <section className="panel">
+      <SectionTitle icon={<Mail />} title="Inbound leads" eyebrow="Owner and manager requests" />
+      <div className="admin-overview">
+        <Metric icon={<Bell />} label="Open inbound" value={openCount} />
+        <Metric icon={<Check />} label="Contacted or replied" value={contactedCount} />
+        <Metric icon={<Target />} label="Total inbound" value={prospectingLeads.filter(isInboundSalesLead).length} />
+      </div>
+      <div className="search-box">
+        <Search size={16} />
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search inbound leads by name, contact, market, page, or message" />
+      </div>
+      <div className="role-section-tabs prospecting-filters">
+        {["Open", "All", "New", "Researching", "Ready to contact", "Contacted", "Replied", "Not a fit", "Do not contact"].map((status) => (
+          <button key={status} className={statusFilter === status ? "active" : ""} onClick={() => setStatusFilter(status)}>{status}</button>
+        ))}
+      </div>
+      <div className="admin-card-list">
+        {inboundLeads.length === 0 && <p className="form-note">No inbound sales leads match this view yet.</p>}
+        {inboundLeads.map((lead) => (
+          <article className="admin-record prospecting-record inbound-lead-record" key={lead.id}>
+            <div>
+              <span>{lead.createdAt ? new Date(lead.createdAt).toLocaleString() : "Unknown date"} · {lead.status || "New"} · {lead.priority || "High"} priority</span>
+              <strong>{lead.name}</strong>
+              <div className="prospecting-summary">
+                <ProspectingDetail label="Contact" value={[lead.contactName, lead.contactRole, lead.email, lead.phone].filter(Boolean).join(" · ") || "Contact details pending"} />
+                <ProspectingDetail label="Portfolio" value={[lead.market, lead.unitCount].filter(Boolean).join(" · ") || "Portfolio details pending"} />
+                <ProspectingDetail label="Submitted from" value={inboundLeadSource(lead) || lead.sourceName || "Public sales form"} />
+                <ProspectingDetail label="Message" value={inboundLeadMessage(lead) || lead.notes || lead.fit} />
+              </div>
+            </div>
+            <div className="record-actions">
+              <select value={lead.status || "New"} onChange={(event) => updateLead(lead, { status: event.target.value })}>
+                {["New", "Researching", "Ready to contact", "Contacted", "Replied", "Not a fit", "Do not contact"].map((status) => <option key={status}>{status}</option>)}
+              </select>
+              <select value={lead.priority || "High"} onChange={(event) => updateLead(lead, { priority: event.target.value })}>
+                {["High", "Medium", "Low"].map((priority) => <option key={priority}>{priority}</option>)}
+              </select>
+              {lead.email && <a className="primary link-like-button" href={`mailto:${lead.email}`}>Email</a>}
+              {lead.phone && <a className="ghost link-like-button" href={`tel:${lead.phone}`}>Call</a>}
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function isInboundSalesLead(lead = {}) {
+  const source = String(lead.sourceName || lead.source || "").toLowerCase();
+  const fit = String(lead.fit || "").toLowerCase();
+  const notes = String(lead.notes || "").toLowerCase();
+  return source.includes("sales lead form")
+    || source.includes("inbound sales")
+    || fit.includes("talk to someone")
+    || notes.includes("submitted from");
+}
+
+function inboundLeadSource(lead = {}) {
+  const match = String(lead.notes || "").match(/Submitted from\s+(.+?)(?:\.\s|$)/i);
+  return match?.[1] || "";
+}
+
+function inboundLeadMessage(lead = {}) {
+  return String(lead.notes || "")
+    .replace(/Submitted from\s+.+?(?:\.\s|$)/i, "")
+    .replace(/Contact:\s+.+?(?:\.\s|$)/i, "")
+    .trim();
 }
 
 function AdminAccessRequests({ accessRequests, referrals = [], reloadState, siteAdminToken }) {

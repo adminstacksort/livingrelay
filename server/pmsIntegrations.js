@@ -11,6 +11,7 @@ import {
   vendors,
   workOrders
 } from "./data.js";
+import { normalizePhone } from "./smsLogic.js";
 
 export const pmsProviders = [
   {
@@ -254,6 +255,60 @@ export function dryRunIntegrationSync({ user, connectionId }) {
   return publicConnection(connection);
 }
 
+export function importDirectoryCsv({ user, connectionId, csv = "" }) {
+  const connection = integrationConnections.find((item) => item.id === connectionId);
+  if (!connection) throw statusError(404, "integration connection not found");
+  if (!canAccessAccount(user, connection.accountId)) throw statusError(403, "You can only import directories for accounts you belong to");
+  if (connection.sync?.importDirectory === false) throw statusError(400, "Directory import is disabled for this connection");
+  const rows = parseCsv(csv);
+  if (!rows.length) throw statusError(400, "CSV must include a header row and at least one data row");
+  const result = {
+    rows: rows.length,
+    propertiesCreated: 0,
+    propertiesUpdated: 0,
+    peopleCreated: 0,
+    peopleUpdated: 0,
+    vendorsCreated: 0,
+    vendorsUpdated: 0,
+    unitsAdded: 0,
+    skipped: 0
+  };
+  for (const row of rows) {
+    const property = upsertCsvProperty({ connection, row, result });
+    if (!property) {
+      result.skipped += 1;
+      continue;
+    }
+    const unit = valueFor(row, ["unit", "unitLabel", "unitName"]);
+    if (unit && !property.units?.includes(unit)) {
+      property.units = [...(property.units || []), unit];
+      result.unitsAdded += 1;
+    }
+    upsertCsvPerson({ connection, row, property, role: "Manager", result });
+    upsertCsvPerson({ connection, row, property, role: "Owner", result });
+    upsertCsvPerson({ connection, row, property, role: "Tenant", unit, result });
+    upsertCsvVendor({ connection, row, property, result });
+  }
+  const now = new Date().toISOString();
+  connection.counts = integrationCountsForAccount(connection.accountId);
+  connection.status = "Imported directory";
+  connection.lastSyncAt = now;
+  connection.lastError = "";
+  connection.updatedAt = now;
+  recordIntegrationEvent({
+    connection,
+    direction: "inbound",
+    objectType: "directory",
+    objectId: connection.accountId,
+    action: "csv_import",
+    status: "ok",
+    summary: `Imported ${result.propertiesCreated} new properties, ${result.peopleCreated} new people, and ${result.vendorsCreated} new vendors from ${result.rows} CSV rows.`
+  });
+  saveState();
+  recordAudit(user?.name || "app", "Imported PMS directory CSV", `${connection.providerName || connection.provider}: ${result.rows} rows processed for ${accountName(connection.accountId)}.`);
+  return { connection: publicConnection(connection), result };
+}
+
 export function recordExternalMapping({ connection, externalType, externalId, internalType, internalId, syncDirection = "two_way" }) {
   const existing = externalMappings.find((mapping) =>
     mapping.connectionId === connection.id
@@ -283,6 +338,149 @@ export function recordExternalMapping({ connection, externalType, externalId, in
   };
   externalMappings.unshift(mapping);
   return mapping;
+}
+
+function upsertCsvProperty({ connection, row, result }) {
+  const propertyName = valueFor(row, ["propertyName", "property", "building", "name"]);
+  const address = valueFor(row, ["address", "propertyAddress", "streetAddress"]);
+  if (!propertyName && !address) return null;
+  const externalId = valueFor(row, ["propertyExternalId", "propertyId", "externalPropertyId", "externalId"])
+    || stableExternalId("property", propertyName, address);
+  const mapped = mappingTarget(connection, "property", externalId);
+  let property = mapped ? properties.find((item) => item.id === mapped.internalId) : null;
+  if (!property) {
+    property = properties.find((item) =>
+      item.accountId === connection.accountId
+      && sameText(item.name, propertyName)
+      && (!address || sameText(item.address, address))
+    );
+  }
+  if (property) {
+    if (propertyName) property.name = property.name || propertyName;
+    if (address) property.address = property.address || address;
+    result.propertiesUpdated += 1;
+  } else {
+    property = {
+      id: `p-${Date.now()}-${properties.length + 1}`,
+      accountId: connection.accountId,
+      name: propertyName || address,
+      address: address || "",
+      subscription: "Imported",
+      plan: "$0/property + $25 only when a vendor is booked",
+      units: [],
+      adminId: null,
+      managerId: null,
+      ownerId: null,
+      billingPayerRole: "Owner",
+      billingSetupStatus: "Needs card",
+      approvalThreshold: 250,
+      launchNotificationStatus: "Pending setup",
+      dispatchSettings: defaultImportedDispatchSettings(),
+      rules: "Imported from property management software. Review approval thresholds, contacts, vendors, and dispatch settings before production outreach.",
+      externalSource: {
+        provider: connection.provider,
+        connectionId: connection.id,
+        externalId
+      }
+    };
+    properties.push(property);
+    result.propertiesCreated += 1;
+  }
+  recordExternalMapping({ connection, externalType: "property", externalId, internalType: "property", internalId: property.id });
+  return property;
+}
+
+function upsertCsvPerson({ connection, row, property, role, unit = "", result }) {
+  const lowerRole = role.toLowerCase();
+  const name = valueFor(row, [`${lowerRole}Name`, `${lowerRole}`, `${lowerRole}FullName`]);
+  const phone = valueFor(row, [`${lowerRole}Phone`, `${lowerRole}Mobile`, `${lowerRole}Cell`]);
+  const email = valueFor(row, [`${lowerRole}Email`, `${lowerRole}Mail`]);
+  if (!name && !phone && !email) return null;
+  const externalId = valueFor(row, [`${lowerRole}ExternalId`, `${lowerRole}Id`, `external${role}Id`])
+    || stableExternalId(lowerRole, name, phone || email, property.id, unit);
+  const mapped = mappingTarget(connection, lowerRole, externalId);
+  let person = mapped ? people.find((item) => item.id === mapped.internalId) : null;
+  const canonicalPhone = phone ? normalizePhone(phone) : "";
+  if (!person && canonicalPhone) {
+    person = people.find((item) => normalizePhone(item.phone) === canonicalPhone && item.role === role);
+  }
+  if (!person) {
+    person = {
+      id: `${lowerRole}-${Date.now()}-${people.length + 1}`,
+      name: name || email || canonicalPhone,
+      role,
+      phone: canonicalPhone || "",
+      email: email || undefined,
+      pin: String(Math.floor(1000 + Math.random() * 9000)),
+      propertyIds: [property.id],
+      accountIds: [connection.accountId],
+      unit: role === "Tenant" ? unit || undefined : undefined,
+      notify: defaultImportedNotify(role)
+    };
+    people.push(person);
+    result.peopleCreated += 1;
+  } else {
+    if (name) person.name = person.name || name;
+    if (canonicalPhone) person.phone = person.phone || canonicalPhone;
+    if (email) person.email = person.email || email;
+    person.propertyIds = addUnique([...(person.propertyIds || []), property.id]);
+    person.accountIds = addUnique([...(person.accountIds || []), connection.accountId]);
+    if (role === "Tenant" && unit) person.unit = person.unit || unit;
+    result.peopleUpdated += 1;
+  }
+  if (role === "Manager") {
+    property.managerId = property.managerId || person.id;
+    property.adminId = property.adminId || person.id;
+    person.managesPropertyIds = addUnique([...(person.managesPropertyIds || []), property.id]);
+  }
+  if (role === "Owner") property.ownerId = property.ownerId || person.id;
+  recordExternalMapping({ connection, externalType: lowerRole, externalId, internalType: "person", internalId: person.id });
+  return person;
+}
+
+function upsertCsvVendor({ connection, row, property, result }) {
+  const name = valueFor(row, ["vendorName", "serviceProvider", "contractorName"]);
+  const phone = valueFor(row, ["vendorPhone", "contractorPhone", "serviceProviderPhone"]);
+  const trade = valueFor(row, ["vendorTrade", "trade", "category"]) || "General";
+  if (!name && !phone) return null;
+  const externalId = valueFor(row, ["vendorExternalId", "vendorId", "externalVendorId"])
+    || stableExternalId("vendor", name, phone, trade);
+  const mapped = mappingTarget(connection, "vendor", externalId);
+  let vendor = mapped ? vendors.find((item) => item.id === mapped.internalId) : null;
+  const canonicalPhone = phone ? normalizePhone(phone) : "";
+  if (!vendor) {
+    vendor = vendors.find((item) =>
+      item.accountId === connection.accountId
+      && sameText(item.name, name)
+      && (!canonicalPhone || normalizePhone(item.phone) === canonicalPhone)
+    );
+  }
+  if (!vendor) {
+    vendor = {
+      id: `v-${Date.now()}-${vendors.length + 1}`,
+      accountId: connection.accountId,
+      name: name || canonicalPhone,
+      trade,
+      phone: canonicalPhone,
+      preferred: false,
+      propertyIds: [property.id],
+      metadata: {
+        importedFrom: connection.provider,
+        externalId
+      }
+    };
+    vendors.push(vendor);
+    result.vendorsCreated += 1;
+  } else {
+    if (name) vendor.name = vendor.name || name;
+    if (trade) vendor.trade = vendor.trade || trade;
+    if (canonicalPhone) vendor.phone = vendor.phone || canonicalPhone;
+    vendor.accountId = vendor.accountId || connection.accountId;
+    vendor.propertyIds = addUnique([...(vendor.propertyIds || []), property.id]);
+    result.vendorsUpdated += 1;
+  }
+  recordExternalMapping({ connection, externalType: "vendor", externalId, internalType: "vendor", internalId: vendor.id });
+  return vendor;
 }
 
 function publicConnection(connection) {
@@ -335,6 +533,113 @@ function recordIntegrationEvent({ connection, direction, objectType, objectId, a
     summary,
     createdAt: new Date().toISOString()
   });
+}
+
+function parseCsv(csv = "") {
+  const lines = String(csv || "").replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim());
+  if (lines.length < 2) return [];
+  const headers = parseCsvLine(lines[0]).map(normalizeHeader);
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line);
+    return headers.reduce((row, header, index) => {
+      if (header) row[header] = String(values[index] || "").trim();
+      return row;
+    }, {});
+  }).filter((row) => Object.values(row).some(Boolean));
+}
+
+function parseCsvLine(line = "") {
+  const cells = [];
+  let cell = "";
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (char === "\"" && quoted && next === "\"") {
+      cell += "\"";
+      index += 1;
+    } else if (char === "\"") {
+      quoted = !quoted;
+    } else if (char === "," && !quoted) {
+      cells.push(cell);
+      cell = "";
+    } else {
+      cell += char;
+    }
+  }
+  cells.push(cell);
+  return cells;
+}
+
+function normalizeHeader(header = "") {
+  const cleaned = String(header).trim().replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, "");
+  if (!cleaned) return "";
+  return cleaned
+    .split(/[^a-z0-9]+/i)
+    .filter(Boolean)
+    .map((part, index) => index === 0 ? part.toLowerCase() : `${part.slice(0, 1).toUpperCase()}${part.slice(1).toLowerCase()}`)
+    .join("");
+}
+
+function valueFor(row, keys = []) {
+  for (const key of keys) {
+    const value = row[normalizeHeader(key)] ?? row[key];
+    if (String(value || "").trim()) return String(value).trim();
+  }
+  return "";
+}
+
+function mappingTarget(connection, externalType, externalId) {
+  if (!externalId) return null;
+  return externalMappings.find((mapping) =>
+    mapping.connectionId === connection.id
+    && mapping.externalType === externalType
+    && mapping.externalId === externalId
+  );
+}
+
+function stableExternalId(...parts) {
+  return parts.map((part) => String(part || "").trim().toLowerCase()).filter(Boolean).join(":");
+}
+
+function sameText(left = "", right = "") {
+  return String(left || "").trim().toLowerCase() === String(right || "").trim().toLowerCase();
+}
+
+function addUnique(items = []) {
+  return [...new Set(items.filter(Boolean))];
+}
+
+function accountName(accountId) {
+  return accounts.find((account) => account.id === accountId)?.name || accountId;
+}
+
+function defaultImportedDispatchSettings() {
+  return {
+    vendorOutreachMode: "manager_approval",
+    autoOutreachAfterTenantConfirmed: false,
+    emergencyOutreachMode: "manager_approval",
+    maxVendorsToCall: 5,
+    requireTenantAvailabilityBeforeBooking: true,
+    inboundInvoiceEmail: process.env.INBOUND_EMAIL_ADDRESS || "invoices@livingrelay.com",
+    invoiceRecipientPolicy: "manager_owner_system",
+    productionVendorCallsEnabled: true,
+    vendorPreferences: {
+      Plumbing: [],
+      HVAC: [],
+      Electrical: [],
+      Painting: [],
+      General: []
+    }
+  };
+}
+
+function defaultImportedNotify(role) {
+  return {
+    tenantReports: ["Manager", "Owner"].includes(role),
+    everyUpdate: role === "Manager",
+    keyUpdates: ["Manager", "Owner"].includes(role)
+  };
 }
 
 function accessibleAccountIds(user) {

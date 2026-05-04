@@ -4295,7 +4295,7 @@ function buildPublicSalesLead(input = {}) {
       phone,
       market,
       unitCount,
-      sourceName: "Public sales lead form",
+      sourceName: "Inbound sales lead form",
       fit: "Asked to learn more or talk to someone about LivingRelay.",
       notes: noteParts.join(" ")
     }

@@ -2377,6 +2377,11 @@ select:focus {
   align-items: start;
 }
 
+.inbound-lead-record {
+  border-color: #c8ddd6;
+  background: #fbfffd;
+}
+
 .prospecting-summary {
   display: grid;
   gap: 8px;
