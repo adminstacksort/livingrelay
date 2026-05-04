@@ -5403,7 +5403,7 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
             </DiagnosticBlock>
             <DiagnosticBlock title="Messages">
               {run.deliveries.length === 0 && <DiagnosticRow label="Delivery" value="No phone or email entered." tone="warn" />}
-              {run.deliveries.map((delivery, index) => (
+              {run.deliveries.filter((delivery) => !String(delivery.channel || "").startsWith("lifecycle_")).map((delivery, index) => (
                 <DiagnosticRow key={`${delivery.channel}-${index}`} label={delivery.channel} value={[delivery.to, delivery.status, delivery.errorCode ? `Twilio ${delivery.errorCode}` : "", delivery.providerId, delivery.reason].filter(Boolean).join(" · ")} tone={delivery.skipped ? "warn" : delivery.sent ? "ok" : "error"} />
               ))}
             </DiagnosticBlock>
@@ -5426,6 +5426,12 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
               {run.userUpdates?.email?.body && (
                 <QaMessagePreview channel="Email" to={run.userUpdates.email.to} subject={run.userUpdates.email.subject} body={run.userUpdates.email.body} />
               )}
+            </DiagnosticBlock>
+            <DiagnosticBlock title="Lifecycle Updates">
+              {!run.deliveries?.some((delivery) => String(delivery.channel || "").startsWith("lifecycle_")) && <DiagnosticRow label="Lifecycle" value="No lifecycle notifications generated." tone="warn" />}
+              {run.deliveries?.filter((delivery) => String(delivery.channel || "").startsWith("lifecycle_")).map((delivery, index) => (
+                <QaDeliveryPreview delivery={delivery} key={`${delivery.channel}-${delivery.stepId}-${delivery.role}-${index}`} />
+              ))}
             </DiagnosticBlock>
             <DiagnosticBlock title="Calls">
               <DiagnosticRow label="Call flow" value={run.callResult.reason || (run.callResult.demo ? "Demo fallback generated" : run.callResult.started ? "Started" : "Not started")} tone={run.callResult.skipped ? "warn" : run.callResult.started ? "ok" : "error"} />
@@ -5472,6 +5478,7 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
                   <em className={errorCount ? "error" : warnCount ? "warn" : "ok"}>{errorCount ? `${errorCount} errors` : warnCount ? `${warnCount} warnings` : "OK"}</em>
                   <em className={deliveries.sms.failed ? "error" : deliveries.sms.sent ? "ok" : "warn"}>SMS {deliveries.sms.sent}/{deliveries.sms.total}</em>
                   <em className={deliveries.email.failed ? "error" : deliveries.email.sent ? "ok" : "warn"}>Email {deliveries.email.sent}/{deliveries.email.total}</em>
+                  <em className={deliveries.push.failed ? "error" : deliveries.push.total ? "warn" : "ok"}>Push {deliveries.push.sent}/{deliveries.push.total}</em>
                 </div>
               </button>
             );
@@ -5517,11 +5524,11 @@ function qaProviderRows(providers = {}) {
     },
     {
       label: "Email",
-      status: email.configured ? "Ready" : "Needs SendGrid",
+      status: email.configured ? "Ready" : "Needs email API",
       tone: email.configured ? "ok" : "warn",
       detail: email.configured
         ? `${email.provider || "email"} from ${email.from || "configured sender"}`
-        : `Missing ${email.missing?.join(", ") || "SendGrid API key"}`
+        : `Missing ${email.missing?.join(", ") || "Resend or SendGrid API key"}`
     },
     {
       label: "iOS push",
@@ -5541,11 +5548,12 @@ function qaProviderRows(providers = {}) {
 function qaDeliveryCounts(deliveries = []) {
   const counts = {
     sms: { total: 0, sent: 0, failed: 0, skipped: 0 },
-    email: { total: 0, sent: 0, failed: 0, skipped: 0 }
+    email: { total: 0, sent: 0, failed: 0, skipped: 0 },
+    push: { total: 0, sent: 0, failed: 0, skipped: 0 }
   };
   deliveries.forEach((delivery) => {
     const raw = String(delivery.channel || "");
-    const channel = raw.includes("sms") ? "sms" : raw.includes("email") ? "email" : "";
+    const channel = raw.includes("sms") ? "sms" : raw.includes("email") ? "email" : raw.includes("push") ? "push" : "";
     if (!channel) return;
     counts[channel].total += 1;
     if (delivery.skipped) counts[channel].skipped += 1;
@@ -5553,6 +5561,23 @@ function qaDeliveryCounts(deliveries = []) {
     else counts[channel].failed += 1;
   });
   return counts;
+}
+
+function QaDeliveryPreview({ delivery }) {
+  const channel = String(delivery.channel || "").replace("lifecycle_", "").toUpperCase();
+  const tone = delivery.skipped ? "warn" : delivery.sent ? "ok" : "error";
+  return (
+    <div className={`qa-message-preview ${tone}`}>
+      <span>{channel} · {delivery.role ? qaRoleName(delivery.role) : "QA"} · {delivery.to || "not set"}</span>
+      {delivery.subject && <strong>{delivery.subject}</strong>}
+      <p>{delivery.preview || delivery.reason || "No preview returned."}</p>
+      <small>{delivery.sent ? "Sent" : delivery.skipped ? "Preview" : "Failed"}{delivery.reason ? ` · ${delivery.reason}` : ""}</small>
+    </div>
+  );
+}
+
+function qaRoleName(role) {
+  return String(role || "").replace(/^\w/, (letter) => letter.toUpperCase());
 }
 
 function QaPersonaPreview({ persona }) {

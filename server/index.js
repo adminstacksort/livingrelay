@@ -1004,7 +1004,7 @@ app.post("/api/site-admin/qa/run", async (req, res) => {
       push: getPushStatus()
     };
     const liveCallbackChannelsAllowed = !callbacks.mismatch;
-    const realMessagesAllowed = liveCallbackChannelsAllowed || req.body.allowRealMessages === true;
+    const realMessagesAllowed = req.body.allowRealMessages === true;
     const rolesToTest = normalizeQaRoles(req.body.rolesToTest);
     const property = properties.find((item) => item.id === "p-test") || properties[0];
     const tenant = people.find((person) => person.role === "Tenant" && person.propertyIds?.includes(property.id)) || people.find((person) => person.role === "Tenant");
@@ -1096,23 +1096,35 @@ app.post("/api/site-admin/qa/run", async (req, res) => {
       }
     }
     if (qaEmail) {
-      try {
-        const email = await sendEmail({
-          to: qaEmail,
-          subject: userUpdates.email.subject,
-          text: userUpdates.email.body
-        });
+      if (!realMessagesAllowed) {
         deliveries.push({
           channel: "email",
           to: maskEmail(qaEmail),
-          sent: email.sent,
-          providerId: email.id || "",
+          sent: false,
+          skipped: true,
           subject: userUpdates.email.subject,
           preview: userUpdates.email.body,
-          reason: email.reason || email.id || "sent"
+          reason: "Preview only. Real SMS/email delivery is disabled for this QA run."
         });
-      } catch (error) {
-        deliveries.push({ channel: "email", to: maskEmail(qaEmail), sent: false, subject: userUpdates.email.subject, preview: userUpdates.email.body, reason: error.message });
+      } else {
+        try {
+          const email = await sendEmail({
+            to: qaEmail,
+            subject: userUpdates.email.subject,
+            text: userUpdates.email.body
+          });
+          deliveries.push({
+            channel: "email",
+            to: maskEmail(qaEmail),
+            sent: email.sent,
+            providerId: email.id || "",
+            subject: userUpdates.email.subject,
+            preview: userUpdates.email.body,
+            reason: email.reason || email.id || "sent"
+          });
+        } catch (error) {
+          deliveries.push({ channel: "email", to: maskEmail(qaEmail), sent: false, subject: userUpdates.email.subject, preview: userUpdates.email.body, reason: error.message });
+        }
       }
     }
 
@@ -3253,6 +3265,20 @@ async function deliverQaLifecycleNotifications({ workflow, rolesToTest, qaPhone,
         deliveries.push({ channel: "lifecycle_email", stepId: notification.stepId, role: notification.role, to: "", sent: false, skipped: true, subject: notification.subject, preview: notification.body, reason: "No QA email provided." });
         continue;
       }
+      if (!realMessagesAllowed) {
+        deliveries.push({
+          channel: "lifecycle_email",
+          stepId: notification.stepId,
+          role: notification.role,
+          to: maskEmail(qaEmail),
+          sent: false,
+          skipped: true,
+          subject: notification.subject,
+          preview: notification.body,
+          reason: "Preview only. Real SMS/email delivery is disabled for this QA run."
+        });
+        continue;
+      }
       try {
         const email = await sendEmail({ to: qaEmail, subject: notification.subject, text: notification.body });
         deliveries.push({
@@ -3269,6 +3295,19 @@ async function deliverQaLifecycleNotifications({ workflow, rolesToTest, qaPhone,
       } catch (error) {
         deliveries.push({ channel: "lifecycle_email", stepId: notification.stepId, role: notification.role, to: maskEmail(qaEmail), sent: false, subject: notification.subject, preview: notification.body, reason: error.message });
       }
+    }
+    if (notification.channel === "push") {
+      deliveries.push({
+        channel: "lifecycle_push",
+        stepId: notification.stepId,
+        role: notification.role,
+        to: qaRoleLabel(notification.role),
+        sent: false,
+        skipped: true,
+        subject: notification.title,
+        preview: notification.body,
+        reason: "Push preview only. QA does not target a registered device token."
+      });
     }
   }
   return deliveries;
@@ -3308,21 +3347,52 @@ function buildQaLifecycleNotifications({ workflow, rolesToTest }) {
       ].join("\n")
     });
   };
+  const addPush = (step, role) => {
+    if (!selected.has(role)) return;
+    notifications.push({
+      channel: "push",
+      role,
+      stepId: step.id,
+      title: `[QA] ${step.title}`,
+      body: `${qaRoleLabel(role)}: ${step.message}`
+    });
+  };
   for (const step of workflow) {
-    if (step.id === "tenant_report") addSms(step, "tenant");
+    if (step.id === "tenant_report") {
+      addSms(step, "tenant");
+      addPush(step, "manager");
+    }
     if (step.id === "manager_notified") {
       addSms(step, "manager");
       addEmail(step, "manager");
+      addPush(step, "manager");
     }
-    if (step.id === "vendor_options") addEmail(step, "manager");
-    if (step.id === "owner_approval_request") addEmail(step, "owner");
-    if (step.id === "owner_approves") addEmail(step, "manager");
-    if (step.id === "tenant_scheduled") addSms(step, "tenant");
+    if (step.id === "vendor_options") {
+      addEmail(step, "manager");
+      addPush(step, "manager");
+    }
+    if (step.id === "owner_approval_request") {
+      addEmail(step, "owner");
+      addPush(step, "owner");
+    }
+    if (step.id === "owner_approves") {
+      addEmail(step, "manager");
+      addPush(step, "manager");
+    }
+    if (step.id === "tenant_scheduled") {
+      addSms(step, "tenant");
+      addPush(step, "tenant");
+    }
     if (step.id === "job_done") {
       addSms(step, "tenant");
       addEmail(step, "manager");
+      addPush(step, "tenant");
+      addPush(step, "manager");
     }
-    if (step.id === "owner_paid_invoice") addEmail(step, "manager");
+    if (step.id === "owner_paid_invoice") {
+      addEmail(step, "manager");
+      addPush(step, "manager");
+    }
   }
   return notifications;
 }
