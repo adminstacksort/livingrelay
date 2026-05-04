@@ -22,6 +22,12 @@ LivingRelay is SMS-first rental repair coordination software for small property 
 - Marketing: https://livingrelay.com/marketing
 - About: https://livingrelay.com/about
 - Support: https://livingrelay.com/support
+- Maintenance resources: https://livingrelay.com/resources
+- Tenant maintenance request template: https://livingrelay.com/resources/tenant-maintenance-request-template
+- After-hours maintenance request template: https://livingrelay.com/resources/after-hours-maintenance-request-template
+- Rental property maintenance log: https://livingrelay.com/resources/rental-property-maintenance-log
+- Vendor coordination checklist: https://livingrelay.com/resources/property-manager-vendor-checklist
+- Owner approval template: https://livingrelay.com/templates/owner-approval-maintenance-template
 - Privacy: https://livingrelay.com/privacy
 - Terms: https://livingrelay.com/terms
 - Property maintenance guides: https://livingrelay.com/property-maintenance

@@ -305,7 +305,7 @@ export async function waitForStatePersistence() {
 }
 
 export function recordAudit(actor, action, detail) {
-  auditLog.unshift(audit(actor, action, detail));
+  auditLog.unshift(audit(redactSensitiveText(actor), action, redactSensitiveText(detail)));
   saveState();
 }
 
@@ -450,4 +450,11 @@ function audit(actor, action, detail) {
     detail,
     stamp: new Date().toISOString()
   };
+}
+
+function redactSensitiveText(value = "") {
+  return String(value)
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]")
+    .replace(/\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b/g, "[phone]")
+    .replace(/\b(pin|password|token|authorization)\s*[:=]\s*[^,;\s}]+/gi, "$1=[redacted]");
 }

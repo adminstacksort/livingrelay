@@ -119,6 +119,10 @@ SITE_ADMIN_PASSWORD
 
 `SITE_ADMIN_HOST` gates the admin console and `/api/site-admin/*` endpoints by request host. In production, admin login should only be reachable through `admin.livingrelay.com`.
 
+`SITE_ADMIN_PASSWORD` is compared case-insensitively (trimmed + lowercased) to avoid breaking automations due to capitalization differences (for example `owner-console` vs `Owner-console`).
+
+In production (`NODE_ENV=production`), `SITE_ADMIN_PASSWORD` must be configured; otherwise `/api/site-admin/login` returns a 500 to avoid accidentally relying on the `owner-console` dev fallback.
+
 Set `APP_ENV` to `dev`, `staging`, or `production`. Persistent Postgres snapshots are keyed by environment (`livingrelay-dev`, `livingrelay-staging`, `livingrelay-production`), so staging test properties remain visible in the staging admin portal until explicitly deleted and never mix with production data.
 
 Use `https://staging.livingrelay.com/admin` for the staging admin portal. Plain `https://staging.livingrelay.com` remains the staging customer app for flows like Create property.

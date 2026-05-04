@@ -119,7 +119,8 @@ Prioritize San Francisco if it is in the target list. Otherwise focus on the req
 
 Batch mix:
 - Do not return only property management companies unless no other qualified public leads are available.
-- Aim for at least half the batch to be "Small owner" or "Small landlord" leads when public sources support it.
+- Strong preference: aim for at least ~70% of the batch to be "Small owner" or "Small landlord" leads when public sources support it.
+- Prioritize *individual landlord / owner-operator* leads that include intentionally public rental-operation contact info (email/phone) directly on a listing, leasing page, business profile, or rental-operation directory.
 - Favor solo/by-owner situations with clear maintenance coordination pain: direct owner phone/email, multiple units, small apartment building, duplex/triplex/fourplex, out-of-area owner context, recurring tenant contact point, or public listing language about repairs/maintenance.
 - Use "Apartment rental" for building/leasing-office leads that are not clearly third-party management companies.
 - Use "Property manager" only for firms or teams primarily advertising third-party management services.
@@ -130,6 +131,7 @@ Lead context requirements:
 - fit must explain the likely LivingRelay use case, such as tenant maintenance intake, vendor coordination, owner approvals, repair records, invoice routing, or multi-property support.
 - notes must include short provenance: what the public source said about the properties they manage, maintenance/vendor responsibilities, and why the lead looks useful.
 - Do not leave fit or notes generic. If public portfolio details are missing, say what was publicly confirmed instead.
+- Avoid directory-only leads that do not expose any direct public rental-operation contact method (email/phone/website). If the only public info is “contact form” without any other identifier, deprioritize it.
 
 Compliance rules:
 - Only collect intentionally public business/rental-operation contact info.

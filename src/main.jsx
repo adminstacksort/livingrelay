@@ -18,6 +18,7 @@ import {
   EyeOff,
   FileText,
   Gift,
+  Mail,
   MapPin,
   Home,
   LayoutDashboard,
@@ -326,6 +327,7 @@ const publicSitePages = {
   "/about": "about",
   "/support": "support",
   "/marketing": "marketing",
+  "/resources": "resourceIndex",
   "/privacy": "privacy",
   "/privacy-policy": "privacy",
   "/terms": "terms",
@@ -707,12 +709,255 @@ const marketingUseCases = [
   }
 ];
 
+const seoPageIdeas = [
+  ["After-Hours Maintenance Request Template", "after hours maintenance request template", "Find a safe non-emergency intake process for nighttime rental requests", "/resources/after-hours-maintenance-request-template", "A plain workflow for capturing after-hours details, routing the next business decision, and telling tenants to call local emergency services first for immediate danger.", "LivingRelay turns after-hours texts into structured intake, manager review, tenant updates, and work-order records.", "medium"],
+  ["Tenant Maintenance Request Template", "tenant maintenance request template", "Copy a tenant-facing request form or message", "/resources/tenant-maintenance-request-template", "A reusable intake structure for issue, location, photos, access windows, and preferred contact details.", "LivingRelay collects these fields by SMS and keeps them attached to the repair.", "low"],
+  ["Rental Property Maintenance Log", "rental property maintenance log", "Set up a simple repair history log", "/resources/rental-property-maintenance-log", "A practical log format for repair dates, vendors, status, invoices, owner decisions, and follow-up notes.", "LivingRelay keeps logs by property and work order instead of scattered spreadsheets.", "low"],
+  ["Landlord Maintenance Checklist", "landlord maintenance checklist", "Organize recurring rental maintenance tasks", "/resources/landlord-maintenance-checklist", "A seasonal and move-in maintenance organization checklist without technical repair instructions.", "LivingRelay helps turn checklist findings into trackable requests and vendor coordination.", "medium"],
+  ["Property Manager Vendor Checklist", "property manager vendor checklist", "Evaluate and coordinate vendor information", "/resources/property-manager-vendor-checklist", "A vendor coordination checklist for trade, service area, availability, invoice delivery, closeout photos, and warranty notes.", "LivingRelay stores preferred vendor details and outreach outcomes with each repair.", "low"],
+  ["Owner Approval Maintenance Template", "owner approval maintenance template", "Send owners repair context before approval", "/templates/owner-approval-maintenance-template", "A copy/paste owner update that summarizes issue, estimate, vendor recommendation, access, and decision needed.", "LivingRelay automates approval context and preserves the response on the work order.", "low"],
+  ["Maintenance Status Update Text Message", "maintenance status update text message", "Send tenants calm routine status updates", "/templates/maintenance-status-update-text-message", "SMS wording for received, reviewing, vendor contacted, scheduled, delayed, and closed updates.", "LivingRelay sends role-aware SMS updates as the work order moves.", "low"],
+  ["Remote Landlord Maintenance Coordination", "remote landlord maintenance coordination", "Build a process for rentals managed from away", "/resources/remote-landlord-maintenance-coordination", "A guide to intake, photos, access notes, vendor outreach, approvals, and records for remote owners.", "LivingRelay gives remote owners visibility without making them chase every thread.", "low"],
+  ["Small Property Manager Maintenance System", "small property manager maintenance system", "Choose an operational maintenance process", "/resources/small-property-manager-maintenance-system", "A lightweight system for intake, triage categories, owner updates, vendors, and invoice records.", "LivingRelay is the SMS-first workflow layer for that system.", "low"],
+  ["Rental Maintenance Photo Checklist", "rental maintenance photo checklist", "Ask tenants or vendors for useful photos", "/templates/rental-maintenance-photo-checklist", "A safe photo checklist for wide, close-up, location, model label, and access photos where appropriate.", "LivingRelay keeps photos attached to the request and vendor scope.", "low"],
+  ["Move-In Maintenance Expectations Template", "move in maintenance expectations template", "Set repair communication norms at move-in", "/templates/move-in-maintenance-expectations-template", "Friendly move-in language explaining how to report routine maintenance and what details help.", "LivingRelay gives tenants one text-first path for routine requests.", "medium"],
+  ["Vendor Invoice Collection Checklist", "vendor invoice collection checklist", "Collect invoice and closeout details consistently", "/templates/vendor-invoice-collection-checklist", "A checklist for invoice amount, vendor, work order, completion notes, photos, warranty, and payment status.", "LivingRelay tracks invoice delivery and off-platform payment status.", "low"],
+  ["Maintenance Handoff Checklist", "maintenance handoff checklist property manager", "Hand off open repairs between team members", "/templates/maintenance-handoff-checklist", "A shift or portfolio handoff template for open work orders, pending approvals, vendor ETAs, and tenant follow-ups.", "LivingRelay keeps the record live so handoffs are less dependent on memory.", "low"],
+  ["Work Order Status Update Template", "work order status update template", "Standardize routine repair updates", "/templates/maintenance-status-update-text-message", "Status language for tenant, owner, and internal updates across common non-emergency states.", "LivingRelay ties status updates to the repair timeline.", "low"],
+  ["Non-Emergency Triage Category Examples", "non emergency maintenance triage categories", "Create internal sorting labels for maintenance", "/resources/tenant-maintenance-request-template", "Examples of routine, time-sensitive, owner approval, vendor needed, and tenant info needed categories.", "LivingRelay helps classify incoming SMS requests without making legal or safety determinations.", "medium"],
+  ["Seasonal Rental Maintenance Planning Checklist", "seasonal rental maintenance checklist landlord", "Plan seasonal inspections and vendor scheduling", "/resources/landlord-maintenance-checklist", "A non-technical planning checklist for records, reminders, vendor capacity, and tenant notices.", "LivingRelay can turn seasonal findings into documented work orders.", "medium"],
+  ["Tenant Maintenance Communication Templates", "tenant maintenance communication template", "Send clearer tenant maintenance messages", "/templates/maintenance-status-update-text-message", "Copy/paste wording for routine intake, clarification, scheduling, and closeout.", "LivingRelay keeps tenant communications inside the repair history.", "low"],
+  ["Owner Repair Update Template", "owner repair update template", "Keep owners informed without long threads", "/templates/owner-approval-maintenance-template", "A concise owner-facing summary for status, spend, estimate, schedule, and next decision.", "LivingRelay sends owner updates with context and recordkeeping.", "low"],
+  ["Small Landlord Maintenance Organization Guide", "small landlord maintenance organization", "Move from ad hoc texts to a repeatable workflow", "/resources/small-property-manager-maintenance-system", "A simple operating model for one to twenty units that need better records and less message chasing.", "LivingRelay provides the shared SMS-first workspace.", "low"],
+  ["Rental Repair Access Notes Template", "rental repair access notes template", "Collect vendor entry and scheduling details", "/resources/tenant-maintenance-request-template", "A safe template for preferred windows, pets, parking, gate codes, contact method, and permission notes.", "LivingRelay asks for access details during intake and includes them in vendor scope.", "low"]
+].map(([title, keyword, intent, slug, summary, angle, risk]) => ({ title, keyword, intent, slug, summary, angle, risk }));
+
+const downloadableTemplateIdeas = [
+  { name: "Tenant Maintenance Request Intake Sheet", forWhom: "Self-managing landlords and small managers", fields: "Tenant name, property, unit, issue, location, started date, photos, access windows, contact preference", cta: "Use LivingRelay to collect these fields by SMS and create a work order.", disclaimer: "For routine maintenance intake only. Immediate danger should be directed to 911 or local emergency services first." },
+  { name: "After-Hours Maintenance Intake Card", forWhom: "Operators who receive nighttime texts", fields: "Issue, active now, immediate danger reminder, photo request, access notes, manager review status", cta: "Use LivingRelay to route after-hours messages into a review queue with tenant updates.", disclaimer: "Not an emergency-response protocol." },
+  { name: "Owner Approval Request Template", forWhom: "Managers who need owner signoff", fields: "Issue summary, estimate, vendor, recommendation, timing, access, decision needed", cta: "Use LivingRelay to send approvals and preserve owner responses.", disclaimer: "" },
+  { name: "Vendor Coordination Checklist", forWhom: "Small property managers", fields: "Trade, service area, availability, estimate range, insurance/licensing notes if normally collected, invoice contact, warranty, closeout photos", cta: "Use LivingRelay to compare vendor outreach outcomes in one work order.", disclaimer: "Does not replace your vendor qualification process." },
+  { name: "Rental Maintenance Photo Checklist", forWhom: "Tenants, managers, and vendors", fields: "Wide photo, close photo, location marker, model label, surrounding area, completed work photo", cta: "Use LivingRelay to keep photos attached to the repair.", disclaimer: "Photos should only be taken from a safe location." },
+  { name: "Property Maintenance Log Spreadsheet", forWhom: "Remote owners and small landlords", fields: "Date, property, unit, category, vendor, status, cost, invoice, owner notes, follow-up", cta: "Use LivingRelay when the spreadsheet becomes too much to maintain manually.", disclaimer: "" },
+  { name: "Maintenance Status Update SMS Pack", forWhom: "Managers sending routine updates", fields: "Received, reviewing, need photos, vendor contacted, scheduled, delayed, closed", cta: "Use LivingRelay for automated role-aware text updates.", disclaimer: "Avoid using templates for emergencies or disputes." },
+  { name: "Move-In Maintenance Expectations Handout", forWhom: "Landlords setting communication norms", fields: "How to report, what to include, photos, access windows, after-hours note, emergency reminder", cta: "Use LivingRelay as the single reporting path.", disclaimer: "Do not use as a lease clause or legal notice." },
+  { name: "Vendor Invoice Collection Checklist", forWhom: "Owners and managers tracking off-platform payment", fields: "Invoice number, vendor, work order, amount, tax year, delivery recipients, paid status", cta: "Use LivingRelay to track invoice receipt and paid status.", disclaimer: "Not tax, accounting, or financial advice." },
+  { name: "Maintenance Handoff Checklist", forWhom: "Managers handing off open repairs", fields: "Open requests, pending approvals, vendor ETAs, tenant replies needed, invoice follow-up", cta: "Use LivingRelay so handoffs happen from live records.", disclaimer: "" }
+];
+
+const seoArticles = [
+  {
+    slug: "tenant-maintenance-request-template",
+    eyebrow: "Tenant Intake",
+    h1: "Tenant Maintenance Request Template",
+    metaTitle: "Tenant Maintenance Request Template",
+    metaDescription: "Copy a practical tenant maintenance request template for rental repairs, photos, access notes, and follow-up.",
+    summary: "A practical tenant maintenance request template for small landlords and property managers who want clearer repair intake.",
+    keyword: "tenant maintenance request template",
+    sections: [
+      ["Why The Intake Template Matters", "Most maintenance confusion starts before a vendor is ever contacted. A tenant sends a short text, the manager asks two follow-up questions, the owner wants a photo, and the vendor needs the same details again. A tenant maintenance request template gives everyone a common starting point. It does not need to be formal or complicated. It simply needs to capture the facts that help a manager understand the issue, decide the next step, and keep a clean record. For small operators, the best template is plain, repeatable, and easy enough to use from a phone."],
+      ["Fields To Capture Every Time", "Start with the basics: tenant name, property, unit, preferred contact method, issue location, and a short description. Then ask when the issue started, whether it is active now, and whether photos are available. For routine maintenance, access notes matter as much as the description. Ask for preferred windows, parking instructions, gate or building notes, pets, and whether the tenant wants a text before entry. Avoid asking tenants to diagnose technical systems. The goal is to collect observable details, not turn a tenant into a plumber, electrician, or HVAC technician."],
+      ["A Simple Tenant-Facing Version", "Use language that sounds like a helpful operator, not a claims department. Example: “Thanks for reporting this. Please send the property/unit, where the issue is located, one close photo, one wider photo, when it started, and any access windows that work this week. If there is immediate danger, call 911 or local emergency services first.” This gives the tenant a clear next step while keeping the message safe. It also makes it easier to compare requests when several tenants text at once."],
+      ["How Managers Should Use The Request", "Once the details arrive, sort the request into an operational bucket: needs more tenant information, manager review, owner approval, vendor outreach, scheduled, delayed, or closed. These are workflow labels, not legal or safety determinations. Keep the tenant updated when the request is received, when a vendor is being contacted, when scheduling changes, and when the work is complete. If you collect photos, keep them with the request so the vendor and owner do not have to ask for them again."]
+    ],
+    checklistTitle: "Tenant Maintenance Intake Checklist",
+    checklist: ["Tenant name and contact", "Property and unit", "Issue location and short description", "When it started and whether it is active now", "Close photo and wider photo when safe", "Access windows, pets, parking, gate, or entry notes", "Status update sent to tenant"],
+    cta: "LivingRelay turns this template into an SMS-first workflow: tenant intake, manager review, vendor-ready scope, owner updates, and repair records in one place.",
+    faqs: [
+      ["What should a tenant maintenance request include?", "It should include property, unit, issue location, short description, timing, photos when safe, access windows, and preferred contact details."],
+      ["Should tenants troubleshoot repairs?", "Keep troubleshooting minimal and safe. Ask for observable details and photos, not technical repair work."],
+      ["Can this be used by self-managing landlords?", "Yes. It is designed for small operators who need a repeatable intake process without a large maintenance team."],
+      ["Is this legal advice?", "No. This is an operational communication template, not legal, safety, insurance, or habitability advice."]
+    ],
+    disclaimer: "This template is for routine maintenance coordination. It is not legal, safety, insurance, or emergency-services advice."
+  },
+  {
+    slug: "after-hours-maintenance-request-template",
+    eyebrow: "After Hours",
+    h1: "After-Hours Maintenance Request Template",
+    metaTitle: "After-Hours Maintenance Template",
+    metaDescription: "Use a calm after-hours maintenance request template for rental intake, tenant updates, and next-business-day review.",
+    summary: "A safe after-hours maintenance intake page for small rental operators who need clear information without giving emergency advice.",
+    keyword: "after hours maintenance request template",
+    sections: [
+      ["What After-Hours Intake Should Do", "After-hours maintenance messages are stressful because the person receiving them may be tired, away from the property, or unsure how urgent the issue is. The template should do three things: remind the tenant to call 911 or local emergency services first if there is immediate danger, collect observable details, and explain when the request will be reviewed. It should not promise emergency response, make legal determinations, or tell a tenant how to repair electrical, plumbing, HVAC, gas, fire, or security systems."],
+      ["The Safe Opening Line", "A useful after-hours message starts with a boundary: “If anyone is in immediate danger, call 911 or local emergency services first.” Then ask for the issue, unit, photos from a safe location, whether the problem is active now, and access notes. This keeps the operator focused on coordination, not emergency handling. For problems that are not immediate danger, the message can say the request has been received and will be reviewed according to the operator’s maintenance process."],
+      ["What To Capture Before Morning", "The most useful overnight details are simple: property, unit, issue location, what the tenant sees, when it started, whether it is getting worse, whether photos are available, and whether there is a safe access window. If the issue involves active water, heat, locks, power, or anything that sounds dangerous, the operator should use their normal escalation process and professional judgment. The template should not provide DIY instructions. It should preserve the record and support the next responsible decision."],
+      ["How To Follow Up", "After review, send a status update even if nothing has changed yet. Tenants mainly want to know the request was seen and what happens next. Use labels such as received, under review, vendor being contacted, scheduled, awaiting owner approval, delayed, or closed. For small operators, this simple vocabulary prevents a late-night text from becoming a long thread that nobody can reconstruct later."]
+    ],
+    checklistTitle: "After-Hours Intake Checklist",
+    checklist: ["Immediate danger reminder included", "Tenant name, property, and unit captured", "Issue and location captured", "Active now or stopped", "Photos requested only from a safe location", "Access notes collected", "Review status sent"],
+    cta: "LivingRelay helps turn after-hours texts into structured requests with tenant replies, manager review, vendor outreach, owner updates, and records attached to the property.",
+    faqs: [
+      ["What should an after-hours template say first?", "It should tell the tenant to call 911 or local emergency services first if there is immediate danger."],
+      ["Should the template include repair instructions?", "No. Avoid DIY instructions for technical or hazardous systems. Collect details and coordinate the next step."],
+      ["Can I use this for emergencies?", "This is not an emergency-response protocol. It is routine intake language with a clear emergency-services reminder."],
+      ["What status updates help after hours?", "Received, under review, vendor contacted, scheduled, delayed, and closed are usually enough for routine coordination."]
+    ],
+    disclaimer: "This is not emergency, legal, safety, insurance, or repair advice. For immediate danger, tenants should call 911 or local emergency services first."
+  },
+  {
+    slug: "rental-property-maintenance-log",
+    eyebrow: "Records",
+    h1: "Rental Property Maintenance Log",
+    metaTitle: "Rental Property Maintenance Log",
+    metaDescription: "Build a simple rental property maintenance log for work orders, vendors, invoices, owner notes, and status updates.",
+    summary: "A practical maintenance log structure for rental owners and managers who need repair history without reconstructing text threads.",
+    keyword: "rental property maintenance log",
+    sections: [
+      ["Why A Maintenance Log Matters", "A rental property maintenance log is less about paperwork and more about memory. Small operators often carry repair history in text messages, email threads, invoices, and mental notes. That works until a vendor asks what happened last time, an owner wants to know why a repair cost more, or a tenant reports the same issue again. A simple log gives each property a repair timeline: what was reported, what happened next, who was contacted, what was approved, what invoice arrived, and whether any follow-up remains."],
+      ["Core Fields For A Useful Log", "A good log captures date reported, property, unit, issue category, description, tenant contact, photos, assigned vendor, owner approval status, estimate, invoice amount, payment status, closeout notes, and next follow-up. If you manage multiple units, add a work order ID so the repair can be referenced without exposing private details in every message. Keep the categories operational: plumbing, HVAC, electrical, appliance, access, exterior, general, and other. Avoid using the log to make legal, insurance, or code determinations unless you are adding a professional record from the appropriate source."],
+      ["How Often To Update It", "Update the log when the request arrives, when the status changes, when a vendor is contacted, when an estimate or approval is received, when work is scheduled, and when the invoice is collected. That may sound like a lot, but each entry can be short. The point is not to write a novel; it is to avoid losing the decision trail. For remote owners, the log also becomes the source of truth for what is happening at a property they cannot easily inspect."],
+      ["When A Spreadsheet Stops Working", "A spreadsheet is a fine starting point for one property or a few low-volume units. It becomes harder when photos, SMS updates, owner approvals, vendor notes, and invoices live somewhere else. At that point, the log may show the final status but not the proof behind it. A workflow system can keep the record closer to the communication that created it."]
+    ],
+    checklistTitle: "Maintenance Log Columns",
+    checklist: ["Work order ID", "Date reported", "Property and unit", "Issue category", "Tenant summary", "Photos or attachments", "Vendor contacted", "Owner approval status", "Estimate and invoice", "Payment status", "Closeout notes"],
+    cta: "LivingRelay keeps maintenance logs by property automatically as tenant messages, vendor updates, owner approvals, invoices, and closeout notes move through the workflow.",
+    faqs: [
+      ["What should I track in a rental maintenance log?", "Track date, property, unit, issue, status, vendor, estimate, approval, invoice, payment status, and follow-up notes."],
+      ["Is a spreadsheet enough?", "A spreadsheet can work at low volume, but it becomes difficult when photos, texts, approvals, and invoices are scattered elsewhere."],
+      ["Should I include tenant communications?", "Keep relevant operational updates with the work order so the repair history is understandable later."],
+      ["Is this tax advice?", "No. This is operational recordkeeping guidance, not tax, accounting, financial, or legal advice."]
+    ],
+    disclaimer: "This page is for operational organization only. It is not legal, tax, accounting, insurance, or financial advice."
+  },
+  {
+    slug: "property-manager-vendor-checklist",
+    eyebrow: "Vendors",
+    h1: "Property Manager Vendor Checklist",
+    metaTitle: "Property Manager Vendor Checklist",
+    metaDescription: "Use a vendor coordination checklist for rental maintenance outreach, availability, estimates, invoices, and closeout notes.",
+    summary: "A vendor coordination checklist for small property managers who need cleaner outreach and less back-and-forth.",
+    keyword: "property manager vendor checklist",
+    sections: [
+      ["Why Vendor Coordination Needs A Checklist", "Vendor coordination is where many rental repairs slow down. The manager has a tenant description, the vendor wants photos, the owner wants an estimate, and nobody remembers whether access instructions were sent. A vendor checklist prevents avoidable repeat calls. It does not replace your vendor qualification process, local rules, or professional judgment. It simply gives every outreach attempt the same useful packet of context."],
+      ["Information To Send Before Dispatch", "Send the vendor the property, unit, issue summary, location, photos, access windows, parking or gate notes, tenant contact rules, and any known equipment model information that is safe and relevant to share. Include whether owner approval is needed before work above a threshold. For routine work, ask for service area, earliest availability, trip fee, rough range if they provide one, parts constraints, warranty or closeout notes, and where invoices should be sent."],
+      ["Comparing Vendor Responses", "Small operators do not always need the cheapest option; they need the best fit for the job. Compare availability, clarity, service area, likely repeat visits, invoice process, communication quality, and whether the vendor can handle the specific property constraints. Keep notes neutral and factual. “Can arrive Tuesday morning and requested model number” is more useful than “seems better.”"],
+      ["Closeout And Invoice Collection", "The job is not fully coordinated when the vendor says it is done. Ask for completion notes, invoice, any warranty note, photos when appropriate, and whether follow-up is needed. Then update the owner and tenant using a short status message. For off-platform payments, track whether the invoice was received and whether the owner or manager marked it paid."]
+    ],
+    checklistTitle: "Vendor Coordination Checklist",
+    checklist: ["Property, unit, and issue summary", "Photos and access notes", "Trade and service area", "Earliest availability", "Trip fee or estimate signal", "Owner approval threshold", "Invoice delivery contact", "Completion notes and warranty", "Closeout photo when appropriate"],
+    cta: "LivingRelay helps managers send vendor-ready scopes, compare outreach outcomes, coordinate tenant access, and keep invoice records attached to each work order.",
+    faqs: [
+      ["What should I send a vendor for a rental repair?", "Send a concise issue summary, location, photos, access notes, timing, approval constraints, and invoice delivery instructions."],
+      ["Should I collect vendor licensing or insurance details?", "Use your normal vendor qualification process and local requirements. This checklist is only for coordination."],
+      ["How should I compare vendor options?", "Compare availability, fit, clarity, access constraints, estimate signal, and closeout process, not just price."],
+      ["Does LivingRelay pay vendors?", "No. Vendor repair payments remain off platform; LivingRelay tracks coordination and invoice status."]
+    ],
+    disclaimer: "This checklist supports operational coordination and does not replace vendor qualification, legal, insurance, licensing, or compliance review."
+  },
+  {
+    slug: "remote-landlord-maintenance-coordination",
+    eyebrow: "Remote Owners",
+    h1: "Remote Landlord Maintenance Coordination",
+    metaTitle: "Remote Landlord Maintenance Coordination",
+    metaDescription: "A practical workflow for remote landlords coordinating tenant requests, vendors, approvals, photos, and repair records.",
+    summary: "A remote landlord maintenance coordination guide for owners who need clearer repair workflows from a distance.",
+    keyword: "remote landlord maintenance coordination",
+    sections: [
+      ["The Remote Landlord Problem", "Remote landlords often face a simple but exhausting problem: every maintenance request arrives without enough context. The owner cannot walk the property, the tenant may not know what details matter, and the vendor may not want to quote without photos or access information. A workable system gives the owner visibility without requiring them to personally manage every message. The system should collect the right details, route approvals, coordinate vendors, and preserve records."],
+      ["Start With Intake And Photos", "Remote coordination depends on good intake. Ask for the issue, location, when it started, whether it is active now, one close photo, one wider photo, and any safe equipment label photo when appropriate. Ask for access windows, pets, gates, parking, and contact preferences. Do not ask tenants to perform risky diagnostics or repairs. The goal is to see enough to decide who should review or visit next."],
+      ["Use Approval Thresholds", "Remote owners should decide in advance which repairs can be scheduled by a manager and which need owner approval. Keep the thresholds operational and documented. When approval is needed, send a short summary: issue, vendor, estimate, timing, access, recommendation, and decision needed. Avoid long narrative threads. The owner should be able to answer yes, no, or ask for more information with the context still attached."],
+      ["Keep The Repair History Together", "The hardest part of remote ownership is not one repair; it is the fifth repair that sounds like the first. Keep prior photos, vendor notes, invoices, and closeout details with the property. That history helps avoid repeat diagnostics and gives the owner a clearer view of recurring issues. It also makes tax-season and portfolio review less painful, while staying separate from financial, legal, or insurance advice."]
+    ],
+    checklistTitle: "Remote Maintenance Workflow",
+    checklist: ["Single tenant intake path", "Photo and access note collection", "Manager or owner review state", "Vendor outreach packet", "Owner approval summary", "Tenant status update", "Invoice and closeout record"],
+    cta: "LivingRelay gives remote landlords an SMS-first workflow for tenant intake, manager review, vendor coordination, owner approvals, and property-level records.",
+    faqs: [
+      ["How can remote landlords handle maintenance better?", "Use a repeatable intake path, collect photos and access notes, document approvals, coordinate vendors from one record, and keep status updates simple."],
+      ["What photos should remote owners request?", "Ask for a close photo, a wider room or area photo, and a safe location or model label photo only when appropriate."],
+      ["How do owner approvals stay clear?", "Use short approval summaries with issue, vendor, estimate, schedule, access, and decision needed."],
+      ["Is this property management legal advice?", "No. This is operational maintenance coordination guidance only."]
+    ],
+    disclaimer: "This guide is for operational organization. It is not legal, financial, insurance, safety, tax, or emergency-services advice."
+  }
+];
+
+const templatePages = [
+  {
+    slug: "owner-approval-maintenance-template",
+    eyebrow: "Owner Approval",
+    h1: "Owner Approval Maintenance Template",
+    summary: "A copy/paste owner approval request for routine rental repairs.",
+    template: "Hi [Owner Name], we reviewed a maintenance request for [Property/Unit].\n\nIssue: [Short issue summary]\nTenant details/photos: [Brief context]\nVendor: [Vendor name]\nEstimate/range: [Amount or range]\nSchedule: [Proposed date/window]\nAccess notes: [Access details]\nRecommendation: [Manager recommendation]\n\nPlease reply APPROVE, DECLINE, or MORE INFO.",
+    sms: ["[Property/Unit]: [issue]. [Vendor] can handle it [date/window] for [estimate]. Reply APPROVE, DECLINE, or MORE INFO.", "Owner approval needed: [issue], [vendor], [estimate], [timing]. Photos and notes are in the work order."],
+    email: "Subject: Approval needed for [Property/Unit] maintenance\n\nHi [Owner Name],\n\nPlease review the maintenance request below and reply with your decision.\n\n[Template details]\n\nThanks.",
+    use: "Use when a manager needs owner signoff before scheduling or authorizing routine maintenance work.",
+    notUse: "Do not use for legal notices, eviction matters, emergencies, insurance claims, or safety determinations.",
+    disclaimer: "Operational approval template only. Not legal, financial, insurance, tax, or safety advice."
+  },
+  {
+    slug: "maintenance-status-update-text-message",
+    eyebrow: "Tenant Updates",
+    h1: "Maintenance Status Update Text Message Templates",
+    summary: "Routine SMS and email language for keeping tenants and owners informed.",
+    template: "Received: Thanks, we received your maintenance request for [issue]. We are reviewing the details.\n\nNeed photos: Could you send one close photo and one wider photo from a safe location?\n\nVendor contacted: We are contacting a vendor for [issue] and will update you when we have a schedule.\n\nScheduled: [Vendor] is scheduled for [date/window]. Access notes: [notes].\n\nDelayed: We are still coordinating [reason]. Next update: [time/date].\n\nClosed: The work was marked complete on [date]. Reply if the same issue is still active.",
+    sms: ["Thanks, we received your request for [issue]. We are reviewing it now.", "[Vendor] is scheduled for [date/window]. Please keep access available and reply with any changes.", "Update on [issue]: still coordinating [reason]. Next update by [time/date]."],
+    email: "Subject: Maintenance update for [Property/Unit]\n\nHi [Name],\n\nStatus: [received/reviewing/vendor contacted/scheduled/delayed/closed]\nDetails: [short note]\nNext step: [next action]\n\nThanks.",
+    use: "Use for routine maintenance status updates when the repair is moving through intake, review, scheduling, or closeout.",
+    notUse: "Do not use as emergency instructions, legal notices, payment pressure, or dispute language.",
+    disclaimer: "For routine operational communication only. Immediate danger should go to 911 or local emergency services first."
+  },
+  {
+    slug: "rental-maintenance-photo-checklist",
+    eyebrow: "Photos",
+    h1: "Rental Maintenance Photo Checklist",
+    summary: "A safe photo request template for tenants, managers, and vendors.",
+    template: "Please send photos only if you can do so safely.\n\n1. One close photo of the issue.\n2. One wider photo showing where it is in the room or area.\n3. A photo of any visible label, model number, or appliance brand if easy and safe.\n4. A photo of the surrounding floor/wall/ceiling if relevant.\n5. For completed work, one final photo showing the repaired area.",
+    sms: ["Could you send one close photo and one wider photo from a safe location?", "If easy and safe, please include the appliance/model label so the vendor can prepare.", "Vendor closeout: please send a completion note and one final photo if available."],
+    email: "Subject: Photos for [Property/Unit] maintenance request\n\nHi [Name],\n\nWhen safe, please send the photos listed below so we can coordinate the right next step.\n\n[Template details]\n\nThanks.",
+    use: "Use when photos will help clarify a routine maintenance request, vendor scope, or closeout record.",
+    notUse: "Do not ask anyone to enter unsafe areas, touch electrical equipment, climb, move heavy items, or photograph private personal information.",
+    disclaimer: "Photos should only be taken from a safe location. This is not repair or safety advice."
+  },
+  {
+    slug: "vendor-invoice-collection-checklist",
+    eyebrow: "Invoices",
+    h1: "Vendor Invoice Collection Checklist",
+    summary: "A closeout checklist for collecting vendor invoices and maintenance records.",
+    template: "Work order: [ID]\nProperty/unit: [Property/Unit]\nVendor: [Vendor]\nWork completed: [Short completion note]\nCompletion date: [Date]\nInvoice number: [Number]\nInvoice amount: [Amount]\nInvoice sent to: [Manager/owner/email]\nWarranty or follow-up notes: [Notes]\nPayment status: [Unpaid/Paid off platform/Needs review]",
+    sms: ["Thanks for the update. Please send the invoice for [Property/Unit] to [email/contact].", "Closeout request: please include completion date, invoice amount, and any warranty or follow-up note.", "Invoice received for [work order]. Payment is tracked off platform."],
+    email: "Subject: Invoice request for [Property/Unit]\n\nHi [Vendor],\n\nPlease send the invoice and closeout details for the completed work below.\n\n[Template details]\n\nThanks.",
+    use: "Use after routine maintenance work is completed and the operator needs invoice and closeout records.",
+    notUse: "Do not use as tax advice, accounting advice, collections language, or a substitute for your payment process.",
+    disclaimer: "Operational invoice tracking only. Not tax, accounting, financial, or legal advice."
+  },
+  {
+    slug: "maintenance-handoff-checklist",
+    eyebrow: "Handoff",
+    h1: "Maintenance Handoff Checklist",
+    summary: "A property manager handoff template for open routine maintenance work.",
+    template: "Handoff date/time: [Date]\nPrepared by: [Name]\n\nOpen requests:\n- [Work order] - [status] - [next action]\n\nPending owner approvals:\n- [Issue] - [owner] - [decision needed]\n\nVendor coordination:\n- [Vendor] - [ETA/status] - [contact notes]\n\nTenant follow-ups:\n- [Tenant/unit] - [message needed]\n\nInvoices/closeout:\n- [Vendor/work order] - [invoice or closeout status]",
+    sms: ["Handoff note: [work order] is [status]. Next action: [next action].", "Pending approval: [owner] needs to decide on [issue/estimate].", "Tenant follow-up needed for [unit]: [message]."],
+    email: "Subject: Maintenance handoff for [Property/Portfolio]\n\nHi [Name],\n\nHere is the current maintenance handoff.\n\n[Template details]\n\nThanks.",
+    use: "Use when a manager, assistant, owner, or teammate needs to take over open repair coordination.",
+    notUse: "Do not use for sensitive tenant disputes, legal notices, protected-class information, or emergency instructions.",
+    disclaimer: "Operational handoff template only. Keep sensitive information out unless there is a legitimate workflow need."
+  }
+];
+
 function publicSitePageFor(pathname = window.location.pathname) {
   const normalized = pathname.replace(/\/+$/, "") || "/";
+  if (normalized.startsWith("/resources/")) {
+    return seoArticles.some((article) => `/resources/${article.slug}` === normalized) ? "seoArticle" : null;
+  }
+  if (normalized.startsWith("/templates/")) {
+    return templatePages.some((template) => `/templates/${template.slug}` === normalized) ? "templatePage" : null;
+  }
   if (normalized.startsWith("/property-maintenance/")) {
     return propertyMaintenanceCities.some((city) => `/property-maintenance/${city.slug}` === normalized) ? "maintenanceCity" : null;
   }
   return publicSitePages[normalized] || null;
+}
+
+function seoArticleFor(pathname = window.location.pathname) {
+  const normalized = pathname.replace(/\/+$/, "") || "/";
+  return seoArticles.find((article) => `/resources/${article.slug}` === normalized) || null;
+}
+
+function templatePageFor(pathname = window.location.pathname) {
+  const normalized = pathname.replace(/\/+$/, "") || "/";
+  return templatePages.find((template) => `/templates/${template.slug}` === normalized) || null;
 }
 
 function propertyMaintenanceCityFor(pathname = window.location.pathname) {
@@ -746,8 +991,8 @@ function setLinkTag(rel, href) {
 
 function applyPublicSeo(content, page, cityArticle) {
   const url = absoluteUrl(window.location.pathname);
-  const title = `${content.title} | LivingRelay`;
-  const description = content.summary;
+  const title = content.metaTitle || `${content.title} | LivingRelay`;
+  const description = content.metaDescription || content.summary;
 
   document.title = title;
   setLinkTag("canonical", url);
@@ -756,7 +1001,7 @@ function applyPublicSeo(content, page, cityArticle) {
   setMetaTag('meta[property="og:title"]', { property: "og:title", content: title });
   setMetaTag('meta[property="og:description"]', { property: "og:description", content: description });
   setMetaTag('meta[property="og:url"]', { property: "og:url", content: url });
-  setMetaTag('meta[property="og:type"]', { property: "og:type", content: page === "maintenanceCity" ? "article" : "website" });
+  setMetaTag('meta[property="og:type"]', { property: "og:type", content: ["maintenanceCity", "seoArticle", "templatePage"].includes(page) ? "article" : "website" });
   setMetaTag('meta[name="twitter:title"]', { name: "twitter:title", content: title });
   setMetaTag('meta[name="twitter:description"]', { name: "twitter:description", content: description });
 
@@ -837,18 +1082,18 @@ function publicJsonLd(page, content, cityArticle) {
     });
   }
 
-  if (page === "maintenanceCity" && cityArticle) {
+  if (["maintenanceCity", "seoArticle", "templatePage"].includes(page) && (cityArticle || content)) {
     base.push({
       "@context": "https://schema.org",
       "@type": "Article",
-      headline: cityArticle.title,
+      headline: content.title,
       description: content.summary,
       author: { "@type": "Organization", name: "LivingRelay" },
       publisher: { "@type": "Organization", name: "LivingRelay" },
       mainEntityOfPage: url,
-      articleSection: "Property maintenance",
+      articleSection: page === "templatePage" ? "Maintenance templates" : "Property maintenance",
       about: [
-        `${cityArticle.city} property maintenance`,
+        cityArticle ? `${cityArticle.city} property maintenance` : "rental maintenance coordination",
         "rental repairs",
         "tenant maintenance requests",
         "vendor coordination"
@@ -856,16 +1101,16 @@ function publicJsonLd(page, content, cityArticle) {
     });
   }
 
-  if (page === "maintenanceIndex") {
+  if (page === "maintenanceIndex" || page === "resourceIndex") {
     base.push({
       "@context": "https://schema.org",
       "@type": "CollectionPage",
       name: content.title,
       description: content.summary,
-      hasPart: propertyMaintenanceCities.map((city) => ({
+      hasPart: (page === "resourceIndex" ? [...seoArticles.map((article) => ({ title: article.h1, url: `${siteOrigin}/resources/${article.slug}` })), ...templatePages.map((template) => ({ title: template.h1, url: `${siteOrigin}/templates/${template.slug}` }))] : propertyMaintenanceCities.map((city) => ({ title: city.title, url: `${siteOrigin}/property-maintenance/${city.slug}` }))).map((item) => ({
         "@type": "Article",
-        name: city.title,
-        url: `${siteOrigin}/property-maintenance/${city.slug}`
+        name: item.title,
+        url: item.url
       }))
     });
   }
@@ -875,6 +1120,7 @@ function publicJsonLd(page, content, cityArticle) {
 
 const routeRoles = {
   admin: "Site Admin",
+  dashboard: "Dashboard",
   manager: "Manager",
   owner: "Owner",
   resident: "Tenant",
@@ -898,6 +1144,9 @@ function parseDashboardRoute(pathname = window.location.pathname) {
 }
 
 function sectionFromRoutePage(role, page) {
+  if (role === "Dashboard") {
+    return ["account", "delete-account", "delete-data", "profile", "settings"].includes(page) ? "account" : "dashboard";
+  }
   if (role === "Site Admin") {
     return {
       dashboard: "accounts",
@@ -922,9 +1171,11 @@ function sectionFromRoutePage(role, page) {
   }
   if (["Manager", "Owner"].includes(role)) {
     if (page === "billing") return "billing";
+    if (["account", "delete-account", "delete-data", "profile", "settings"].includes(page)) return "account";
     if (["team", "vendors"].includes(page)) return "team";
     return "operations";
   }
+  if (["account", "delete-account", "delete-data", "profile", "settings"].includes(page)) return "account";
   return "dashboard";
 }
 
@@ -946,8 +1197,10 @@ function pageFromSection(role, section) {
   if (["Manager", "Owner"].includes(role)) {
     if (section === "billing") return "billing";
     if (section === "team") return "team";
+    if (section === "account") return "account";
     return "dashboard";
   }
+  if (section === "account") return "account";
   return "dashboard";
 }
 
@@ -988,6 +1241,87 @@ function formatPhoneInput(value = "") {
 
 function formatPinInput(value = "") {
   return String(value).replace(/\D/g, "").slice(0, 4);
+}
+
+let transitPublicKeyPromise;
+const contactTransitFields = [
+  "phone",
+  "pin",
+  "password",
+  "managerPhone",
+  "ownerPhone",
+  "vendorPhone",
+  "recipientPhone",
+  "testVendorPhone",
+  "to",
+  "email",
+  "ownerEmail",
+  "managerEmail",
+  "recipientEmail",
+  "referredEmail"
+];
+
+function base64ToBytes(value) {
+  return Uint8Array.from(window.atob(value), (character) => character.charCodeAt(0));
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return window.btoa(binary);
+}
+
+async function getTransitPublicKey() {
+  if (!transitPublicKeyPromise) {
+    transitPublicKeyPromise = fetch("/api/encryption/public-key")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not load encryption key.");
+        const key = await response.json();
+        const cryptoKey = await window.crypto.subtle.importKey(
+          "spki",
+          base64ToBytes(key.publicKey),
+          { name: "RSA-OAEP", hash: "SHA-256" },
+          false,
+          ["encrypt"]
+        );
+        return { ...key, cryptoKey };
+      });
+  }
+  return transitPublicKeyPromise;
+}
+
+async function encryptTransitFields(payload, fields) {
+  if (!window.crypto?.subtle) return payload;
+  const sensitiveEntries = fields
+    .filter((field) => Object.prototype.hasOwnProperty.call(payload, field))
+    .filter((field) => payload[field] !== undefined && payload[field] !== null && String(payload[field]) !== "");
+  if (!sensitiveEntries.length) return payload;
+
+  const key = await getTransitPublicKey();
+  const encryptedFields = {};
+  for (const field of sensitiveEntries) {
+    const ciphertext = await window.crypto.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      key.cryptoKey,
+      new TextEncoder().encode(String(payload[field]))
+    );
+    encryptedFields[field] = {
+      alg: key.alg,
+      keyId: key.keyId,
+      ciphertext: bytesToBase64(new Uint8Array(ciphertext))
+    };
+  }
+  return {
+    ...payload,
+    ...Object.fromEntries(sensitiveEntries.map((field) => [field, ""])),
+    _encryptedFields: encryptedFields
+  };
+}
+
+async function encryptContactTransitFields(payload) {
+  return encryptTransitFields(payload, contactTransitFields);
 }
 
 function samePhone(left = "", right = "") {
@@ -1424,11 +1758,23 @@ function PublicSiteRouter() {
     if (page) trackPageView();
   }, [page]);
 
+  useEffect(() => {
+    const publicRedirects = {
+      "/delete-account": "/dashboard/delete-account",
+      "/delete-data": "/dashboard/delete-data"
+    };
+    const target = publicRedirects[window.location.pathname.replace(/\/+$/, "")];
+    if (!target) return;
+    window.location.replace(`${target}${window.location.search}${window.location.hash}`);
+  }, []);
+
   return page ? <PublicSitePage page={page} /> : <App />;
 }
 
 function PublicSitePage({ page }) {
   const cityArticle = page === "maintenanceCity" ? propertyMaintenanceCityFor() : null;
+  const seoArticle = page === "seoArticle" ? seoArticleFor() : null;
+  const templatePage = page === "templatePage" ? templatePageFor() : null;
   const pages = {
     about: {
       eyebrow: "About LivingRelay",
@@ -1447,6 +1793,15 @@ function PublicSitePage({ page }) {
       primaryHref: "/",
       secondary: "Get support",
       secondaryHref: "/support"
+    },
+    resourceIndex: {
+      eyebrow: "Maintenance Resources",
+      title: "Templates and guides for rental maintenance coordination",
+      summary: "Operational SEO resources, copy/paste templates, and checklists for small property managers, remote landlords, and self-managing rental owners.",
+      primary: "Browse templates",
+      primaryHref: "#templates",
+      secondary: "Talk to LivingRelay",
+      secondaryHref: "#talk-to-livingrelay"
     },
     support: {
       eyebrow: "Support",
@@ -1510,6 +1865,28 @@ function PublicSitePage({ page }) {
       primaryHref: "/",
       secondary: "All city guides",
       secondaryHref: "/property-maintenance"
+    },
+    seoArticle: {
+      eyebrow: seoArticle?.eyebrow || "Maintenance Resource",
+      title: seoArticle?.h1 || "Maintenance Resource",
+      metaTitle: seoArticle ? `${seoArticle.metaTitle} | LivingRelay` : undefined,
+      metaDescription: seoArticle?.metaDescription,
+      summary: seoArticle?.summary || "A practical maintenance coordination guide for rental property operators.",
+      primary: "Use the template",
+      primaryHref: "#checklist",
+      secondary: "All resources",
+      secondaryHref: "/resources"
+    },
+    templatePage: {
+      eyebrow: templatePage?.eyebrow || "Template",
+      title: templatePage?.h1 || "Maintenance Template",
+      metaTitle: templatePage ? `${templatePage.h1.slice(0, 42)} | LivingRelay` : undefined,
+      metaDescription: templatePage?.summary,
+      summary: templatePage?.summary || "A copy/paste rental maintenance coordination template.",
+      primary: "Copy template",
+      primaryHref: "#template",
+      secondary: "All resources",
+      secondaryHref: "/resources"
     }
   };
   const content = pages[page] || pages.marketing;
@@ -1530,6 +1907,7 @@ function PublicSitePage({ page }) {
         <div>
           <a href="/marketing">Marketing</a>
           <a href="/about">About</a>
+          <a href="/resources">Resources</a>
           <a href="/property-maintenance">City guides</a>
           <a href="/support">Support</a>
           <a href="/privacy">Privacy</a>
@@ -1555,8 +1933,11 @@ function PublicSitePage({ page }) {
       {page === "terms" && <TermsContent />}
       {page === "ios" && <IosAppContent />}
       {page === "referral" && <ReferralProgramContent />}
+      {page === "resourceIndex" && <ResourceIndex />}
       {page === "maintenanceIndex" && <PropertyMaintenanceIndex />}
       {page === "maintenanceCity" && cityArticle && <PropertyMaintenanceCityArticle city={cityArticle} />}
+      {page === "seoArticle" && seoArticle && <SeoArticlePage article={seoArticle} />}
+      {page === "templatePage" && templatePage && <TemplateResourcePage template={templatePage} />}
       <PublicFooter />
     </main>
   );
@@ -1591,6 +1972,8 @@ function MarketingContent() {
           <p><Check size={18} /> Owner visibility without moving repair payments on platform</p>
         </div>
       </section>
+
+      <SalesLeadEmbed context="Marketing page" />
 
       <section className="public-grid two audience-grid" aria-label="LivingRelay users">
         {marketingUseCases.map((item) => (
@@ -1699,6 +2082,191 @@ function ReferralProgramContent() {
   );
 }
 
+function ResourceIndex() {
+  return (
+    <>
+      <section className="answer-strip" aria-label="Resource summary">
+        <div>
+          <span className="eyebrow">Operational content</span>
+          <h2>Useful even before someone buys software.</h2>
+        </div>
+        <p>These pages focus on low-risk maintenance coordination: intake, status updates, vendor handoffs, owner approvals, photos, logs, and records. They avoid legal advice, screening, eviction, insurance claims, code determinations, emergency protocols, and DIY repair instructions.</p>
+      </section>
+
+      <section className="resource-idea-table" aria-label="SEO page ideas">
+        <div className="resource-section-head">
+          <span className="eyebrow">SEO page map</span>
+          <h2>20 page ideas for small rental maintenance searches</h2>
+        </div>
+        <div className="idea-table">
+          <div className="idea-row header">
+            <span>Page</span><span>Keyword</span><span>Intent</span><span>Risk</span>
+          </div>
+          {seoPageIdeas.map((idea) => {
+            const live = seoArticles.some((article) => idea.slug === `/resources/${article.slug}`) || templatePages.some((template) => idea.slug === `/templates/${template.slug}`);
+            const RowTag = live ? "a" : "div";
+            return (
+              <RowTag className="idea-row" href={live ? idea.slug : undefined} key={`${idea.title}-${idea.keyword}`}>
+                <span><strong>{idea.title}</strong><small>{idea.summary}</small><small>{idea.angle}</small></span>
+                <span>{idea.keyword}</span>
+                <span>{idea.intent}</span>
+                <span>{idea.risk}</span>
+              </RowTag>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="resource-card-grid" aria-label="Full SEO pages">
+        <div className="resource-section-head">
+          <span className="eyebrow">Drafted pages</span>
+          <h2>Five full SEO resources</h2>
+        </div>
+        <div className="city-guide-grid resource-links">
+          {seoArticles.map((article) => (
+            <a className="city-guide-card" href={`/resources/${article.slug}`} key={article.slug}>
+              <span><FileText size={15} /> {article.keyword}</span>
+              <h2>{article.h1}</h2>
+              <p>{article.summary}</p>
+              <strong>Read resource <ArrowRight size={16} /></strong>
+            </a>
+          ))}
+        </div>
+      </section>
+
+      <section className="resource-idea-table" id="templates" aria-label="Downloadable template ideas">
+        <div className="resource-section-head">
+          <span className="eyebrow">Downloadable ideas</span>
+          <h2>10 template-style assets to gate or publish</h2>
+        </div>
+        <div className="template-idea-grid">
+          {downloadableTemplateIdeas.map((item) => (
+            <article className="template-idea-card" key={item.name}>
+              <h3>{item.name}</h3>
+              <p><strong>For:</strong> {item.forWhom}</p>
+              <p><strong>Fields:</strong> {item.fields}</p>
+              <p><strong>CTA:</strong> {item.cta}</p>
+              {item.disclaimer && <small>{item.disclaimer}</small>}
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="resource-card-grid" aria-label="Template pages">
+        <div className="resource-section-head">
+          <span className="eyebrow">Copy/paste pages</span>
+          <h2>Five live template pages</h2>
+        </div>
+        <div className="city-guide-grid resource-links">
+          {templatePages.map((template) => (
+            <a className="city-guide-card" href={`/templates/${template.slug}`} key={template.slug}>
+              <span><ClipboardList size={15} /> Template</span>
+              <h2>{template.h1}</h2>
+              <p>{template.summary}</p>
+              <strong>Open template <ArrowRight size={16} /></strong>
+            </a>
+          ))}
+        </div>
+      </section>
+
+      <div id="talk-to-livingrelay">
+        <SalesLeadEmbed context="Resource hub" compact />
+      </div>
+    </>
+  );
+}
+
+function SeoArticlePage({ article }) {
+  return (
+    <article className="maintenance-article seo-resource-article" aria-label={article.h1}>
+      <JsonLd data={{
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        mainEntity: article.faqs.map(([question, answer]) => ({
+          "@type": "Question",
+          name: question,
+          acceptedAnswer: { "@type": "Answer", text: answer }
+        }))
+      }} />
+      <p className="privacy-date">Target keyword: {article.keyword}</p>
+      <h2>{article.h1}</h2>
+      <p>{article.summary} It is written for small property managers, self-managing landlords, remote owners, and small rental portfolios that need a calmer way to coordinate routine maintenance.</p>
+      {article.sections.map(([heading, body]) => (
+        <section key={heading}>
+          <h3>{heading}</h3>
+          <p>{body}</p>
+        </section>
+      ))}
+      <section className="article-answer-box" id="checklist">
+        <span className="eyebrow">{article.checklistTitle}</span>
+        <div className="resource-checklist">
+          {article.checklist.map((item) => <p key={item}><Check size={17} /> {item}</p>)}
+        </div>
+      </section>
+      <section>
+        <h3>How LivingRelay Fits</h3>
+        <p>{article.cta}</p>
+      </section>
+      <FaqSection items={article.faqs.map(([question, answer]) => ({ question, answer }))} compact />
+      {article.disclaimer && <p className="resource-disclaimer">{article.disclaimer}</p>}
+      <section className="article-cta">
+        <div>
+          <span className="eyebrow">LivingRelay</span>
+          <h3>Turn the template into a real workflow.</h3>
+          <p>Collect tenant details by SMS, review requests, coordinate vendors, update owners, and keep repair records together.</p>
+        </div>
+        <SalesLeadForm context={`${article.h1} resource`} compact />
+      </section>
+    </article>
+  );
+}
+
+function TemplateResourcePage({ template }) {
+  return (
+    <article className="maintenance-article template-resource-page" aria-label={template.h1}>
+      <p className="privacy-date">Copy/paste maintenance coordination template</p>
+      <h2>{template.h1}</h2>
+      <p>{template.summary} Replace bracketed fields with the property, unit, vendor, owner, tenant, or work-order details that apply.</p>
+
+      <h3 id="template">Copy/Paste Template</h3>
+      <pre className="template-copy"><code>{template.template}</code></pre>
+
+      <h3>Suggested SMS Variants</h3>
+      <div className="resource-checklist">
+        {template.sms.map((message) => <p key={message}><MessageSquare size={17} /> {message}</p>)}
+      </div>
+
+      <h3>Suggested Email Variant</h3>
+      <pre className="template-copy"><code>{template.email}</code></pre>
+
+      <section className="template-use-grid">
+        <div>
+          <h3>When To Use It</h3>
+          <p>{template.use}</p>
+        </div>
+        <div>
+          <h3>What Not To Use It For</h3>
+          <p>{template.notUse}</p>
+        </div>
+      </section>
+
+      <section>
+        <h3>How LivingRelay Fits</h3>
+        <p>LivingRelay helps turn this copy/paste template into an SMS-first workflow with tenant intake, manager review, vendor coordination, owner updates, and records in one place.</p>
+      </section>
+      {template.disclaimer && <p className="resource-disclaimer">{template.disclaimer}</p>}
+      <section className="article-cta">
+        <div>
+          <span className="eyebrow">LivingRelay</span>
+          <h3>Make the template easier to run.</h3>
+          <p>Use LivingRelay to keep the message, decision, vendor context, and repair record tied to the property.</p>
+        </div>
+        <SalesLeadForm context={`${template.h1} template`} compact />
+      </section>
+    </article>
+  );
+}
+
 function PropertyMaintenanceIndex() {
   return (
     <>
@@ -1723,6 +2291,8 @@ function PropertyMaintenanceIndex() {
           </a>
         ))}
       </section>
+
+      <SalesLeadEmbed context="Property maintenance index" compact />
     </>
   );
 }
@@ -1786,7 +2356,7 @@ function PropertyMaintenanceCityArticle({ city }) {
           <h3>Give every repair a cleaner record.</h3>
           <p>Use LivingRelay to collect tenant details, coordinate owner approvals, contact vendors, and preserve invoice history for each rental property.</p>
         </div>
-        <a className="primary" href="/">Open app <ArrowRight size={18} /></a>
+        <SalesLeadForm context={`${city.city} property maintenance guide`} compact />
       </section>
     </article>
   );
@@ -1905,6 +2475,92 @@ function PublicCard({ icon, title, text }) {
   );
 }
 
+function SalesLeadEmbed({ context, compact = false }) {
+  return (
+    <section className={compact ? "sales-lead-band compact" : "sales-lead-band"} aria-label="Talk to LivingRelay">
+      <div>
+        <span className="eyebrow">For owners and managers</span>
+        <h2>Want to see whether LivingRelay fits your rental workflow?</h2>
+        <p>Share a few details and someone from LivingRelay will follow up about maintenance intake, owner approvals, vendor coordination, and repair records.</p>
+      </div>
+      <SalesLeadForm context={context} />
+    </section>
+  );
+}
+
+function SalesLeadForm({ context, compact = false }) {
+  const [form, setForm] = useState({
+    contactName: "",
+    role: "Property manager",
+    company: "",
+    email: "",
+    phone: "",
+    market: "",
+    unitCount: "",
+    message: ""
+  });
+  const [status, setStatus] = useState({ state: "idle", message: "" });
+  const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+
+  async function submitLead(event) {
+    event.preventDefault();
+    if (!form.email.trim() && !form.phone.trim()) {
+      setStatus({ state: "error", message: "Add an email or phone number so we can follow up." });
+      return;
+    }
+    setStatus({ state: "saving", message: "Sending..." });
+    try {
+      const payload = {
+        ...form,
+        pageLabel: context,
+        pageUrl: window.location.href
+      };
+      const response = await fetch("/api/public/sales-leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(await encryptContactTransitFields(payload))
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not send the lead.");
+      setForm({
+        contactName: "",
+        role: form.role,
+        company: "",
+        email: "",
+        phone: "",
+        market: "",
+        unitCount: "",
+        message: ""
+      });
+      setStatus({ state: "ok", message: "Thanks. We received your request." });
+    } catch (error) {
+      setStatus({ state: "error", message: error.message || "Could not send the lead." });
+    }
+  }
+
+  return (
+    <form className={compact ? "sales-lead-form compact" : "sales-lead-form"} onSubmit={submitLead}>
+      <label>Name<input value={form.contactName} onChange={(event) => update("contactName", event.target.value)} autoComplete="name" required /></label>
+      <label>Role<select value={form.role} onChange={(event) => update("role", event.target.value)}>
+        <option>Property manager</option>
+        <option>Owner</option>
+        <option>Owner-manager</option>
+        <option>Small landlord</option>
+      </select></label>
+      <label>Company or property<input value={form.company} onChange={(event) => update("company", event.target.value)} autoComplete="organization" /></label>
+      <label>Email<input value={form.email} onChange={(event) => update("email", event.target.value)} inputMode="email" autoComplete="email" /></label>
+      <label>Phone<input value={form.phone} onChange={(event) => update("phone", event.target.value)} inputMode="tel" autoComplete="tel" /></label>
+      <label>Market<input value={form.market} onChange={(event) => update("market", event.target.value)} placeholder="City or region" /></label>
+      <label>Portfolio size<input value={form.unitCount} onChange={(event) => update("unitCount", event.target.value)} placeholder="Units or properties" /></label>
+      <label className="span-2">What would you like to solve?<textarea value={form.message} onChange={(event) => update("message", event.target.value)} rows={3} /></label>
+      <button className="primary" type="submit" disabled={status.state === "saving"}>
+        <Send size={16} /> {status.state === "saving" ? "Sending" : "Talk to someone"}
+      </button>
+      {status.message && <p className={`lead-form-status ${status.state === "error" ? "error" : status.state === "ok" ? "ok" : ""}`}>{status.message}</p>}
+    </form>
+  );
+}
+
 function PublicFooter() {
   return (
     <footer className="public-footer">
@@ -1928,7 +2584,14 @@ function PublicFooter() {
           <h2>Product</h2>
           <a href="/ios">iOS app download</a>
           <a href="/referral-program">Referral program</a>
+          <a href="/resources">Maintenance resources</a>
           <a href="/">Open app</a>
+        </div>
+        <div>
+          <h2>Templates</h2>
+          {templatePages.slice(0, 5).map((template) => (
+            <a href={`/templates/${template.slug}`} key={template.slug}>{template.h1}</a>
+          ))}
         </div>
         <div>
           <h2>City Guides</h2>
@@ -2246,7 +2909,8 @@ function App() {
       }
       persistSession(data.userId, data.token);
       setActivePropertyId(defaultPropertyIdForLogin(match, propertiesData));
-      setAdminSection(match?.role === "Site Admin" ? "accounts" : "operations");
+      const requestedSection = sectionFromRoutePage(parseDashboardRoute()?.role, parseDashboardRoute()?.page);
+      setAdminSection(requestedSection === "account" ? "account" : match?.role === "Site Admin" ? "accounts" : "operations");
       setLoginVerification({ challengeId: "", code: "", state: "idle", message: "" });
     };
     if (loginCandidate?.role === "Site Admin") {
@@ -2257,7 +2921,7 @@ function App() {
       const response = await fetch("/api/site-admin/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: sitePassword, remember: siteAdminRemember })
+        body: JSON.stringify(await encryptTransitFields({ password: sitePassword, remember: siteAdminRemember }, ["password"]))
       });
       const data = await response.json();
       if (!response.ok) {
@@ -2292,7 +2956,7 @@ function App() {
       const response = await fetch("/api/auth/login/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, pin })
+        body: JSON.stringify(await encryptTransitFields({ phone, pin }, ["phone", "pin"]))
       });
       const data = await response.json();
       if (!response.ok) {
@@ -2316,7 +2980,7 @@ function App() {
     const response = await fetch("/api/auth/login/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone, pin, challengeId: loginVerification.challengeId, code: loginVerification.code })
+      body: JSON.stringify(await encryptTransitFields({ phone, pin, challengeId: loginVerification.challengeId, code: loginVerification.code }, ["phone", "pin"]))
     });
     const data = await response.json();
     if (!response.ok) {
@@ -2343,7 +3007,7 @@ function App() {
         const response = await fetch("/api/phone-verifications/start", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone: signupForm.managerPhone, purpose: "onboarding" })
+          body: JSON.stringify(await encryptTransitFields({ phone: signupForm.managerPhone, purpose: "onboarding" }, ["phone"]))
         });
         const data = await response.json();
         if (!response.ok) {
@@ -2378,7 +3042,7 @@ function App() {
       const response = await fetch("/api/onboarding/property", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...signupForm, phoneVerificationToken })
+        body: JSON.stringify(await encryptTransitFields({ ...signupForm, phoneVerificationToken }, ["managerPhone", "pin"]))
       });
       const data = await response.json();
       if (!response.ok) {
@@ -2511,7 +3175,7 @@ function App() {
       const response = await fetch("/api/messages/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to, body })
+        body: JSON.stringify(await encryptContactTransitFields({ to, body }))
       });
       const data = await response.json();
       setSendStatus(data.sent ? `Sent: ${data.sid}` : `Not sent: ${data.error || "unknown error"}`);
@@ -2590,7 +3254,7 @@ function App() {
     const data = await apiRequest(`/api/work-orders/${orderId}/vendor-outreach`, {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ actor: user?.name || "manager", mode, demoFallback: true, testVendorPhone: mode === "test" ? user?.phone : "" })
+      body: JSON.stringify(await encryptContactTransitFields({ actor: user?.name || "manager", mode, demoFallback: true, testVendorPhone: mode === "test" ? user?.phone : "" }))
     });
     setSendStatus(data.started === false ? `Vendor outreach skipped: ${data.reason || data.error}` : data.demo ? "Demo vendor outcomes generated." : data.testMode ? `Test vendor call started to ${user?.phone}.` : "Vendor outreach started.");
     await loadState();
@@ -2756,6 +3420,10 @@ function App() {
             </button>
           ))}
       </section>}
+
+      {["Tenant", "Vendor"].includes(user.role) && (
+        <RoleSectionAction active={adminSection} setActive={setAdminSection} role={user.role} />
+      )}
 
       {user.role !== "Site Admin" && <section className="mobile-metrics">
         {user.role === "Tenant" ? (
@@ -2947,11 +3615,24 @@ function App() {
         />
       )}
 
-      {user.role === "Tenant" && (
+      {user.role !== "Site Admin" && adminSection === "account" && (
+        <AccountSettingsPanel
+          user={user}
+          account={accountsData.find((account) => user.accountIds?.includes(account.id) || account.id === activeProperty.accountId)}
+          property={activeProperty}
+          properties={propertiesData.filter((property) => user.propertyIds.includes(property.id) || user.managesPropertyIds?.includes(property.id))}
+          authHeaders={authHeaders}
+          signOut={signOut}
+          reloadState={loadState}
+          initialScope={route?.page === "delete-data" ? "data" : ""}
+        />
+      )}
+
+      {user.role === "Tenant" && adminSection !== "account" && (
         <TenantView request={request} setRequest={setRequest} createOrder={createOrder} orders={tenantOrders} property={activeProperty} user={user} />
       )}
 
-      {user.role === "Vendor" && (
+      {user.role === "Vendor" && adminSection !== "account" && (
         <VendorView orders={vendorOrders} />
       )}
 
@@ -3017,7 +3698,7 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
       const response = await fetch("/api/public/livingrelay-invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(renterRequest)
+        body: JSON.stringify(await encryptContactTransitFields(renterRequest))
       });
       const data = await response.json();
       if (!response.ok) {
@@ -3534,11 +4215,17 @@ function SiteOwnerHero({ accounts, people, properties, orders, billingEvents, ac
 
 function RoleSectionAction({ active, setActive, role }) {
   const operationsLabel = role === "Owner" ? "Approvals" : "Operations";
-  const items = [
-    ["operations", ClipboardList, operationsLabel],
-    ["team", Users, "Team"],
-    ["billing", CreditCard, "Billing"]
-  ];
+  const items = ["Manager", "Owner"].includes(role)
+    ? [
+        ["operations", ClipboardList, operationsLabel],
+        ["team", Users, "Team"],
+        ["billing", CreditCard, "Billing"],
+        ["account", UserRound, "Account"]
+      ]
+    : [
+        ["dashboard", ClipboardList, "Dashboard"],
+        ["account", UserRound, "Account"]
+      ];
   return (
     <div className={`role-section-action ${active === "billing" ? "billing-active" : ""}`}>
       <span>{items.find(([id]) => id === active)?.[2] || operationsLabel}</span>
@@ -3550,6 +4237,187 @@ function RoleSectionAction({ active, setActive, role }) {
         ))}
       </div>
     </div>
+  );
+}
+
+function AccountSettingsPanel({ user, account, property, properties, authHeaders, signOut, reloadState, initialScope = "" }) {
+  const canDeleteCustomerAccount = ["Manager", "Owner", "Admin"].includes(user.role) && account;
+  const [scope, setScope] = useState(initialScope || (canDeleteCustomerAccount ? "customer-account" : "personal"));
+  const [confirmation, setConfirmation] = useState("");
+  const [status, setStatus] = useState({ state: "idle", message: "" });
+  const [emailForm, setEmailForm] = useState(() => ({
+    email: user.email || "",
+    enabled: defaultNotify(user.role, user.notify).channels.email !== false
+  }));
+  const [emailStatus, setEmailStatus] = useState({ state: "idle", message: "" });
+  const customerConfirmation = account?.name || "DELETE";
+  const personalConfirmation = user.name || "DELETE";
+  const dataConfirmation = "DELETE DATA";
+  const requiredConfirmation = scope === "customer-account" ? customerConfirmation : scope === "data" ? dataConfirmation : personalConfirmation;
+  const propertyCount = scope === "customer-account" ? properties.length : user.propertyIds?.length || 0;
+  const canSubmit = confirmation.trim() === requiredConfirmation;
+
+  useEffect(() => {
+    setEmailForm({
+      email: user.email || "",
+      enabled: defaultNotify(user.role, user.notify).channels.email !== false
+    });
+  }, [user.id, user.email, user.notify, user.role]);
+
+  useEffect(() => {
+    if (initialScope === "data") {
+      setScope("data");
+      setConfirmation("");
+    }
+  }, [initialScope]);
+
+  async function saveEmailSettings(event) {
+    event.preventDefault();
+    setEmailStatus({ state: "saving", message: "Saving email settings..." });
+    try {
+      const currentNotify = defaultNotify(user.role, user.notify);
+      const response = await fetch(`/api/people/${user.id}/notify`, {
+        method: "PATCH",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(await encryptContactTransitFields({
+          email: emailForm.email,
+          channels: {
+            ...currentNotify.channels,
+            email: emailForm.enabled
+          }
+        }))
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setEmailStatus({ state: "error", message: data.error || "Email settings could not be saved." });
+        return;
+      }
+      await reloadState?.();
+      setEmailStatus({
+        state: "ok",
+        message: emailForm.email.trim()
+          ? "Email updates are saved."
+          : "Email cleared. Add one any time to receive updates there."
+      });
+    } catch (error) {
+      setEmailStatus({ state: "error", message: error.message });
+    }
+  }
+
+  async function deleteAccount(event) {
+    event.preventDefault();
+    if (!canSubmit) {
+      setStatus({ state: "error", message: `Type ${requiredConfirmation} exactly to confirm.` });
+      return;
+    }
+    setStatus({ state: "saving", message: scope === "data" ? "Deleting data..." : "Deleting account..." });
+    try {
+      const response = await fetch("/api/account", {
+        method: "DELETE",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ scope, accountId: account?.id })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setStatus({ state: "error", message: data.error || "Account could not be deleted." });
+        return;
+      }
+      if (scope === "data") {
+        await reloadState?.();
+        setConfirmation("");
+        setStatus({ state: "ok", message: "Your repair and vendor data was deleted. Your account is still active." });
+        return;
+      }
+      await signOut();
+    } catch (error) {
+      setStatus({ state: "error", message: error.message });
+    }
+  }
+
+  return (
+    <section className="account-settings-panel">
+      <SectionTitle icon={<UserRound />} title="Account" eyebrow="Profile and deletion" />
+      <div className="account-profile-grid">
+        <MiniRow icon={<UserRound />} label="Signed in as" value={`${user.name} · ${user.role}`} />
+        <MiniRow icon={<Phone />} label="Phone" value={formatPhoneInput(user.phone || "") || "Not set"} />
+        <MiniRow icon={<Mail />} label="Email" value={user.email || "Optional"} />
+        <MiniRow icon={<Building2 />} label="Current property" value={property?.name || "Not assigned"} />
+        <MiniRow icon={<LayoutDashboard />} label="Customer account" value={account?.name || "Not assigned"} />
+      </div>
+      <form className="email-settings-card" onSubmit={saveEmailSettings}>
+        <div>
+          <span className="eyebrow">Optional</span>
+          <h3>Email updates</h3>
+          <p>Add an email address if you want LivingRelay updates by email in addition to text or app notifications.</p>
+        </div>
+        <label>
+          Email address
+          <input
+            value={emailForm.email}
+            onChange={(event) => setEmailForm({ ...emailForm, email: event.target.value })}
+            inputMode="email"
+            autoComplete="email"
+            placeholder="name@example.com"
+          />
+        </label>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={emailForm.enabled}
+            onChange={(event) => setEmailForm({ ...emailForm, enabled: event.target.checked })}
+          />
+          Send updates to this email
+        </label>
+        <button className="secondary wide" type="submit" disabled={emailStatus.state === "saving"}>
+          <Mail size={15} /> {emailStatus.state === "saving" ? "Saving" : "Save email settings"}
+        </button>
+        {emailStatus.message && <p className={`login-error ${emailStatus.state === "ok" ? "ok" : ""}`}>{emailStatus.message}</p>}
+      </form>
+      <form className="danger-zone" onSubmit={deleteAccount}>
+        <div>
+          <span className="eyebrow">Danger zone</span>
+          <h3>Delete account</h3>
+          <p>
+            {scope === "customer-account"
+              ? `This deletes ${account?.name}, ${propertyCount} propert${propertyCount === 1 ? "y" : "ies"}, linked people, work orders, invoices, vendors, and billing events.`
+              : scope === "data"
+                ? "This deletes repair, invoice, vendor, and billing-event data while keeping your LivingRelay login, account, people, and property profiles active."
+                : "This deletes your personal LivingRelay login and removes vendor profile data linked directly to you."}
+          </p>
+        </div>
+        {canDeleteCustomerAccount && (
+          <div className="delete-scope-toggle" role="group" aria-label="Deletion scope">
+            <button type="button" className={scope === "customer-account" ? "active" : ""} onClick={() => { setScope("customer-account"); setConfirmation(""); }}>
+              <Building2 size={15} /> Customer account
+            </button>
+            <button type="button" className={scope === "personal" ? "active" : ""} onClick={() => { setScope("personal"); setConfirmation(""); }}>
+              <UserRound size={15} /> My login only
+            </button>
+            <button type="button" className={scope === "data" ? "active" : ""} onClick={() => { setScope("data"); setConfirmation(""); }}>
+              <Database size={15} /> Data only
+            </button>
+          </div>
+        )}
+        {!canDeleteCustomerAccount && (
+          <div className="delete-scope-toggle" role="group" aria-label="Deletion scope">
+            <button type="button" className={scope === "personal" ? "active" : ""} onClick={() => { setScope("personal"); setConfirmation(""); }}>
+              <UserRound size={15} /> My login
+            </button>
+            <button type="button" className={scope === "data" ? "active" : ""} onClick={() => { setScope("data"); setConfirmation(""); }}>
+              <Database size={15} /> Data only
+            </button>
+          </div>
+        )}
+        <label>
+          Type {requiredConfirmation} to confirm
+          <input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" />
+        </label>
+        <button className="ghost danger wide" type="submit" disabled={!canSubmit || status.state === "saving"}>
+          <Trash2 size={15} /> {status.state === "saving" ? "Deleting" : "Delete account"}
+        </button>
+        {status.message && <p className={`login-error ${status.state === "ok" ? "ok" : ""}`}>{status.message}</p>}
+      </form>
+    </section>
   );
 }
 
@@ -3685,7 +4553,7 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
       const response = await fetch("/api/site-admin/qa/run", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${siteAdminToken}` },
-        body: JSON.stringify(form)
+        body: JSON.stringify(await encryptContactTransitFields(form))
       });
       updateProgress("environment", "done");
       updateProgress("delivery", "done");
@@ -4084,7 +4952,7 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
       await fetch("/api/site-admin/prospecting-leads", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${siteAdminToken}` },
-        body: JSON.stringify(form)
+        body: JSON.stringify(await encryptContactTransitFields(form))
       });
       setForm({ ...form, name: "", contactName: "", email: "", phone: "", website: "", listingUrl: "", rentalAddress: "", fit: "", notes: "" });
       setSaveStatus("Lead saved");
@@ -4098,7 +4966,7 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
     await fetch(`/api/site-admin/prospecting-leads/${lead.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${siteAdminToken}` },
-      body: JSON.stringify(updates)
+      body: JSON.stringify(await encryptContactTransitFields(updates))
     });
     await reloadState?.();
   }
@@ -4468,7 +5336,7 @@ function PlatformVendorCallSettings({ platformSettings, reloadState, siteAdminTo
     await fetch("/api/site-admin/platform-settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${siteAdminToken}` },
-      body: JSON.stringify(form)
+      body: JSON.stringify(await encryptContactTransitFields(form))
     });
     await reloadState();
   }
@@ -4583,7 +5451,7 @@ function AdminDirectory({ people, properties, accounts, reloadState }) {
     await fetch("/api/admin/people", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form)
+      body: JSON.stringify(await encryptContactTransitFields(form))
     });
     setForm({ name: "", role: "Manager", phone: "", pin: "", accountId: accounts[0]?.id || "", propertyId: properties[0]?.id || "", unit: "", trade: "" });
     await reloadState();
@@ -4925,7 +5793,7 @@ function VendorTeamOnboarding({ property, account, people, vendors, properties =
       const response = await fetch(`/api/properties/${property.id}/vendors`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, propertyId: property.id, accountId: account?.id, preferred: true, placement: "primary" })
+        body: JSON.stringify(await encryptContactTransitFields({ ...form, propertyId: property.id, accountId: account?.id, preferred: true, placement: "primary" }))
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not add vendor.");
@@ -4967,7 +5835,7 @@ function VendorTeamOnboarding({ property, account, people, vendors, properties =
       const response = await fetch(`/api/properties/${property.id}/vendors`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...backupForm, preferred: true, placement: "backup", useFor: `${backupForm.trade} backup` })
+        body: JSON.stringify(await encryptContactTransitFields({ ...backupForm, preferred: true, placement: "backup", useFor: `${backupForm.trade} backup` }))
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not add backup vendor.");
@@ -5349,7 +6217,7 @@ function AdminTools({ property, people, vendors, auditLog, reloadState }) {
     await fetch("/api/admin/people", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...personForm, propertyId: property.id })
+      body: JSON.stringify(await encryptContactTransitFields({ ...personForm, propertyId: property.id }))
     });
     setPersonForm({ name: "", role: "Tenant", phone: "", email: "", unit: propertyLocationLabel(property), trade: "Plumbing" });
     await reloadState();
@@ -5360,7 +6228,7 @@ function AdminTools({ property, people, vendors, auditLog, reloadState }) {
     await fetch("/api/admin/vendors", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(vendorForm)
+      body: JSON.stringify(await encryptContactTransitFields(vendorForm))
     });
     setVendorForm({ name: "", trade: "Plumbing", phone: "" });
     await reloadState();
@@ -5370,7 +6238,7 @@ function AdminTools({ property, people, vendors, auditLog, reloadState }) {
     await fetch(`/api/people/${person.id}/notify`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch)
+      body: JSON.stringify(await encryptContactTransitFields(patch))
     });
     await reloadState();
   }
@@ -5912,7 +6780,7 @@ function ReferralServicePanel({ user, property, account, referrals, reloadState 
       const response = await fetch("/api/referrals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, propertyId: property.id, accountId: account?.id })
+        body: JSON.stringify(await encryptContactTransitFields({ ...form, propertyId: property.id, accountId: account?.id }))
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not send referral invite.");

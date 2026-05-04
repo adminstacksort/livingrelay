@@ -20,6 +20,7 @@ import { chargeStripeDispatchFee, createStripeOwnerSubscriptionSession, createSt
 import { attachMediaRelay, getMediaRelayRoom } from "./mediaRelay.js";
 import { consumeVerifiedPhoneToken, createPhoneChallenge, verifyPhoneChallenge } from "./phoneVerification.js";
 import { defaultNotifyForRole, dispatchNotification, getPushStatus, mergeNotifySettings, notificationCatalog, registerPushDevice } from "./notifications.js";
+import { decryptTransitFields, getTransitPublicKey } from "./transitEncryption.js";
 import {
   buildTenantAvailability,
   buildInvoiceDeliveryInstructions,
@@ -34,6 +35,7 @@ import {
 } from "./vendorWorkflow.js";
 
 const app = express();
+app.set("trust proxy", 1);
 const port = Number(process.env.SERVER_PORT || 8787);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(__dirname, "..", "dist");
@@ -84,6 +86,36 @@ app.use(express.json({
   }
 }));
 app.use(express.urlencoded({ extended: false }));
+app.use((req, res, next) => {
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  if (!isLocalDevHost(req) && (req.secure || forwardedProto === "https")) {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  next();
+});
+app.use((req, res, next) => {
+  try {
+    decryptTransitFields(req.body, [
+      "phone",
+      "pin",
+      "password",
+      "managerPhone",
+      "ownerPhone",
+      "vendorPhone",
+      "recipientPhone",
+      "testVendorPhone",
+      "to",
+      "email",
+      "ownerEmail",
+      "managerEmail",
+      "recipientEmail",
+      "referredEmail"
+    ]);
+    next();
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message });
+  }
+});
 app.get("/favicon.ico", (req, res) => {
   res.redirect(302, "/favicon.svg");
 });
@@ -149,6 +181,14 @@ app.get(["/terms", "/terms-and-conditions"], (req, res) => {
     `
   }));
 });
+app.get("/delete-account", (req, res) => {
+  const query = req.originalUrl.includes("?") ? req.originalUrl.slice(req.originalUrl.indexOf("?")) : "";
+  res.redirect(302, `/dashboard/delete-account${query}`);
+});
+app.get("/delete-data", (req, res) => {
+  const query = req.originalUrl.includes("?") ? req.originalUrl.slice(req.originalUrl.indexOf("?")) : "";
+  res.redirect(302, `/dashboard/delete-data${query}`);
+});
 app.use(express.static(distDir));
 
 app.use((req, res, next) => {
@@ -183,6 +223,10 @@ app.get("/api/health", async (req, res) => {
 app.get("/api/readiness", async (req, res) => {
   const readiness = await getReadiness();
   res.status(readiness.ok ? 200 : 503).json(readiness);
+});
+
+app.get("/api/encryption/public-key", (req, res) => {
+  res.json(getTransitPublicKey());
 });
 
 app.get("/api/state", (req, res) => {
@@ -599,7 +643,15 @@ app.use("/api/site-admin", requireSiteAdminHost);
 app.post("/api/site-admin/login", (req, res) => {
   const { password, remember = true } = req.body;
   const siteAdmin = people.find((person) => person.role === "Site Admin");
-  if (!siteAdmin || password !== (process.env.SITE_ADMIN_PASSWORD || "owner-console")) {
+  const expectedPassword = String(process.env.SITE_ADMIN_PASSWORD || "owner-console");
+  const providedPassword = String(password || "");
+  const normalizedExpected = expectedPassword.trim().toLowerCase();
+  const normalizedProvided = providedPassword.trim().toLowerCase();
+  if (!process.env.SITE_ADMIN_PASSWORD && process.env.NODE_ENV === "production") {
+    res.status(500).json({ error: "SITE_ADMIN_PASSWORD is not configured on this server." });
+    return;
+  }
+  if (!siteAdmin || !normalizedProvided || normalizedProvided !== normalizedExpected) {
     res.status(401).json({ error: "Invalid admin console password" });
     return;
   }
@@ -676,6 +728,12 @@ function appSessionUser(req) {
   const session = token ? appSessions.get(token) : null;
   if (!session) return null;
   return people.find((person) => person.id === session.userId) || null;
+}
+
+function clearAppSessionsForUser(userId) {
+  for (const [token, session] of appSessions.entries()) {
+    if (session.userId === userId) appSessions.delete(token);
+  }
 }
 
 function bearerToken(req) {
@@ -768,6 +826,7 @@ function isAuthorizedAppRequest(req, user) {
   if (path === "/api/admin/vendors" && req.method === "POST") return ownerManagerRoles.has(role);
   if (path.startsWith("/api/admin")) return managerRoles.has(role);
   if (path.startsWith("/api/billing")) return ownerManagerRoles.has(role);
+  if (path.startsWith("/api/account")) return role !== "Site Admin";
   if (path.startsWith("/api/referrals")) return ownerManagerRoles.has(role);
   if (path.startsWith("/api/invoices")) return ownerManagerRoles.has(role);
   if (path.startsWith("/api/properties")) return ownerManagerRoles.has(role);
@@ -779,6 +838,7 @@ function isAuthorizedAppRequest(req, user) {
 app.use([
   "/api/admin",
   "/api/billing",
+  "/api/account",
   "/api/referrals",
   "/api/work-orders",
   "/api/invoices",
@@ -1287,6 +1347,64 @@ app.delete("/api/site-admin/accounts/:id", (req, res) => {
   saveState();
   recordAudit("site-admin", "Deleted account", `${account.name} account deleted with ${summary.properties} properties, ${summary.people} people, ${summary.workOrders} work orders, and ${summary.invoices} invoices.`);
   res.json({ deleted: true, accountId: account.id, summary });
+});
+
+app.delete("/api/account", (req, res) => {
+  const user = req.user;
+  if (!user || user.role === "Site Admin") {
+    res.status(403).json({ error: "This account cannot be deleted here" });
+    return;
+  }
+  const requestedScope = String(req.body?.scope || "").trim();
+  const scope = ["customer-account", "personal", "data"].includes(requestedScope) ? requestedScope : "personal";
+  if (scope === "data") {
+    const requestedAccountId = String(req.body?.accountId || "").trim();
+    const summary = deleteUserDataState(user, requestedAccountId);
+    saveState();
+    recordAudit(user.name, "Deleted account data", `${user.name} deleted dashboard data while keeping their account: ${summary.workOrders} work orders, ${summary.invoices} invoices, ${summary.vendors} vendors, and ${summary.billingEvents} billing events.`);
+    res.json({ deleted: true, scope, summary });
+    return;
+  }
+  if (scope === "customer-account") {
+    if (!["Manager", "Owner", "Admin"].includes(user.role)) {
+      res.status(403).json({ error: "Only a manager or owner can delete a customer account" });
+      return;
+    }
+    const requestedAccountId = String(req.body?.accountId || "").trim();
+    const ownedAccountIds = addUnique([
+      ...(user.accountIds || []),
+      ...properties.filter((property) => user.propertyIds?.includes(property.id) || user.managesPropertyIds?.includes(property.id)).map((property) => property.accountId)
+    ].filter(Boolean));
+    const accountId = requestedAccountId || ownedAccountIds[0];
+    if (!accountId || !ownedAccountIds.includes(accountId)) {
+      res.status(403).json({ error: "You can only delete an account you belong to" });
+      return;
+    }
+    const account = accounts.find((item) => item.id === accountId);
+    if (!account) {
+      res.status(404).json({ error: "account not found" });
+      return;
+    }
+    const summary = deleteAccountState(account.id);
+    clearAppSessionsForUser(user.id);
+    saveState();
+    recordAudit(user.name, "Deleted own customer account", `${account.name} deleted from dashboard with ${summary.properties} properties, ${summary.people} people, ${summary.workOrders} work orders, and ${summary.invoices} invoices.`);
+    res.json({ deleted: true, scope, accountId: account.id, summary });
+    return;
+  }
+  const personalUserIds = new Set(people
+    .filter((person) => (
+      person.role !== "Site Admin"
+      && normalizePhone(person.phone) === normalizePhone(user.phone)
+      && String(person.pin || "") === String(user.pin || "")
+    ))
+    .map((person) => person.id));
+  const deletedPeople = removeWhere(people, (person) => personalUserIds.has(person.id));
+  const deletedVendors = removeWhere(vendors, (vendor) => personalUserIds.has(vendor.personId));
+  for (const userId of personalUserIds) clearAppSessionsForUser(userId);
+  saveState();
+  recordAudit(user.name, "Deleted own user account", `${user.name} deleted their ${user.role} login from dashboard.`);
+  res.json({ deleted: true, scope, summary: { people: deletedPeople, vendors: deletedVendors } });
 });
 
 app.post("/api/demo/scenario", (req, res) => {
@@ -2194,6 +2312,79 @@ function deleteAccountState(accountId) {
     invoices: 0,
     billingEvents: deletedAccountBillingEvents
   });
+}
+
+function deleteUserDataState(user, requestedAccountId = "") {
+  const identityIds = new Set(people
+    .filter((person) => (
+      person.role !== "Site Admin"
+      && normalizePhone(person.phone) === normalizePhone(user.phone)
+      && String(person.pin || "") === String(user.pin || "")
+    ))
+    .map((person) => person.id));
+  identityIds.add(user.id);
+  const userPropertyIds = addUnique([
+    ...(user.propertyIds || []),
+    ...(user.managesPropertyIds || [])
+  ]);
+  const ownedAccountIds = addUnique([
+    ...(user.accountIds || []),
+    ...properties.filter((property) => userPropertyIds.includes(property.id)).map((property) => property.accountId)
+  ].filter(Boolean));
+  const canDeleteCustomerData = ["Manager", "Owner", "Admin"].includes(user.role);
+  const accountId = canDeleteCustomerData && requestedAccountId && ownedAccountIds.includes(requestedAccountId)
+    ? requestedAccountId
+    : canDeleteCustomerData
+      ? ownedAccountIds[0] || ""
+      : "";
+  const propertyIds = accountId
+    ? properties.filter((property) => property.accountId === accountId).map((property) => property.id)
+    : userPropertyIds;
+  const propertyIdSet = new Set(propertyIds);
+  const vendorIds = new Set(vendors
+    .filter((vendor) => (
+      (accountId && vendor.accountId === accountId)
+      || identityIds.has(vendor.personId)
+      || vendor.propertyIds?.some((propertyId) => propertyIdSet.has(propertyId))
+    ))
+    .map((vendor) => vendor.id));
+  const deletedWorkOrderIds = new Set(workOrders
+    .filter((order) => (
+      propertyIdSet.has(order.propertyId)
+      || identityIds.has(order.tenantId)
+      || vendorIds.has(order.vendorId)
+    ))
+    .map((order) => order.id));
+  const deletedWorkOrders = removeWhere(workOrders, (order) => deletedWorkOrderIds.has(order.id));
+  const deletedInvoices = removeWhere(invoices, (invoice) => (
+    propertyIdSet.has(invoice.propertyId)
+    || deletedWorkOrderIds.has(invoice.orderId || invoice.workOrderId)
+  ));
+  const deletedBillingEvents = removeWhere(billingEvents, (event) => (
+    (accountId && event.accountId === accountId)
+    || propertyIdSet.has(event.propertyId)
+    || deletedWorkOrderIds.has(event.orderId || event.workOrderId)
+  ));
+  const deletedVendors = removeWhere(vendors, (vendor) => (
+    (accountId && vendor.accountId === accountId)
+    || identityIds.has(vendor.personId)
+    || vendor.propertyIds?.some((propertyId) => propertyIdSet.has(propertyId))
+  ));
+  for (const property of properties) {
+    if (!propertyIdSet.has(property.id)) continue;
+    property.dispatchSettings = {
+      ...(property.dispatchSettings || {}),
+      vendorPreferences: {}
+    };
+  }
+  return {
+    properties: 0,
+    people: 0,
+    vendors: deletedVendors,
+    workOrders: deletedWorkOrders,
+    invoices: deletedInvoices,
+    billingEvents: deletedBillingEvents
+  };
 }
 
 function deletePropertyState(propertyId) {
@@ -3596,6 +3787,39 @@ app.post("/api/public/livingrelay-invite", async (req, res) => {
   }
 });
 
+app.post("/api/public/sales-leads", async (req, res) => {
+  try {
+    const leadInput = buildPublicSalesLead(req.body || {});
+    if (leadInput.error) {
+      res.status(400).json({ error: leadInput.error });
+      return;
+    }
+    const result = upsertProspectingLead(leadInput.lead, "sales-lead-form");
+    const emailDelivery = await sendSalesLeadNotificationEmail({
+      lead: result.lead,
+      form: leadInput.form,
+      created: result.created
+    }).catch((error) => ({ sent: false, reason: error.message }));
+    saveState();
+    recordAudit(
+      leadInput.form.contactName || "sales-lead-form",
+      result.created ? "Created sales lead" : "Updated sales lead",
+      `${result.lead.name} submitted the public sales lead form.`
+    );
+    res.status(result.created ? 201 : 200).json({
+      ok: true,
+      leadId: result.lead.id,
+      created: result.created,
+      emailDelivery: {
+        sent: Boolean(emailDelivery.sent),
+        reason: emailDelivery.reason || emailDelivery.id || "sent"
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post("/api/twilio/inbound", async (req, res) => {
   try {
     const from = req.body.From;
@@ -3948,6 +4172,70 @@ function normalizeProspectingLead(input) {
   };
 }
 
+function buildPublicSalesLead(input = {}) {
+  const contactName = sanitizeText(input.contactName || input.name);
+  const company = sanitizeText(input.company || input.propertyName || input.name);
+  const role = sanitizeText(input.role || input.contactRole);
+  const email = sanitizeText(input.email).toLowerCase();
+  const phone = sanitizeText(input.phone);
+  const market = sanitizeText(input.market || input.city);
+  const unitCount = sanitizeText(input.unitCount || input.portfolioSize);
+  const message = sanitizeText(input.message || input.notes);
+  const pageUrl = sanitizeText(input.pageUrl).slice(0, 500);
+  const pageLabel = sanitizeText(input.pageLabel || input.context);
+  if (!contactName) return { error: "Name is required." };
+  if (!email && !phone) return { error: "Add an email or phone number so we can follow up." };
+  if (email && !isValidEmail(email)) return { error: "Enter a valid email address." };
+  const leadName = company || contactName;
+  const sourceContext = [pageLabel, pageUrl].filter(Boolean).join(" - ");
+  const noteParts = [
+    message,
+    sourceContext ? `Submitted from ${sourceContext}.` : "",
+    `Contact: ${contactName}${role ? `, ${role}` : ""}.`
+  ].filter(Boolean);
+  return {
+    form: { contactName, company, role, email, phone, market, unitCount, message, pageUrl, pageLabel },
+    lead: {
+      name: leadName,
+      segment: role || "Property manager",
+      status: "New",
+      priority: "High",
+      contactName,
+      contactRole: role,
+      email,
+      phone,
+      market,
+      unitCount,
+      sourceName: "Public sales lead form",
+      fit: "Asked to learn more or talk to someone about LivingRelay.",
+      notes: noteParts.join(" ")
+    }
+  };
+}
+
+async function sendSalesLeadNotificationEmail({ lead, form, created }) {
+  const adminEmail = process.env.SALES_LEAD_NOTIFICATION_EMAIL || "admin@stacksortenterprises.com";
+  const subject = `${created ? "New" : "Updated"} LivingRelay sales lead: ${lead.name}`;
+  const text = [
+    `${created ? "A new" : "An existing"} LivingRelay sales lead was submitted.`,
+    "",
+    `Name: ${form.contactName}`,
+    `Company/property: ${form.company || lead.name}`,
+    `Role: ${form.role || "Not provided"}`,
+    `Email: ${form.email || "Not provided"}`,
+    `Phone: ${form.phone || "Not provided"}`,
+    `Market: ${form.market || "Not provided"}`,
+    `Portfolio size: ${form.unitCount || "Not provided"}`,
+    `Submitted from: ${[form.pageLabel, form.pageUrl].filter(Boolean).join(" - ") || "Not provided"}`,
+    "",
+    "Message:",
+    form.message || "Not provided",
+    "",
+    `Lead ID: ${lead.id}`
+  ].join("\n");
+  return sendEmail({ to: adminEmail, subject, text });
+}
+
 function upsertProspectingLead(input, actor = "site-admin") {
   const lead = normalizeProspectingLead(input);
   const existing = findExistingProspectingLead(lead);
@@ -3999,6 +4287,10 @@ function normalizeLeadPriority(value) {
   const allowed = new Set(["High", "Medium", "Low"]);
   const text = sanitizeText(value);
   return allowed.has(text) ? text : "Medium";
+}
+
+function isValidEmail(value = "") {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
 }
 
 function sanitizeText(value) {
