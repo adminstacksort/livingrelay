@@ -318,6 +318,7 @@ export const externalMappings = state.externalMappings || (state.externalMapping
 export const integrationEvents = state.integrationEvents || (state.integrationEvents = []);
 export const accessRequests = state.accessRequests;
 export const notifications = state.notifications || (state.notifications = []);
+export const emailSuppressions = state.emailSuppressions || (state.emailSuppressions = []);
 export const qaRuns = state.qaRuns || (state.qaRuns = []);
 export const auditLog = state.auditLog;
 

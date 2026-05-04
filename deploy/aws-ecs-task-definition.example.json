@@ -5,6 +5,7 @@
   "cpu": "512",
   "memory": "1024",
   "executionRoleArn": "arn:aws:iam::<account-id>:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::<account-id>:role/livingrelay-ecs-task-role",
   "containerDefinitions": [
     {
       "name": "livingrelay",
@@ -21,6 +22,9 @@
         { "name": "APP_ENV", "value": "staging" },
         { "name": "SERVER_PORT", "value": "8787" },
         { "name": "DATABASE_SSL", "value": "true" },
+        { "name": "EMAIL_PROVIDER", "value": "ses" },
+        { "name": "AWS_SES_REGION", "value": "us-east-1" },
+        { "name": "SES_MAX_SEND_RATE_PER_SECOND", "value": "14" },
         { "name": "ENABLE_VENDOR_CALLS", "value": "false" }
       ],
       "secrets": [
@@ -30,6 +34,10 @@
         { "name": "TWILIO_ACCOUNT_SID", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/TWILIO_ACCOUNT_SID" },
         { "name": "TWILIO_AUTH_TOKEN", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/TWILIO_AUTH_TOKEN" },
         { "name": "TWILIO_MESSAGING_NUMBER", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/TWILIO_MESSAGING_NUMBER" },
+        { "name": "TWILIO_MESSAGING_SERVICE_SID", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/TWILIO_MESSAGING_SERVICE_SID" },
+        { "name": "TWILIO_VOICE_NUMBER", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/TWILIO_VOICE_NUMBER" },
+        { "name": "AWS_SES_FROM_EMAIL", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/AWS_SES_FROM_EMAIL" },
+        { "name": "SES_SNS_WEBHOOK_SECRET", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/SES_SNS_WEBHOOK_SECRET" },
         { "name": "TWILIO_SENDGRID_API_KEY", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/TWILIO_SENDGRID_API_KEY" },
         { "name": "TWILIO_SENDGRID_FROM_EMAIL", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/TWILIO_SENDGRID_FROM_EMAIL" },
         { "name": "ANTHROPIC_API_KEY", "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/livingrelay/ANTHROPIC_API_KEY" },

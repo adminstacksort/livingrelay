@@ -1,12 +1,12 @@
 import "dotenv/config";
 import express from "express";
-import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHmac, createVerify, randomUUID, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { accessRequests, accounts, auditLog, billingEvents, event, externalMappings, integrationConnections, integrationEvents, invoices, message, notifications, people, platformSettings, properties, prospectingLeads, qaRuns, recordAudit, referrals, saveState, vendors, waitForStatePersistence, workOrders } from "./data.js";
 import { composeActionMessage, handleInboundCommand, normalizePhone } from "./smsLogic.js";
 import { getSmsMessageStatus, getTwilioStatus, sendSms } from "./twilioClient.js";
-import { getEmailStatus, sendEmail } from "./emailClient.js";
+import { getEmailStatus, recordSesNotification, sendEmail } from "./emailClient.js";
 import { generateProspectingLeadBatches, generateProspectingLeads } from "./prospectingResearch.js";
 import { registerTwilioCallWithElevenLabs, startVendorQuoteCalls } from "./elevenLabsCalls.js";
 import { runFullFlowDemo, selectDemoQuote, simulateVendorOutreach } from "./demoOutreach.js";
@@ -52,6 +52,7 @@ const siteAdminSessionCookieName = "lr_site_admin";
 const siteAdminSessionMaxAgeMs = 1000 * 60 * 60 * 24 * 30;
 const siteAdminSessions = new Set();
 const appSessions = new Map();
+const snsSigningCertCache = new Map();
 const publicInviteTemplates = {
   "adopt-livingrelay": {
     issue: "Can we use LivingRelay for this rental?",
@@ -119,6 +120,35 @@ app.use((req, res, next) => {
     res.status(error.statusCode || 400).json({ error: error.message });
   }
 });
+
+app.post("/api/ses/notifications", async (req, res) => {
+  try {
+    if (!verifySesSnsWebhook(req)) {
+      res.status(403).json({ error: "invalid SES notification token" });
+      return;
+    }
+    const sns = parseSnsMessage(req.body);
+    if (!(await verifySnsSignature(req.body))) {
+      res.status(403).json({ error: "invalid SNS signature" });
+      return;
+    }
+    if (sns.type === "SubscriptionConfirmation") {
+      await maybeConfirmSnsSubscription(sns.subscribeUrl);
+      res.json({ received: true, type: sns.type });
+      return;
+    }
+    if (sns.type !== "Notification") {
+      res.json({ received: true, type: sns.type || "unknown" });
+      return;
+    }
+    const result = recordSesNotification(sns.message);
+    await waitForStatePersistence();
+    res.json({ received: true, ...result });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 app.get("/favicon.ico", (req, res) => {
   res.redirect(302, "/favicon.svg");
 });
@@ -2967,6 +2997,78 @@ function verifyStripeSignature(req) {
   return safeEqualHex(signed, expected);
 }
 
+function verifySesSnsWebhook(req) {
+  const secret = process.env.SES_SNS_WEBHOOK_SECRET || "";
+  if (!secret) return process.env.NODE_ENV !== "production";
+  const provided = String(req.query.token || req.headers["x-livingrelay-ses-token"] || "");
+  return safeEqual(provided, secret);
+}
+
+function parseSnsMessage(body = {}) {
+  const type = String(body.Type || body.type || "");
+  const rawMessage = body.Message || body.message || {};
+  const message = typeof rawMessage === "string" ? JSON.parse(rawMessage) : rawMessage;
+  return {
+    type,
+    message,
+    subscribeUrl: body.SubscribeURL || body.SubscribeUrl || body.subscribeUrl || ""
+  };
+}
+
+async function maybeConfirmSnsSubscription(subscribeUrl = "") {
+  if (process.env.SES_SNS_AUTO_CONFIRM !== "true" || !subscribeUrl) return false;
+  const url = new URL(subscribeUrl);
+  if (!url.hostname.endsWith(".amazonaws.com")) throw new Error("Refusing non-AWS SNS confirmation URL");
+  const response = await fetch(url.toString());
+  if (!response.ok) throw new Error(`SNS subscription confirmation failed: ${response.status}`);
+  recordAudit("Amazon SNS", "Confirmed SES feedback subscription", url.hostname);
+  return true;
+}
+
+async function verifySnsSignature(body = {}) {
+  if (process.env.SES_SNS_VERIFY_SIGNATURE === "false") return true;
+  const signature = String(body.Signature || body.signature || "");
+  const certUrl = String(body.SigningCertURL || body.SigningCertUrl || body.signingCertUrl || "");
+  const version = String(body.SignatureVersion || body.signatureVersion || "1");
+  if (!signature || !certUrl) return process.env.NODE_ENV !== "production";
+  const algorithm = version === "2" ? "RSA-SHA256" : "RSA-SHA1";
+  const certificate = await fetchSnsSigningCertificate(certUrl);
+  const verify = createVerify(algorithm);
+  verify.update(buildSnsStringToSign(body), "utf8");
+  verify.end();
+  return verify.verify(certificate, signature, "base64");
+}
+
+async function fetchSnsSigningCertificate(certUrl) {
+  const url = new URL(certUrl);
+  if (url.protocol !== "https:" || !isAllowedSnsCertHost(url.hostname) || !url.pathname.endsWith(".pem")) {
+    throw new Error("Invalid SNS signing certificate URL");
+  }
+  const cached = snsSigningCertCache.get(url.toString());
+  if (cached && cached.expiresAt > Date.now()) return cached.certificate;
+  const response = await fetch(url.toString());
+  if (!response.ok) throw new Error(`SNS signing certificate fetch failed: ${response.status}`);
+  const certificate = await response.text();
+  snsSigningCertCache.set(url.toString(), { certificate, expiresAt: Date.now() + 1000 * 60 * 60 });
+  return certificate;
+}
+
+function isAllowedSnsCertHost(hostname = "") {
+  return /^sns\.[a-z0-9-]+\.amazonaws\.com$/.test(hostname)
+    || /^sns\.[a-z0-9-]+\.amazonaws\.com\.cn$/.test(hostname);
+}
+
+function buildSnsStringToSign(body = {}) {
+  const type = String(body.Type || body.type || "");
+  const fields = type === "Notification"
+    ? ["Message", "MessageId", "Subject", "Timestamp", "TopicArn", "Type"]
+    : ["Message", "MessageId", "SubscribeURL", "Timestamp", "Token", "TopicArn", "Type"];
+  return fields
+    .filter((field) => body[field] !== undefined && body[field] !== null)
+    .map((field) => `${field}\n${body[field]}\n`)
+    .join("");
+}
+
 function verifyElevenLabsSignature(req) {
   const secret = process.env.ELEVENLABS_WEBHOOK_SECRET;
   if (!secret) return process.env.NODE_ENV !== "production";
@@ -3037,6 +3139,12 @@ function valueFrom(collection, key) {
 function safeEqualHex(left, right) {
   const leftBuffer = Buffer.from(left, "hex");
   const rightBuffer = Buffer.from(right, "hex");
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function safeEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left || ""));
+  const rightBuffer = Buffer.from(String(right || ""));
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
 

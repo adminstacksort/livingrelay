@@ -25,6 +25,7 @@ export async function getReadiness() {
   const twilio = getTwilioStatus();
   if (!twilio.configured) missing.push(...twilio.missing.filter((key) => !missing.includes(key)));
   const email = getEmailStatus();
+  if (!email.configured) missing.push(...email.missing.filter((key) => !missing.includes(key)));
   const push = getPushStatus();
   const vendorCallsEnabled = process.env.ENABLE_VENDOR_CALLS === "true";
   const elevenLabsMissing = vendorCallsEnabled
@@ -35,7 +36,7 @@ export async function getReadiness() {
     : [];
 
   return {
-    ok: missing.length === 0 && database.ok && twilio.configured && elevenLabsMissing.length === 0,
+    ok: missing.length === 0 && database.ok && twilio.configured && email.configured && elevenLabsMissing.length === 0,
     environment: getRuntimeEnvironment(),
     nodeEnv: process.env.NODE_ENV || "development",
     stateId: getStateId(),

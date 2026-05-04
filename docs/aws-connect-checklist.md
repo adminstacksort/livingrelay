@@ -65,6 +65,10 @@ Use SecureString parameters, one path per environment:
 /livingrelay/dev/TWILIO_ACCOUNT_SID
 /livingrelay/dev/TWILIO_AUTH_TOKEN
 /livingrelay/dev/TWILIO_MESSAGING_NUMBER
+/livingrelay/dev/TWILIO_MESSAGING_SERVICE_SID
+/livingrelay/dev/TWILIO_VOICE_NUMBER
+/livingrelay/dev/AWS_SES_FROM_EMAIL
+/livingrelay/dev/SES_SNS_WEBHOOK_SECRET
 /livingrelay/dev/ANTHROPIC_API_KEY
 /livingrelay/dev/GOOGLE_PLACES_API_KEY
 /livingrelay/dev/APP_BASE_URL
@@ -101,12 +105,23 @@ Important values:
 
 - Container name: `livingrelay`
 - Container port: `8787`
+- Task role: `livingrelay-ecs-task-role` with `ses:SendEmail` and `ses:SendRawEmail` scoped to the `livingrelay.com` SES identity.
 - Image initially: `365609840635.dkr.ecr.us-east-1.amazonaws.com/livingrelay:dev`
 - Use the matching environment SSM parameter path for secrets.
 - Log group examples:
   - `/ecs/livingrelay-dev`
   - `/ecs/livingrelay-staging`
   - `/ecs/livingrelay-production`
+
+Email defaults to Amazon SES when `EMAIL_PROVIDER=ses`. Give the ECS task role permission for `ses:SendEmail` in `us-east-1`, set `AWS_SES_FROM_EMAIL` to the verified sender, and subscribe SES bounce/complaint notifications through SNS to:
+
+```text
+https://<environment-host>/api/ses/notifications?token=<SES_SNS_WEBHOOK_SECRET>
+```
+
+LivingRelay records SES bounces and complaints in its email suppression list before future sends.
+
+Keep `SES_MAX_SEND_RATE_PER_SECOND` at or below the account send-rate quota. The initial approved SES rate is 14 messages per second. SNS message signature verification is enabled by default; only set `SES_SNS_VERIFY_SIGNATURE=false` for local testing.
 
 ## 5. Create ECS Services
 

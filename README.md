@@ -89,7 +89,7 @@ Required production env:
 - `TWILIO_MESSAGING_NUMBER`
 - `ANTHROPIC_API_KEY`
 - `VITE_GA_MEASUREMENT_ID` for Google Analytics 4 web traffic tracking
-- `RESEND_API_KEY` and `RESEND_FROM_EMAIL` for email notifications
+- `EMAIL_PROVIDER=ses`, `AWS_SES_REGION`, `AWS_SES_FROM_EMAIL`, `SES_SNS_WEBHOOK_SECRET`, and ECS task-role AWS credentials for SES email notifications. Resend and SendGrid env vars remain supported as fallback providers.
 - `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID`, `APNS_PRIVATE_KEY`, and `APNS_ENVIRONMENT` for iOS push notifications
 
 See `.env.example`, `docs/aws-deploy.md`, and `docs/production-cutover.md`.
