@@ -25,16 +25,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Receipt
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
@@ -42,10 +42,10 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
 import androidx.compose.material3.ElevatedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -771,7 +771,7 @@ fun DashboardScreen(store: RelayViewModel) {
                 },
                 actions = {
                     IconButton(onClick = { store.signOut() }) {
-                        Icon(Icons.Filled.Logout, contentDescription = "Sign out")
+                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Sign out")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Canvas)
@@ -898,7 +898,7 @@ fun SessionPanel(store: RelayViewModel) {
                 Text("Shared session - ${store.session?.role.orEmpty()}", color = Muted)
             }
         }
-        Divider()
+        HorizontalDivider()
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             store.properties.filter { store.session?.propertyIds?.contains(it.id) == true }.forEach { property ->
                 FilterChip(
@@ -915,7 +915,7 @@ fun SessionPanel(store: RelayViewModel) {
 fun MetricGrid(store: RelayViewModel) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MetricCard("Open", "${store.openCount}", Icons.Filled.List, Modifier.weight(1f))
+            MetricCard("Open", "${store.openCount}", Icons.AutoMirrored.Filled.List, Modifier.weight(1f))
             MetricCard("Approvals", "${store.approvalsCount}", Icons.Filled.Warning, Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1003,7 +1003,7 @@ fun ActionGrid(store: RelayViewModel, order: WorkOrder) {
                 onClick = { store.patchActiveOrder("Vendor scheduled", "Vendor text sent", "Vendor received scope and access notes.") },
                 modifier = Modifier.weight(1f)
             ) {
-                Icon(Icons.Filled.Send, contentDescription = null)
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
                 Spacer(Modifier.width(6.dp))
                 Text("Text vendor")
             }
