@@ -873,6 +873,11 @@ select:focus {
   font-weight: 560;
 }
 
+.privacy-document a {
+  color: #145c52;
+  font-weight: 760;
+}
+
 .public-copy-stack {
   display: grid;
   gap: 14px;

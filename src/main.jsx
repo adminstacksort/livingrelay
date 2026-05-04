@@ -328,6 +328,8 @@ const publicSitePages = {
   "/marketing": "marketing",
   "/privacy": "privacy",
   "/privacy-policy": "privacy",
+  "/terms": "terms",
+  "/terms-and-conditions": "terms",
   "/ios": "ios",
   "/ios-app": "ios",
   "/referral-program": "referral",
@@ -1461,8 +1463,17 @@ function PublicSitePage({ page }) {
       summary: "LivingRelay uses account, property, repair, messaging, vendor, and invoice information to operate rental repair workflows and provide support.",
       primary: "Contact privacy",
       primaryHref: "mailto:privacy@livingrelay.com",
-      secondary: "Support",
-      secondaryHref: "/support"
+      secondary: "Terms",
+      secondaryHref: "/terms"
+    },
+    terms: {
+      eyebrow: "Terms And Conditions",
+      title: "LivingRelay SMS and product terms",
+      summary: "These terms explain LivingRelay account use, operational SMS notifications, message frequency, support, and opt-out instructions.",
+      primary: "Email support",
+      primaryHref: "mailto:support@livingrelay.com",
+      secondary: "Privacy policy",
+      secondaryHref: "/privacy"
     },
     ios: {
       eyebrow: "iOS App",
@@ -1522,6 +1533,7 @@ function PublicSitePage({ page }) {
           <a href="/property-maintenance">City guides</a>
           <a href="/support">Support</a>
           <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
           <a className="public-nav-button" href="/">Open app</a>
         </div>
       </nav>
@@ -1540,6 +1552,7 @@ function PublicSitePage({ page }) {
       {page === "about" && <AboutContent />}
       {page === "support" && <SupportContent />}
       {page === "privacy" && <PrivacyContent />}
+      {page === "terms" && <TermsContent />}
       {page === "ios" && <IosAppContent />}
       {page === "referral" && <ReferralProgramContent />}
       {page === "maintenanceIndex" && <PropertyMaintenanceIndex />}
@@ -1799,7 +1812,7 @@ function FaqSection({ items, compact = false }) {
 function PrivacyContent() {
   return (
     <section className="privacy-document" aria-label="Privacy Policy">
-      <p className="privacy-date">Effective May 3, 2026</p>
+      <p className="privacy-date">Effective May 4, 2026</p>
       <h2>Privacy Policy</h2>
       <p>LivingRelay provides rental repair coordination software for property managers, owners, tenants, and vendors. This policy explains the information we collect, how we use it, and the choices available to users.</p>
 
@@ -1809,17 +1822,20 @@ function PrivacyContent() {
       <h3>Messages And Repair Content</h3>
       <p>LivingRelay may process tenant, manager, owner, and vendor messages, photos, call metadata, and repair notes so the service can classify issues, route approvals, coordinate vendors, keep audit history, and provide support.</p>
 
+      <h3>SMS Consent And Phone Numbers</h3>
+      <p>LivingRelay uses phone numbers and SMS consent records to deliver requested service, security, account, maintenance, scheduling, vendor coordination, billing, invoice, support, and QA communications. LivingRelay does not sell, rent, or share SMS opt-in consent, phone numbers, or SMS message data with third parties or affiliates for their marketing or promotional purposes.</p>
+
       <h3>How We Use Information</h3>
       <p>We use information to operate the product, authenticate users, provide role-scoped access, coordinate repair workflows, maintain invoice and tax records, troubleshoot issues, improve reliability, prevent abuse, and meet legal or compliance obligations.</p>
 
       <h3>Service Providers</h3>
-      <p>We may use trusted service providers for hosting, messaging, phone verification, payment infrastructure, email, analytics, logging, and support operations. These providers process information only as needed to provide their services to LivingRelay.</p>
+      <p>We may use trusted service providers for hosting, database infrastructure, messaging, phone verification, payment infrastructure, email, voice, analytics, logging, and support operations. These providers process information only as needed to provide services to LivingRelay and are not permitted to use it for their own marketing.</p>
 
       <h3>Payments</h3>
       <p>Repair payments are handled off platform. LivingRelay may track invoice status and billing events, and may use payment infrastructure for subscription or coordination fees where applicable. We do not intentionally store full payment card numbers on LivingRelay servers.</p>
 
       <h3>Sharing</h3>
-      <p>We share repair workflow information with users who need it for the property workflow, such as managers, owners, tenants, and vendors. We do not sell personal information.</p>
+      <p>We share repair workflow information with users who need it for the property workflow, such as managers, owners, tenants, and vendors. We do not sell personal information, and we do not share mobile opt-in data or SMS consent with third parties for marketing.</p>
 
       <h3>Retention</h3>
       <p>We retain information for as long as needed to provide the service, keep repair and invoice audit trails, resolve disputes, comply with legal obligations, and support legitimate business purposes.</p>
@@ -1832,6 +1848,49 @@ function PrivacyContent() {
 
       <h3>Contact</h3>
       <p>Questions about this policy can be sent to privacy@livingrelay.com or support@livingrelay.com.</p>
+    </section>
+  );
+}
+
+function TermsContent() {
+  return (
+    <section className="privacy-document" aria-label="Terms and Conditions">
+      <p className="privacy-date">Effective May 4, 2026</p>
+      <h2>Terms And Conditions</h2>
+      <p>These Terms and Conditions govern your use of LivingRelay, including the LivingRelay web app, mobile app, support workflows, and SMS notification program. By using LivingRelay or providing your contact information for a LivingRelay-managed account, property, work order, vendor workflow, or QA test, you agree to these terms.</p>
+
+      <h3>Program Name And Description</h3>
+      <p>LivingRelay SMS Notifications is an operational messaging program for rental property maintenance coordination. Messages may include login verification codes, tenant maintenance request updates, manager review notices, vendor scheduling updates, owner approval requests, invoice or payment status updates, QA test messages, and support notices.</p>
+
+      <h3>Consent To Receive Messages</h3>
+      <p>You may receive messages after you provide your phone number to LivingRelay, are invited to a LivingRelay-managed property or account, participate in a work order or vendor workflow, complete onboarding, request support, or ask an administrator to run QA tests. Consent to receive marketing SMS is not a condition of purchasing any goods or services.</p>
+
+      <h3>Message Frequency</h3>
+      <p>Message frequency varies based on account activity, property setup, login activity, repair requests, approval steps, vendor scheduling, invoice status, support requests, and QA testing. A single work order may generate several messages as status changes.</p>
+
+      <h3>Message And Data Rates</h3>
+      <p>Message and data rates may apply. Carriers are not liable for delayed or undelivered messages.</p>
+
+      <h3>Help And Opt-Out</h3>
+      <p>Reply <strong>HELP</strong> for help. Reply <strong>STOP</strong> to opt out. You may also contact support@livingrelay.com for assistance. After you reply <strong>STOP</strong>, you may receive one final confirmation message and will no longer receive LivingRelay SMS messages unless you opt in again.</p>
+
+      <h3>Acceptable Use</h3>
+      <p>You agree to use LivingRelay only for lawful property maintenance, account, support, and administrative purposes. You may not use the service to send abusive, deceptive, unlawful, or unauthorized messages, or to interfere with LivingRelay systems or other users.</p>
+
+      <h3>Accounts And Roles</h3>
+      <p>LivingRelay uses roles such as manager, owner, tenant, vendor, and site administrator to control access to property and repair information. You are responsible for keeping account credentials secure and for notifying LivingRelay if you believe your account has been accessed without authorization.</p>
+
+      <h3>Repair Coordination</h3>
+      <p>LivingRelay helps organize maintenance requests, approvals, vendor coordination, communications, and records. LivingRelay does not guarantee vendor availability, repair outcomes, pricing, payment settlement, or emergency response times unless separately agreed in writing.</p>
+
+      <h3>Privacy</h3>
+      <p>Our Privacy Policy explains how we collect, use, and protect information, including phone numbers and SMS consent records. Review it at <a href="/privacy">https://livingrelay.com/privacy</a>.</p>
+
+      <h3>Changes To These Terms</h3>
+      <p>We may update these terms from time to time. The effective date above shows when these terms were last updated. Continued use of LivingRelay after updates means you accept the revised terms.</p>
+
+      <h3>Contact</h3>
+      <p>Questions about these terms or the SMS program can be sent to support@livingrelay.com.</p>
     </section>
   );
 }
@@ -1863,6 +1922,7 @@ function PublicFooter() {
           <a href="/about">About</a>
           <a href="/support">Support</a>
           <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
         </div>
         <div>
           <h2>Product</h2>
