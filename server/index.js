@@ -91,7 +91,7 @@ app.post("/api/ses/notifications", express.text({ type: ["text/plain", "applicat
     }
     const body = parseSnsRequestBody(req.body);
     const sns = parseSnsMessage(body);
-    if (!(await verifySnsSignature(body))) {
+    if (sns.type !== "SubscriptionConfirmation" && !(await verifySnsSignature(body))) {
       res.status(403).json({ error: "invalid SNS signature" });
       return;
     }
