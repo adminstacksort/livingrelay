@@ -1995,28 +1995,52 @@ function readVideoPreviewFrame(file) {
   return new Promise((resolve, reject) => {
     const video = document.createElement("video");
     const url = URL.createObjectURL(file);
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      URL.revokeObjectURL(url);
+      callback(value);
+    };
+    const timeout = window.setTimeout(() => {
+      finish(reject, new Error("Could not read a preview frame from one video."));
+    }, 5000);
     video.preload = "metadata";
     video.muted = true;
     video.playsInline = true;
     video.onloadedmetadata = () => {
-      video.currentTime = Math.min(0.2, Math.max(0, (video.duration || 0) / 2));
+      const targetTime = Math.min(0.2, Math.max(0, (video.duration || 0) / 2));
+      if (targetTime === 0) {
+        captureVideoFrame(video, resolve, reject, finish);
+        return;
+      }
+      video.currentTime = targetTime;
     };
     video.onseeked = () => {
-      const canvas = document.createElement("canvas");
-      const maxWidth = 960;
-      const scale = video.videoWidth > maxWidth ? maxWidth / video.videoWidth : 1;
-      canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
-      canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
-      canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-      URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL("image/jpeg", 0.78));
+      captureVideoFrame(video, resolve, reject, finish);
     };
     video.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("Could not read a preview frame from one video."));
+      finish(reject, new Error("Could not read a preview frame from one video."));
     };
     video.src = url;
   });
+}
+
+function captureVideoFrame(video, resolve, reject, finish) {
+  try {
+    const canvas = document.createElement("canvas");
+    const maxWidth = 960;
+    const scale = video.videoWidth > maxWidth ? maxWidth / video.videoWidth : 1;
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Could not read a preview frame from one video.");
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    finish(resolve, canvas.toDataURL("image/jpeg", 0.78));
+  } catch (error) {
+    finish(reject, error);
+  }
 }
 
 function PublicSiteRouter() {
