@@ -21,7 +21,7 @@ import { attachMediaRelay, getMediaRelayRoom } from "./mediaRelay.js";
 import { consumeVerifiedPhoneToken, createPhoneChallenge, verifyPhoneChallenge } from "./phoneVerification.js";
 import { defaultNotifyForRole, dispatchNotification, getPushStatus, mergeNotifySettings, notificationCatalog, registerPushDevice } from "./notifications.js";
 import { decryptTransitFields, getTransitPublicKey } from "./transitEncryption.js";
-import { createIntegrationConnection, deleteIntegrationConnection, dryRunIntegrationSync, importDirectoryCsv, listIntegrationSummary, pmsProviders, updateIntegrationConnection } from "./pmsIntegrations.js";
+import { createIntegrationConnection, deleteIntegrationConnection, dryRunIntegrationSync, importDirectoryCsv, listIntegrationSummary, pmsProviders, previewWorkOrderExport, updateIntegrationConnection } from "./pmsIntegrations.js";
 import {
   buildTenantAvailability,
   buildInvoiceDeliveryInstructions,
@@ -1466,6 +1466,18 @@ app.post("/api/integrations/:id/import-directory", (req, res) => {
       user: req.user,
       connectionId: req.params.id,
       csv: req.body.csv
+    }));
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message });
+  }
+});
+
+app.post("/api/integrations/:id/work-order-export-preview", (req, res) => {
+  try {
+    res.json(previewWorkOrderExport({
+      user: req.user,
+      connectionId: req.params.id,
+      limit: req.body.limit
     }));
   } catch (error) {
     res.status(error.statusCode || 400).json({ error: error.message });
@@ -3579,7 +3591,7 @@ function buildPublicLivingRelayInvite(body) {
 }
 
 async function sendLivingRelayInviteEmail({ to, subject, text }) {
-  return sendEmail({ to, subject, text, from: process.env.INVITE_FROM_EMAIL });
+  return sendEmail({ to, subject, text });
 }
 
 function isTestLoginPerson(person) {

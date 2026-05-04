@@ -2521,9 +2521,9 @@ function PublicCard({ icon, title, text }) {
   );
 }
 
-function SalesLeadEmbed({ context, compact = false }) {
+function SalesLeadEmbed({ context, compact = false, id }) {
   return (
-    <section className={compact ? "sales-lead-band compact" : "sales-lead-band"} aria-label="Talk to LivingRelay">
+    <section id={id} className={compact ? "sales-lead-band compact" : "sales-lead-band"} aria-label="Talk to LivingRelay">
       <div>
         <span className="eyebrow">For owners and managers</span>
         <h2>Want to see whether LivingRelay fits your rental workflow?</h2>
@@ -2628,6 +2628,7 @@ function PublicFooter() {
         </div>
         <div>
           <h2>Product</h2>
+          <a href="/sales">Talk to sales</a>
           <a href="/ios">iOS app download</a>
           <a href="/referral-program">Referral program</a>
           <a href="/resources">Maintenance resources</a>
@@ -4006,6 +4007,7 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
           <button className="primary wide" onClick={() => setLandingMode("create")}><Building2 size={16} /> Setup property</button>
         </article>
       </section>
+      <SalesLeadEmbed context="Homepage" compact />
       <PublicFooter />
     </main>
   );
@@ -5808,6 +5810,7 @@ function AdminIntegrations({ accounts, properties, orders, connections, events, 
   const firstProviderId = providers.find((provider) => ["doorloop", "buildium"].includes(provider.id))?.id || providers[0]?.id || "doorloop";
   const [form, setForm] = useState({ accountId: firstAccountId, provider: firstProviderId, credentialRef: "" });
   const [csvImport, setCsvImport] = useState({ connectionId: connections[0]?.id || "", csv: csvImportTemplate() });
+  const [exportPreview, setExportPreview] = useState([]);
   const [status, setStatus] = useState({ state: "idle", message: "" });
   const headers = siteAdminToken ? { Authorization: `Bearer ${siteAdminToken}` } : {};
 
@@ -5867,6 +5870,23 @@ function AdminIntegrations({ accounts, properties, orders, connections, events, 
     await reloadState();
   }
 
+  async function previewExport(connection) {
+    setStatus({ state: "saving", message: `Preparing ${connection.providerName || connection.provider} writeback preview...` });
+    const response = await fetch(`/api/integrations/${connection.id}/work-order-export-preview`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ limit: 10 })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setStatus({ state: "error", message: data.error || "Could not prepare writeback preview." });
+      return;
+    }
+    setExportPreview(data.payloads || []);
+    setStatus({ state: "ok", message: `Prepared ${(data.payloads || []).length} work-order writeback payloads.` });
+    await reloadState();
+  }
+
   const connectionAccount = (connection) => accounts.find((account) => account.id === connection.accountId);
   const providerFor = (connection) => providers.find((provider) => provider.id === connection.provider);
 
@@ -5888,6 +5908,7 @@ function AdminIntegrations({ accounts, properties, orders, connections, events, 
                 </div>
                 <div className="record-actions">
                   <button className="ghost" onClick={() => dryRun(connection)}><Database size={15} /> Dry run</button>
+                  <button className="ghost" onClick={() => previewExport(connection)}><ClipboardList size={15} /> Preview writeback</button>
                 </div>
               </article>
             );
@@ -5946,6 +5967,22 @@ function AdminIntegrations({ accounts, properties, orders, connections, events, 
           ])}
         />
       </section>
+
+      {exportPreview.length > 0 && (
+        <section className="panel span-2">
+          <SectionTitle icon={<ClipboardList />} title="Work-order writeback preview" eyebrow="Provider-neutral payload" />
+          <DataTable
+            columns={["State", "Work order", "Status", "Property", "Vendor"]}
+            rows={exportPreview.map((payload) => [
+              payload.exportState,
+              payload.internalId,
+              payload.workOrder?.status,
+              [payload.workOrder?.property?.name, payload.workOrder?.property?.unit].filter(Boolean).join(" · "),
+              payload.workOrder?.vendor?.name || "Unassigned"
+            ])}
+          />
+        </section>
+      )}
     </div>
   );
 }

@@ -309,6 +309,39 @@ export function importDirectoryCsv({ user, connectionId, csv = "" }) {
   return { connection: publicConnection(connection), result };
 }
 
+export function previewWorkOrderExport({ user, connectionId, limit = 25 }) {
+  const connection = integrationConnections.find((item) => item.id === connectionId);
+  if (!connection) throw statusError(404, "integration connection not found");
+  if (!canAccessAccount(user, connection.accountId)) throw statusError(403, "You can only export work orders for accounts you belong to");
+  if (connection.sync?.exportWorkOrders === false) throw statusError(400, "Work-order export is disabled for this connection");
+  const accountPropertyIds = properties.filter((property) => property.accountId === connection.accountId).map((property) => property.id);
+  const propertyIdSet = new Set(accountPropertyIds);
+  const payloads = workOrders
+    .filter((order) => propertyIdSet.has(order.propertyId))
+    .slice(0, Math.max(1, Math.min(Number(limit || 25), 100)))
+    .map((order) => buildWorkOrderExportPayload(connection, order));
+  connection.counts = {
+    ...integrationCountsForAccount(connection.accountId),
+    pendingWorkOrderExports: payloads.filter((payload) => payload.exportState === "pending").length,
+    mappedWorkOrderExports: payloads.filter((payload) => payload.exportState === "mapped").length
+  };
+  connection.updatedAt = new Date().toISOString();
+  recordIntegrationEvent({
+    connection,
+    direction: "outbound",
+    objectType: "work_order",
+    objectId: connection.accountId,
+    action: "work_order_export_preview",
+    status: "ok",
+    summary: `Prepared ${payloads.length} work-order writeback payloads for ${connection.providerName || connection.provider}.`
+  });
+  saveState();
+  return {
+    connection: publicConnection(connection),
+    payloads
+  };
+}
+
 export function recordExternalMapping({ connection, externalType, externalId, internalType, internalId, syncDirection = "two_way" }) {
   const existing = externalMappings.find((mapping) =>
     mapping.connectionId === connection.id
@@ -338,6 +371,65 @@ export function recordExternalMapping({ connection, externalType, externalId, in
   };
   externalMappings.unshift(mapping);
   return mapping;
+}
+
+function buildWorkOrderExportPayload(connection, order) {
+  const property = properties.find((item) => item.id === order.propertyId);
+  const tenant = people.find((person) => person.id === order.tenantId);
+  const vendor = vendors.find((item) => item.id === order.vendorId);
+  const existingMapping = externalMappings.find((mapping) =>
+    mapping.connectionId === connection.id
+    && mapping.internalType === "work_order"
+    && mapping.internalId === order.id
+  );
+  return {
+    exportState: existingMapping ? "mapped" : "pending",
+    provider: connection.provider,
+    externalId: existingMapping?.externalId || "",
+    internalId: order.id,
+    workOrder: {
+      source: "LivingRelay",
+      title: `${order.trade || "General"}: ${truncate(order.issue, 80)}`,
+      description: order.issue || "",
+      status: mapWorkOrderStatus(order.status),
+      priority: mapWorkOrderPriority(order.severity),
+      trade: order.trade || "General",
+      estimate: Number(order.estimate || 0),
+      accessNotes: order.access || order.accessNotes || "",
+      serviceWindow: order.serviceWindow || "",
+      approval: {
+        managerApproved: Boolean(order.managerApproved),
+        ownerApproved: Boolean(order.ownerApproved),
+        requiresOwnerApproval: String(order.status || "").toLowerCase().includes("owner")
+      },
+      property: {
+        internalId: property?.id || order.propertyId,
+        externalId: externalIdFor(connection, "property", property?.id),
+        name: property?.name || "",
+        address: property?.address || "",
+        unit: order.unit || ""
+      },
+      tenant: tenant ? {
+        internalId: tenant.id,
+        externalId: externalIdFor(connection, "tenant", tenant.id),
+        name: tenant.name,
+        phone: tenant.phone || "",
+        email: tenant.email || ""
+      } : null,
+      vendor: vendor ? {
+        internalId: vendor.id,
+        externalId: externalIdFor(connection, "vendor", vendor.id),
+        name: vendor.name,
+        trade: vendor.trade || order.trade || "General",
+        phone: vendor.phone || ""
+      } : null,
+      timelineSummary: (order.timeline || []).slice(-6).map((event) => ({
+        label: event.label,
+        detail: event.detail,
+        at: event.stamp || event.createdAt || ""
+      }))
+    }
+  };
 }
 
 function upsertCsvProperty({ connection, row, result }) {
@@ -640,6 +732,35 @@ function defaultImportedNotify(role) {
     everyUpdate: role === "Manager",
     keyUpdates: ["Manager", "Owner"].includes(role)
   };
+}
+
+function externalIdFor(connection, internalType, internalId) {
+  return externalMappings.find((mapping) =>
+    mapping.connectionId === connection.id
+    && mapping.internalType === internalType
+    && mapping.internalId === internalId
+  )?.externalId || "";
+}
+
+function mapWorkOrderStatus(status = "") {
+  const normalized = String(status).toLowerCase();
+  if (normalized.includes("closed") || normalized.includes("resolved")) return "completed";
+  if (normalized.includes("scheduled") || normalized.includes("booked")) return "scheduled";
+  if (normalized.includes("owner")) return "pending_owner_approval";
+  if (normalized.includes("vendor")) return "vendor_outreach";
+  return "open";
+}
+
+function mapWorkOrderPriority(severity = "") {
+  const normalized = String(severity).toLowerCase();
+  if (normalized.includes("urgent") || normalized.includes("emergency")) return "high";
+  if (normalized.includes("low")) return "low";
+  return "normal";
+}
+
+function truncate(value = "", maxLength = 80) {
+  const text = String(value || "");
+  return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
 }
 
 function accessibleAccountIds(user) {
