@@ -189,15 +189,20 @@ Avoid claims that sound like emergency repair coverage, tenant screening, housin
 
 ## Landing Page Requirements
 
-The current `/sales` form is usable, but paid traffic would benefit from two additions:
+The current `/sales` form is usable, and the app now includes campaign-specific pages:
 
-- Add a calendar booking link after form submission.
-- Add a campaign-specific URL such as `/sales?source=meta-maintenance-feedback` or `/feedback-call` so leads are easier to segment.
+- `/maintenance-workflow-audit`
+- `/rental-maintenance-workflow-audit`
+- `/rental-maintenance-intake-kit`
+- `/maintenance-kit`
+
+Paid traffic should primarily route to `/maintenance-workflow-audit` for qualified calls and `/rental-maintenance-intake-kit` for broader list building.
 
 Nice-to-have:
 
-- Hidden UTM capture in the sales form: source, medium, campaign, ad set, ad.
-- A sharper first-screen message for paid traffic: "For landlords and small managers coordinating rental repairs by text."
+- Add a calendar booking link after form submission.
+- Send the template kit automatically by email for kit leads.
+- Add Meta Pixel + Conversions API deduplication.
 
 ## Launch Prerequisites
 

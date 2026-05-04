@@ -885,6 +885,131 @@ const seoArticles = [
       ["Is this property management legal advice?", "No. This is operational maintenance coordination guidance only."]
     ],
     disclaimer: "This guide is for operational organization. It is not legal, financial, insurance, safety, tax, or emergency-services advice."
+  },
+  {
+    slug: "maintenance-status-update-text-message",
+    eyebrow: "Status Updates",
+    h1: "Maintenance Status Update Text Message Templates",
+    metaTitle: "Maintenance Status Update Texts",
+    metaDescription: "Copy routine maintenance status update text messages for tenants, owners, vendors, delays, scheduling, and closeout.",
+    summary: "A practical guide to short maintenance status texts that reduce repeat follow-up for routine rental repairs.",
+    keyword: "maintenance status update text message",
+    sections: [
+      ["Why Short Status Updates Work", "Most maintenance follow-up does not need a long explanation. Tenants want to know whether the request was received, what happens next, and when they should expect another update. Owners want to know whether a vendor has been contacted, whether approval is needed, and whether the invoice or closeout note has arrived. A short maintenance status text keeps the repair moving without creating a new thread that later has to be reconstructed."],
+      ["Use A Small Status Vocabulary", "A simple vocabulary is easier to run than a custom message every time. Use received, reviewing, need photos, vendor contacted, scheduled, delayed, awaiting owner approval, invoice requested, and closed. These labels are operational, not legal or safety determinations. They help everyone understand where the repair sits in the process. Keep the language plain: what changed, who is responsible for the next step, and when the next update should happen."],
+      ["Tenant Texts That Stay Calm", "For tenants, the best messages acknowledge the report and set the next step. Example: “Thanks, we received your request for [issue]. We are reviewing the details and will update you by [time/date].” When more information is needed, ask for one concrete thing at a time: “Could you send one close photo and one wider photo from a safe location?” Avoid repair instructions and avoid language that sounds like a legal notice, dispute response, or emergency direction."],
+      ["Owner And Vendor Updates", "Owner messages should summarize decision context: issue, estimate, vendor, timing, and decision needed. Vendor messages should include property, unit, issue summary, photos, access notes, invoice delivery, and closeout expectations. A good status update gives each role what they need without exposing unnecessary information or sending the same thread to everyone."]
+    ],
+    checklistTitle: "Routine Status Message Checklist",
+    checklist: ["Status label", "Property or unit reference", "One-sentence issue summary", "Next action owner", "Expected next update", "Photo or access request if needed", "Closeout or invoice note when complete"],
+    cta: "LivingRelay sends role-aware SMS updates from the work order so tenant, owner, vendor, and manager messages stay attached to the same repair record.",
+    faqs: [
+      ["What maintenance statuses should I use?", "Received, reviewing, need photos, vendor contacted, scheduled, delayed, awaiting owner approval, invoice requested, and closed cover most routine workflows."],
+      ["How often should tenants get updates?", "Send an update when the status changes and when a promised next-update time arrives, even if the update is simply that coordination is still in progress."],
+      ["Can these texts be automated?", "Yes. LivingRelay can send routine SMS updates from work order status changes while keeping the record in one place."],
+      ["Should these texts include legal language?", "No. Keep them operational and use separate professional guidance for legal notices or disputes."]
+    ],
+    disclaimer: "These examples are for routine operational communication only. They are not legal, safety, emergency, insurance, or repair advice."
+  },
+  {
+    slug: "owner-approval-maintenance-template",
+    eyebrow: "Owner Approval",
+    h1: "Owner Approval Maintenance Template",
+    metaTitle: "Owner Approval Maintenance Template",
+    metaDescription: "Use an owner approval maintenance template for repair summaries, estimates, vendor context, timing, and decisions.",
+    summary: "A guide to cleaner owner approval requests for routine rental repairs and vendor coordination.",
+    keyword: "owner approval maintenance template",
+    sections: [
+      ["Why Owner Approval Requests Stall", "Small property managers often lose time because owner approvals arrive with too little context. The owner gets a vague request, asks for photos, asks who the vendor is, asks whether the tenant is available, and the manager has to pull information from several threads. A better approval request gives the owner enough detail to make the next operational decision without turning the message into a long report."],
+      ["The Core Approval Summary", "Include property and unit, issue summary, tenant details or photos, vendor name, estimate or range, proposed timing, access notes, and the decision needed. Keep the decision format simple: approve, decline, or request more information. If the work is part of a recurring issue, include a short prior-history note. Do not use the approval template for legal notices, insurance claims, habitability determinations, emergency instructions, or payment disputes."],
+      ["Make Recommendations Easy To Review", "A manager recommendation should be brief and factual. Example: “Recommend approving Carlos Plumbing for Tuesday afternoon because they have prior property access notes and can provide an invoice the same day.” Owners do not need every message in the chain. They need the reason for the recommendation, the known cost signal, the timing, and what happens after approval."],
+      ["Preserve The Decision Trail", "The approval itself should stay attached to the work order. That matters later when an invoice arrives, a tenant asks for a status update, or the same issue comes back. A decision trail does not need to be complicated. It only needs to show what was asked, what was approved, when, and by whom."]
+    ],
+    checklistTitle: "Owner Approval Request Checklist",
+    checklist: ["Property and unit", "Issue summary", "Photos or tenant details", "Vendor and estimate", "Schedule or access window", "Manager recommendation", "Decision requested", "Approval response recorded"],
+    cta: "LivingRelay helps managers send approval-ready summaries by SMS and keeps the owner response, vendor context, and invoice closeout attached to the repair.",
+    faqs: [
+      ["What should an owner approval request include?", "Include issue, property, photos or context, vendor, estimate, schedule, access notes, recommendation, and the decision needed."],
+      ["Should every repair need owner approval?", "That depends on your operating process. This page only helps structure the communication when approval is needed."],
+      ["How should owners respond?", "Keep the response options simple: approve, decline, or request more information."],
+      ["Is this financial advice?", "No. This is an operational communication template, not financial, tax, insurance, or legal advice."]
+    ],
+    disclaimer: "Operational communication guidance only. Not legal, financial, insurance, tax, safety, or emergency-services advice."
+  },
+  {
+    slug: "rental-maintenance-photo-checklist",
+    eyebrow: "Photos",
+    h1: "Rental Maintenance Photo Checklist",
+    metaTitle: "Rental Maintenance Photo Checklist",
+    metaDescription: "Use a safe rental maintenance photo checklist for tenant intake, vendor scopes, owner approvals, and closeout records.",
+    summary: "A safe, practical photo checklist for routine rental maintenance coordination.",
+    keyword: "rental maintenance photo checklist",
+    sections: [
+      ["Why Photos Reduce Follow-Up", "Photos can turn a vague request into a usable maintenance record. A close photo shows the issue, a wider photo shows where it is, and an access or model label photo may help a vendor prepare. The goal is not to diagnose the repair. The goal is to reduce avoidable follow-up and give the manager, owner, or vendor enough context to choose the next coordination step."],
+      ["Photos To Request", "For routine issues, ask for one close photo, one wider photo, a location photo if the area is hard to identify, and a model or label photo only when easy and safe. For vendor closeout, ask for a completion photo when appropriate. Keep the request specific so tenants do not send twenty images that are hard to sort. Also ask that photos be taken only from a safe location."],
+      ["What Not To Ask For", "Do not ask anyone to climb, touch electrical equipment, move heavy objects, enter unsafe areas, handle gas, open panels, or perform technical diagnostics for a photo. Do not ask for personal documents, private belongings, or unrelated rooms. Photo requests should be narrow, safe, and tied to the maintenance issue."],
+      ["Keep Photos With The Repair", "Photos are most useful when they stay attached to the work order. If they live in a text thread, email, or phone gallery, the vendor may never see them and the owner may ask for them again. A simple photo workflow keeps intake images, owner approval context, vendor scope, and closeout records together."]
+    ],
+    checklistTitle: "Safe Maintenance Photo Checklist",
+    checklist: ["Close photo of the issue", "Wider photo showing location", "Room or area marker when useful", "Model or label photo only if safe", "Access constraint photo if relevant", "Closeout photo when appropriate", "Avoid private or unsafe images"],
+    cta: "LivingRelay collects tenant maintenance photos by SMS and keeps them with the request, vendor scope, owner approval, and closeout record.",
+    faqs: [
+      ["What photos should tenants send for maintenance?", "Ask for one close photo, one wider location photo, and a model or label photo only when it is easy and safe."],
+      ["Should tenants troubleshoot before taking photos?", "No. Ask for observable photos only. Do not ask tenants to perform repairs or technical diagnostics."],
+      ["Can vendors send closeout photos?", "Yes, when appropriate. A closeout photo can help preserve the completion record."],
+      ["Is this safety advice?", "No. It is an operational photo checklist. Photos should only be taken from a safe location."]
+    ],
+    disclaimer: "Photos should only be taken from a safe location. This page is not repair, safety, legal, or emergency advice."
+  },
+  {
+    slug: "landlord-maintenance-checklist",
+    eyebrow: "Landlord Checklist",
+    h1: "Landlord Maintenance Checklist",
+    metaTitle: "Landlord Maintenance Checklist",
+    metaDescription: "Use a practical landlord maintenance checklist for intake, seasonal planning, vendors, logs, invoices, and tenant updates.",
+    summary: "A non-technical landlord maintenance checklist for organizing recurring rental maintenance operations.",
+    keyword: "landlord maintenance checklist",
+    sections: [
+      ["A Checklist For Operations, Not Repairs", "A useful landlord maintenance checklist should organize the work around communication and records. It should not tell someone how to repair electrical, plumbing, HVAC, gas, fire, or security systems. Small landlords need a repeatable way to receive requests, gather details, coordinate vendors, update tenants, approve spend, collect invoices, and keep a history by property."],
+      ["Monthly And Seasonal Planning", "Use a planning checklist to review open work orders, vendor capacity, seasonal reminders, tenant notices, invoice follow-up, and property-level records. Keep the tasks non-technical: confirm which items need inspection, who is responsible for scheduling, what vendors may be needed, and where records will be stored. For actual repair work, use qualified professionals and your normal process."],
+      ["Move-In And Move-Out Maintenance Notes", "Move-in is a good time to set expectations for routine maintenance reporting. Tell tenants how to report issues, what information helps, how photos should be sent safely, and what to do first if there is immediate danger. Do not turn the checklist into a lease clause or legal notice. Keep it as operational guidance and use the appropriate professional documents where needed."],
+      ["Records That Make The Checklist Useful", "A checklist only helps if it creates records. Track what was reported, who reviewed it, what vendor was contacted, what owner decision was made, when work was scheduled, whether the invoice arrived, and whether follow-up remains. Over time, that record becomes more useful than the checklist itself."]
+    ],
+    checklistTitle: "Landlord Maintenance Operations Checklist",
+    checklist: ["Single request intake path", "Tenant detail and photo request", "Vendor outreach list", "Owner approval process", "Status update templates", "Maintenance log", "Invoice and closeout checklist", "Seasonal planning reminders"],
+    cta: "LivingRelay helps small landlords turn the checklist into an SMS-first maintenance workflow with tenant intake, vendor coordination, owner updates, and property records.",
+    faqs: [
+      ["What should a landlord maintenance checklist include?", "Include intake, photos, access notes, vendor outreach, owner approvals, status updates, logs, invoices, and seasonal planning reminders."],
+      ["Should the checklist include DIY repair instructions?", "No. Keep the checklist operational and use qualified professionals for technical repair work."],
+      ["How often should landlords review maintenance records?", "Review open requests frequently and property-level history during seasonal planning or portfolio review."],
+      ["Is this legal or code-compliance advice?", "No. This is operational organization guidance only."]
+    ],
+    disclaimer: "This checklist is for operational organization. It is not legal, code-compliance, safety, insurance, financial, tax, emergency, or repair advice."
+  },
+  {
+    slug: "small-property-manager-maintenance-system",
+    eyebrow: "Small PM System",
+    h1: "Small Property Manager Maintenance System",
+    metaTitle: "Small Property Manager Maintenance System",
+    metaDescription: "Build a lightweight maintenance system for tenant intake, vendors, owner approvals, status updates, and repair records.",
+    summary: "A practical system for small property managers who need structure without adopting a giant enterprise platform.",
+    keyword: "small property manager maintenance system",
+    sections: [
+      ["What A Lightweight System Needs", "A small property manager maintenance system should be easy enough to run every day. It needs one intake path, a small set of status labels, vendor outreach notes, owner approval summaries, tenant updates, and a maintenance log. It does not need a complicated portal for every participant. The system should reduce repeat explanations and make the next action obvious."],
+      ["Design Around The Handoffs", "Most maintenance friction happens at handoffs: tenant to manager, manager to owner, manager to vendor, vendor back to manager, manager back to tenant, and invoice back to records. A good system makes each handoff cleaner. The tenant sends the issue, photos, and access notes. The manager reviews. The owner sees approval context. The vendor receives a scope. The tenant gets status updates. The invoice and closeout stay with the work order."],
+      ["Use Labels Instead Of Long Narratives", "Labels help small teams stay aligned: needs info, reviewing, owner approval, vendor outreach, scheduled, delayed, invoice requested, closed. These are workflow states, not legal, safety, or habitability determinations. Short labels make reporting easier and reduce the urge to search every text thread when someone asks what is happening."],
+      ["Know When Templates Are Not Enough", "Templates are an excellent starting point. They stop the blank-page problem and standardize routine messages. But as volume grows, copy/paste can become its own burden. When requests, photos, approvals, vendor notes, and invoices live in too many places, it is time to move the workflow into a shared system."]
+    ],
+    checklistTitle: "Small PM Maintenance System Components",
+    checklist: ["One tenant intake channel", "Photo and access notes", "Workflow status labels", "Vendor outreach tracker", "Owner approval summary", "Tenant update templates", "Invoice closeout record", "Property maintenance log"],
+    cta: "LivingRelay is the SMS-first workflow layer for small property managers: intake, triage, vendor coordination, owner approvals, tenant updates, and records together.",
+    faqs: [
+      ["What is a small property manager maintenance system?", "It is a repeatable process for intake, review, vendor coordination, approvals, updates, invoices, and records."],
+      ["Do tenants need a portal?", "Not necessarily. LivingRelay is SMS-first so tenants can report routine requests from their phone."],
+      ["When should I move beyond templates?", "When copy/paste messages, photos, approvals, and invoices become hard to track across properties."],
+      ["Is this enterprise property management software?", "No. LivingRelay is built for smaller operators who need maintenance coordination without a heavy platform."]
+    ],
+    disclaimer: "This guide covers operational workflow design only. It is not legal, financial, insurance, safety, or emergency-services advice."
   }
 ];
 
@@ -948,6 +1073,66 @@ const templatePages = [
     use: "Use when a manager, assistant, owner, or teammate needs to take over open repair coordination.",
     notUse: "Do not use for sensitive tenant disputes, legal notices, protected-class information, or emergency instructions.",
     disclaimer: "Operational handoff template only. Keep sensitive information out unless there is a legitimate workflow need."
+  },
+  {
+    slug: "tenant-maintenance-request-intake-sheet",
+    eyebrow: "Tenant Intake",
+    h1: "Tenant Maintenance Request Intake Sheet",
+    summary: "A copy/paste intake sheet for routine tenant maintenance requests.",
+    template: "Request received: [Date/time]\nTenant: [Name]\nProperty/unit: [Property/Unit]\nPreferred contact: [Phone/email]\nIssue location: [Room/area]\nIssue summary: [What the tenant observes]\nWhen it started: [Date/time/unknown]\nActive now: [Yes/No/Unknown]\nPhotos received: [Yes/No]\nAccess windows: [Preferred windows]\nPets/parking/gate notes: [Notes]\nNext status: [Review/vendor/owner approval/need info]",
+    sms: ["Thanks for reporting this. Please send the property/unit, issue location, when it started, photos from a safe location, and access windows.", "We received your request and are reviewing the details. We will update you by [time/date]."],
+    email: "Subject: Maintenance request intake for [Property/Unit]\n\nHi [Name],\n\nPlease send the details below so we can coordinate the next step.\n\n[Template details]\n\nThanks.",
+    use: "Use when a tenant reports a routine maintenance issue and the manager needs enough context to review or contact a vendor.",
+    notUse: "Do not use for emergencies, legal notices, lease disputes, protected-class information, or technical repair instructions.",
+    disclaimer: "Routine maintenance intake only. If there is immediate danger, call 911 or local emergency services first."
+  },
+  {
+    slug: "after-hours-maintenance-intake-card",
+    eyebrow: "After Hours",
+    h1: "After-Hours Maintenance Intake Card",
+    summary: "A short after-hours intake card for non-emergency maintenance messages.",
+    template: "If anyone is in immediate danger, call 911 or local emergency services first.\n\nProperty/unit: [Property/Unit]\nIssue: [Short description]\nLocation: [Room/area]\nActive now: [Yes/No/Unknown]\nPhotos from safe location: [Yes/No]\nAccess notes: [Windows/gate/pets/parking]\nReceived at: [Time]\nReview status: [Queued/reviewing/vendor contacted/owner approval needed]\nNext update by: [Time/date]",
+    sms: ["If anyone is in immediate danger, call 911 or local emergency services first. For this request, please send property/unit, issue, photos from a safe location, and access notes.", "We received your after-hours maintenance message. It is queued for review and we will update you by [time/date]."],
+    email: "Subject: After-hours maintenance intake for [Property/Unit]\n\nHi [Name],\n\nWe received the after-hours maintenance message below.\n\n[Template details]\n\nThanks.",
+    use: "Use for after-hours routine maintenance intake when the operator needs a safe record and a clear review state.",
+    notUse: "Do not use as an emergency-response protocol, DIY repair instructions, legal notice, or safety determination.",
+    disclaimer: "Not emergency-services, safety, legal, insurance, or repair advice. Immediate danger should go to 911 or local emergency services first."
+  },
+  {
+    slug: "vendor-coordination-request-template",
+    eyebrow: "Vendor Outreach",
+    h1: "Vendor Coordination Request Template",
+    summary: "A vendor outreach template for routine rental maintenance coordination.",
+    template: "Hi [Vendor], can you review availability for this rental maintenance request?\n\nProperty/unit: [Property/Unit]\nIssue: [Short issue summary]\nPhotos: [Attached/available]\nAccess windows: [Windows]\nParking/gate/pet notes: [Notes]\nRequested timing: [Timing]\nApproval note: [Owner approval needed above threshold, if applicable]\nInvoice delivery: [Email/contact]\nCloseout request: Please send completion notes, invoice, and any warranty or follow-up notes.",
+    sms: ["Vendor request for [Property/Unit]: [issue]. Photos/access notes available. Are you available [timing]?", "For closeout, please send completion note, invoice, and any warranty or follow-up note for [work order]."],
+    email: "Subject: Vendor request for [Property/Unit]\n\nHi [Vendor],\n\nCan you review availability for the request below?\n\n[Template details]\n\nThanks.",
+    use: "Use when contacting a vendor with the context needed to evaluate availability for a routine repair.",
+    notUse: "Do not use as a replacement for vendor qualification, licensing review, insurance review, or compliance requirements.",
+    disclaimer: "Operational coordination only. Use your normal vendor qualification process."
+  },
+  {
+    slug: "property-maintenance-log-template",
+    eyebrow: "Records",
+    h1: "Property Maintenance Log Template",
+    summary: "A simple copy/paste maintenance log format for rental repairs.",
+    template: "Work order ID: [ID]\nDate reported: [Date]\nProperty/unit: [Property/Unit]\nCategory: [General category]\nTenant summary: [Short summary]\nPhotos/attachments: [Links/notes]\nStatus: [Received/reviewing/vendor/approval/scheduled/closed]\nVendor: [Vendor]\nOwner approval: [Needed/approved/not needed]\nEstimate/invoice: [Amount or note]\nPayment status: [Off-platform status]\nCloseout notes: [Notes]\nFollow-up date: [Date/none]",
+    sms: ["Log update for [Property/Unit]: [issue] is now [status]. Next action: [next action].", "Closeout logged for [work order]: invoice [received/not received], follow-up [needed/not needed]."],
+    email: "Subject: Maintenance log update for [Property/Unit]\n\nHi [Name],\n\nHere is the current maintenance log update.\n\n[Template details]\n\nThanks.",
+    use: "Use when tracking routine maintenance history for a property or portfolio.",
+    notUse: "Do not use as tax, accounting, financial, insurance, legal, or code-compliance advice.",
+    disclaimer: "Operational recordkeeping template only. Not tax, accounting, legal, financial, insurance, or compliance advice."
+  },
+  {
+    slug: "move-in-maintenance-expectations-template",
+    eyebrow: "Move-In",
+    h1: "Move-In Maintenance Expectations Template",
+    summary: "Friendly move-in language for routine maintenance reporting expectations.",
+    template: "Welcome to [Property/Unit]. For routine maintenance, please report issues by [preferred channel]. Helpful details include the issue location, what you observe, when it started, photos from a safe location, and access windows.\n\nFor immediate danger, call 911 or local emergency services first. This maintenance channel is for routine coordination and follow-up.\n\nWhen we receive a request, we will review the details, ask for any missing information, coordinate the next step, and send status updates as the request moves forward.",
+    sms: ["For routine maintenance, text [number] with property/unit, issue location, photos from a safe location, and access windows.", "If there is immediate danger, call 911 or local emergency services first. Routine maintenance requests can be sent to [channel]."],
+    email: "Subject: How to report routine maintenance at [Property/Unit]\n\nHi [Name],\n\nWelcome. Here is how to report routine maintenance during your tenancy.\n\n[Template details]\n\nThanks.",
+    use: "Use at move-in to explain how routine maintenance requests should be reported and what details help.",
+    notUse: "Do not use as a lease clause, legal notice, emergency protocol, rent collection message, or dispute communication.",
+    disclaimer: "Operational move-in communication only. Not legal, lease, safety, emergency, or habitability advice."
   }
 ];
 
@@ -2418,7 +2603,7 @@ function ResourceIndex() {
       <section className="resource-card-grid" aria-label="Full SEO pages">
         <div className="resource-section-head">
           <span className="eyebrow">Drafted pages</span>
-          <h2>Five full SEO resources</h2>
+          <h2>{seoArticles.length} full SEO resources</h2>
         </div>
         <div className="city-guide-grid resource-links">
           {seoArticles.map((article) => (
@@ -2453,7 +2638,7 @@ function ResourceIndex() {
       <section className="resource-card-grid" aria-label="Template pages">
         <div className="resource-section-head">
           <span className="eyebrow">Copy/paste pages</span>
-          <h2>Five live template pages</h2>
+          <h2>{templatePages.length} live template pages</h2>
         </div>
         <div className="city-guide-grid resource-links">
           {templatePages.map((template) => (
@@ -3008,6 +3193,12 @@ const prospectingVacancyStates = ["Unknown", "Yes", "Likely", "No"];
 const prospectingOwnerConfidence = ["Medium", "High", "Low"];
 const prospectingPmsComplexity = ["Unknown", "None visible", "Lightweight", "Complex"];
 const prospectingSourceTypes = ["Other", "By-owner listing", "Small multifamily", "Apartment site", "Directory", "Small PM"];
+const prospectingFitFilters = ["Owner 1-5 + vacancy + phone", "Has maintenance signals", "No complex PMS", "Small PM mix", "All"];
+const prospectingSourceMixTargets = [
+  { label: "Owner leads", segments: ["Small owner", "Small landlord"], target: "60%" },
+  { label: "Small buildings", sourceTypes: ["Small multifamily", "Apartment site"], target: "25%" },
+  { label: "Small PMs", sourceTypes: ["Small PM"], target: "15%" }
+];
 
 function storedSessionValue(key) {
   return window.localStorage.getItem(key) || window.sessionStorage.getItem(key) || "";
@@ -5248,6 +5439,22 @@ function ProspectingDetail({ label, value }) {
   );
 }
 
+function prospectingOutreachMessage(lead) {
+  const propertyContext = [lead.rentalAddress, lead.market].filter(Boolean).join(" in ") || "your rental";
+  const signal = lead.maintenancePainSignals ? ` I noticed ${lead.maintenancePainSignals}.` : "";
+  const angle = lead.recommendedAngle || "I am looking for a few small rental owners to test a text-first maintenance workflow.";
+  const contact = lead.contactName ? `Hi ${lead.contactName.split(" ")[0]},` : "Hi,";
+  return `${contact} ${angle}${signal} LivingRelay helps tenants report repairs by text, captures photos and access notes, and keeps vendor updates, owner approvals, and repair records tied to ${propertyContext}. Would you be open to testing it on one unit before the next maintenance issue?`;
+}
+
+function prospectingSourceMixCount(leads, target) {
+  return leads.filter((lead) => {
+    if (target.segments?.includes(lead.segment || "")) return true;
+    if (target.sourceTypes?.includes(lead.sourceType || "")) return true;
+    return false;
+  }).length;
+}
+
 function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, onSiteAdminAuthExpired }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -5318,6 +5525,7 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
     ...prospectingTargetMarkets,
     ...prospectingLeads.map(leadCity).filter(Boolean)
   ]));
+  const marketLeads = prospectingLeads.filter((lead) => cityFilter === "All" || leadCity(lead).toLowerCase() === cityFilter.toLowerCase());
   const filteredLeads = prospectingLeads
     .filter((lead) => statusFilter === "All" || (lead.status || "New") === statusFilter)
     .filter((lead) => segmentFilter === "All" || (lead.segment || "Property manager") === segmentFilter)
@@ -5426,6 +5634,15 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
         <Metric icon={<Bell />} label="Ready to contact" value={prospectingLeads.filter((lead) => lead.status === "Ready to contact").length} />
         <Metric icon={<Check />} label="Contacted" value={prospectingLeads.filter((lead) => lead.status === "Contacted").length} />
       </div>
+      <div className="prospecting-source-mix">
+        {prospectingSourceMixTargets.map((target) => (
+          <div key={target.label}>
+            <span>{target.label}</span>
+            <strong>{prospectingSourceMixCount(marketLeads, target)}</strong>
+            <small>target {target.target}</small>
+          </div>
+        ))}
+      </div>
       <div className="prospecting-refresh-row">
         <button className="primary" type="button" onClick={runProspectingRefresh} disabled={refreshStatus.state === "running"}>
           <Sparkles size={16} /> Generate leads
@@ -5458,7 +5675,7 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
         ))}
       </div>
       <div className="role-section-tabs prospecting-filters">
-        {["Owner 1-5 + vacancy + phone", "Has maintenance signals", "No complex PMS", "Small PM mix", "All"].map((filter) => (
+        {prospectingFitFilters.map((filter) => (
           <button key={filter} className={fitFilter === filter ? "active" : ""} onClick={() => setFitFilter(filter)}>{filter}</button>
         ))}
       </div>
@@ -5476,6 +5693,7 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
                 <ProspectingDetail label="Public contact" value={[lead.contactName, lead.contactRole, lead.email, lead.phone].filter(Boolean).join(" · ") || "Public contact details pending"} />
                 <ProspectingDetail label="Maintenance signals" value={lead.maintenancePainSignals} />
                 <ProspectingDetail label="Suggested angle" value={lead.recommendedAngle} />
+                <ProspectingDetail label="Starter outreach" value={prospectingOutreachMessage(lead)} />
                 <ProspectingDetail label="Why LivingRelay may help" value={lead.fit} />
                 <ProspectingDetail label="Source notes" value={lead.notes} />
               </div>
