@@ -342,6 +342,11 @@ const publicSitePages = {
   "/rental-maintenance-workflow-audit": "workflowAudit",
   "/rental-maintenance-intake-kit": "maintenanceKit",
   "/maintenance-kit": "maintenanceKit",
+  "/rental-maintenance-software": "rentalMaintenanceSoftware",
+  "/property-maintenance-coordination": "propertyMaintenanceCoordination",
+  "/tenant-maintenance-texts": "tenantMaintenanceTexts",
+  "/try-livingrelay": "tryLivingRelay",
+  "/pilot": "tryLivingRelay",
   "/resources": "resourceIndex",
   "/privacy": "privacy",
   "/privacy-policy": "privacy",
@@ -2088,6 +2093,50 @@ function PublicSitePage({ page }) {
       secondary: "Book audit",
       secondaryHref: "/maintenance-workflow-audit"
     },
+    rentalMaintenanceSoftware: {
+      eyebrow: "Rental Maintenance Software",
+      title: "Coordinate rental repairs without rebuilding the story every time",
+      metaTitle: "Rental Maintenance Software For Small Operators | LivingRelay",
+      metaDescription: "LivingRelay helps small landlords and property managers turn tenant maintenance texts into repair work orders, approvals, vendor notes, and records.",
+      summary: "LivingRelay gives small rental operators a lighter way to organize tenant requests, owner approvals, vendor coordination, status updates, and repair records.",
+      primary: "Request access",
+      primaryHref: "#software-access-form",
+      secondary: "Get the kit",
+      secondaryHref: "/rental-maintenance-intake-kit"
+    },
+    propertyMaintenanceCoordination: {
+      eyebrow: "Maintenance Coordination",
+      title: "One place for tenant requests, owner decisions, and vendor follow-up",
+      metaTitle: "Property Maintenance Coordination | LivingRelay",
+      metaDescription: "Coordinate rental maintenance from tenant intake through approval, vendor follow-up, booking notes, invoices, and repair history.",
+      summary: "Use LivingRelay when maintenance work is not just a ticket. It is a chain of messages, decisions, vendor notes, and records that need to stay connected.",
+      primary: "See setup path",
+      primaryHref: "#coordination-form",
+      secondary: "Try LivingRelay",
+      secondaryHref: "/try-livingrelay"
+    },
+    tenantMaintenanceTexts: {
+      eyebrow: "Tenant Texts",
+      title: "Turn tenant maintenance texts into structured repair records",
+      metaTitle: "Tenant Maintenance Texts To Work Orders | LivingRelay",
+      metaDescription: "LivingRelay turns tenant maintenance texts into structured repair records with issue details, access notes, approvals, vendor context, and status updates.",
+      summary: "Keep the speed of SMS while capturing the details managers, owners, tenants, and vendors need for the repair to move.",
+      primary: "Request text workflow",
+      primaryHref: "#tenant-texts-form",
+      secondary: "View resources",
+      secondaryHref: "/resources"
+    },
+    tryLivingRelay: {
+      eyebrow: "Early Access",
+      title: "Try LivingRelay on your next real maintenance request",
+      metaTitle: "Try LivingRelay | Rental Maintenance Coordination",
+      metaDescription: "Request early access to LivingRelay and try SMS-first rental maintenance coordination on a real repair workflow.",
+      summary: "For owner-managers and small property managers who want to test LivingRelay without scheduling a workflow audit first.",
+      primary: "Request early access",
+      primaryHref: "#early-access-form",
+      secondary: "Maintenance kit",
+      secondaryHref: "/rental-maintenance-intake-kit"
+    },
     resourceIndex: {
       eyebrow: "Maintenance Resources",
       title: "Templates and guides for rental maintenance coordination",
@@ -2225,6 +2274,10 @@ function PublicSitePage({ page }) {
       {page === "sales" && <SalesPageContent />}
       {page === "workflowAudit" && <CampaignLandingPage variant="audit" />}
       {page === "maintenanceKit" && <CampaignLandingPage variant="kit" />}
+      {page === "rentalMaintenanceSoftware" && <CampaignLandingPage variant="software" />}
+      {page === "propertyMaintenanceCoordination" && <CampaignLandingPage variant="coordination" />}
+      {page === "tenantMaintenanceTexts" && <CampaignLandingPage variant="texts" />}
+      {page === "tryLivingRelay" && <CampaignLandingPage variant="pilot" />}
       {page === "about" && <AboutContent />}
       {page === "support" && <SupportContent />}
       {page === "privacy" && <PrivacyContent />}
@@ -2363,6 +2416,130 @@ const campaignLandingContent = {
     ],
     proofTitle: "Templates for the work small rental operators already do.",
     proofText: "The kit is intentionally practical: tenant intake, owner approvals, vendor coordination, status updates, and repair records."
+  },
+  software: {
+    id: "software-access-form",
+    context: "Meta rental maintenance software landing page",
+    formTitle: "Request access to LivingRelay",
+    formText: "Tell us your role and portfolio size. We will follow up with the lightest setup path for your rentals.",
+    submitLabel: "Request access",
+    initialRole: "Property manager",
+    initialMessage: "I am interested in LivingRelay access for rental maintenance coordination.",
+    messageLabel: "What do you want LivingRelay to handle first?",
+    messagePlaceholder: "Tenant intake, owner approvals, vendor follow-up, invoice records, status updates...",
+    eyebrow: "For small rental teams",
+    processEyebrow: "How it scales",
+    processTitle: "Start with one workflow, then add more properties when the process fits.",
+    stats: [
+      ["SMS intake", "Keep the channel tenants already use"],
+      ["Approval trail", "Manager and owner decisions stay attached"],
+      ["Repair records", "Vendor and invoice notes stay with the property"]
+    ],
+    cards: [
+      { icon: <MessageSquare />, title: "Tenant requests", text: "Collect routine maintenance details from texts without losing photos, access notes, or status." },
+      { icon: <Users />, title: "Role-aware workflow", text: "Managers, owners, tenants, and vendors see the pieces that match their responsibility." },
+      { icon: <ReceiptText />, title: "Property repair memory", text: "Keep invoice notes, paid status, vendor outcomes, and repair history organized by property." }
+    ],
+    steps: [
+      ["1", "Add a property", "Set manager, owner, tenant, vendor, and approval rules for the first rental workflow."],
+      ["2", "Route requests", "Tenant maintenance messages become structured work orders with the context needed for action."],
+      ["3", "Expand only when useful", "Add properties, owners, and vendors after the first workflow proves it saves coordination time."]
+    ],
+    proofTitle: "A focused maintenance layer for small rental operators.",
+    proofText: "LivingRelay is not trying to replace your whole property stack. It focuses on the repair communication and recordkeeping path that usually sprawls across texts, calls, and spreadsheets."
+  },
+  coordination: {
+    id: "coordination-form",
+    context: "Meta property maintenance coordination landing page",
+    formTitle: "Get the coordination setup path",
+    formText: "Share a few details and we will send the best next step for your owner, tenant, and vendor workflow.",
+    submitLabel: "Send setup path",
+    initialRole: "Owner-manager",
+    initialMessage: "I am interested in improving property maintenance coordination.",
+    messageLabel: "Which handoff creates the most follow-up?",
+    messagePlaceholder: "Tenant to manager, manager to owner, manager to vendor, vendor to invoice, tenant status updates...",
+    eyebrow: "No required audit call",
+    processEyebrow: "Coordination path",
+    processTitle: "Keep every handoff tied to one repair record.",
+    stats: [
+      ["Tenant", "Issue, photos, access, availability"],
+      ["Owner", "Estimate context and approval"],
+      ["Vendor", "Scope, ETA, invoice instructions"]
+    ],
+    cards: [
+      { icon: <ClipboardList />, title: "Repair context", text: "Keep issue details, safety notes, access windows, photos, and timeline in one place." },
+      { icon: <ShieldCheck />, title: "Approval control", text: "Route owner decisions when thresholds or property rules require extra context." },
+      { icon: <Phone />, title: "Vendor follow-up", text: "Track vendor availability, quote signals, booking notes, and closeout records." }
+    ],
+    steps: [
+      ["1", "Capture the request", "Start with tenant issue, unit, access, photos, and urgency."],
+      ["2", "Route the decision", "Send the right context to the manager or owner before spend moves forward."],
+      ["3", "Close the loop", "Store vendor outcome, tenant update, invoice notes, and completion details."]
+    ],
+    proofTitle: "The repair is one workflow, even when the messages come from four directions.",
+    proofText: "LivingRelay keeps tenant, owner, manager, and vendor context together so the next person does not have to ask for the whole story again."
+  },
+  texts: {
+    id: "tenant-texts-form",
+    context: "Meta tenant maintenance texts landing page",
+    formTitle: "Request the tenant text workflow",
+    formText: "Tell us how tenants contact you today and we will follow up with the best text-first setup path.",
+    submitLabel: "Request workflow",
+    initialRole: "Small landlord",
+    initialMessage: "I am interested in turning tenant maintenance texts into organized work orders.",
+    messageLabel: "How do tenants report repairs today?",
+    messagePlaceholder: "Personal phone, shared number, email, portal, voicemail, mixed process...",
+    eyebrow: "SMS-first",
+    processEyebrow: "Text to record",
+    processTitle: "Keep SMS speed while capturing usable maintenance details.",
+    stats: [
+      ["Text first", "Tenants can start where they already are"],
+      ["Structured", "Issue, unit, photos, access, timeline"],
+      ["Status", "Updates stay tied to the repair"]
+    ],
+    cards: [
+      { icon: <MessageSquare />, title: "Tenant-friendly intake", text: "Tenants can report routine issues without learning a heavy portal first." },
+      { icon: <FileText />, title: "Better work orders", text: "LivingRelay organizes the request into details a manager or owner can review." },
+      { icon: <Bell />, title: "Cleaner updates", text: "Status messages and next steps stay connected to the work order instead of a loose thread." }
+    ],
+    steps: [
+      ["1", "Tenant texts the issue", "LivingRelay captures the plain-language request and asks for missing details when needed."],
+      ["2", "Manager gets context", "Issue, unit, photos, access notes, urgency, and history are easier to review."],
+      ["3", "Everyone stays aligned", "Tenant updates, owner decisions, vendor notes, and closeout records stay attached."]
+    ],
+    proofTitle: "Do not make SMS disappear. Make it operational.",
+    proofText: "For many small rental operators, text is the fastest path to a repair request. LivingRelay keeps that speed while turning the thread into a record people can act on."
+  },
+  pilot: {
+    id: "early-access-form",
+    context: "Meta early access pilot landing page",
+    formTitle: "Request early access",
+    formText: "Use this path if you want to try LivingRelay without booking an audit call first.",
+    submitLabel: "Request early access",
+    initialRole: "Owner-manager",
+    initialMessage: "I would like early access to try LivingRelay on a real maintenance request.",
+    messageLabel: "What kind of repair workflow would you test first?",
+    messagePlaceholder: "Plumbing, HVAC, appliance, access coordination, owner approval, vendor scheduling...",
+    eyebrow: "Low-touch pilot",
+    processEyebrow: "Pilot path",
+    processTitle: "Use LivingRelay on one real maintenance workflow before expanding.",
+    stats: [
+      ["1 property", "Start with a small test"],
+      ["1 repair", "Try the workflow on a real request"],
+      ["No audit", "Async setup is enough to begin"]
+    ],
+    cards: [
+      { icon: <Home />, title: "Start small", text: "Use one property and one repair workflow to see whether LivingRelay fits." },
+      { icon: <Settings2 />, title: "Set rules", text: "Add owner, tenant, vendor, approval threshold, and notification preferences." },
+      { icon: <Check />, title: "Decide after trying", text: "Expand only if it reduces coordination work and creates better repair records." }
+    ],
+    steps: [
+      ["1", "Request access", "Send role, portfolio size, and the first workflow you want to test."],
+      ["2", "Set up one property", "Add the minimum people and rules needed for a safe first maintenance path."],
+      ["3", "Run the next request", "Use LivingRelay for intake, approval, vendor coordination, status, and records."]
+    ],
+    proofTitle: "A practical pilot path for operators who are busy.",
+    proofText: "The goal is not another meeting. The goal is to test whether LivingRelay can make the next real maintenance request easier to coordinate."
   }
 };
 
@@ -2381,7 +2558,7 @@ function CampaignLandingPage({ variant }) {
 
       <section className="campaign-visual-band" aria-label="LivingRelay workflow preview">
         <div className="campaign-workflow-copy">
-          <span className="eyebrow">How LivingRelay helps</span>
+          <span className="eyebrow">{content.eyebrow || "How LivingRelay helps"}</span>
           <h2>{content.proofTitle}</h2>
           <p>{content.proofText}</p>
           <div className="public-checklist">
@@ -2399,8 +2576,8 @@ function CampaignLandingPage({ variant }) {
 
       <section className="campaign-process" aria-label="Campaign process">
         <div>
-          <span className="eyebrow">{variant === "kit" ? "From template to workflow" : "What happens next"}</span>
-          <h2>{variant === "kit" ? "Start lightweight, then systematize the parts that repeat." : "A focused call around the repair workflow you already run."}</h2>
+          <span className="eyebrow">{content.processEyebrow || (variant === "kit" ? "From template to workflow" : "What happens next")}</span>
+          <h2>{content.processTitle || (variant === "kit" ? "Start lightweight, then systematize the parts that repeat." : "A focused call around the repair workflow you already run.")}</h2>
         </div>
         <div className="campaign-process-grid">
           {content.steps.map(([step, title, text]) => (
@@ -2420,7 +2597,7 @@ function CampaignLandingPage({ variant }) {
         title={content.formTitle}
         text={content.formText}
         submitLabel={content.submitLabel}
-        initialRole={variant === "kit" ? "Small landlord" : "Owner-manager"}
+        initialRole={content.initialRole || (variant === "kit" ? "Small landlord" : "Owner-manager")}
         initialMessage={content.initialMessage}
         messageLabel={content.messageLabel}
         messagePlaceholder={content.messagePlaceholder}
