@@ -334,6 +334,9 @@ const publicSitePages = {
   "/about": "about",
   "/support": "support",
   "/marketing": "marketing",
+  "/sales": "sales",
+  "/talk-to-sales": "sales",
+  "/contact-sales": "sales",
   "/resources": "resourceIndex",
   "/privacy": "privacy",
   "/privacy-policy": "privacy",
@@ -1801,8 +1804,17 @@ function PublicSitePage({ page }) {
       summary: "LivingRelay turns tenant texts into organized repair workflows, approvals, vendor coordination, and invoice records for small property operators.",
       primary: "Open app",
       primaryHref: "/",
-      secondary: "Get support",
-      secondaryHref: "/support"
+      secondary: "Talk to sales",
+      secondaryHref: "/sales"
+    },
+    sales: {
+      eyebrow: "Talk to LivingRelay",
+      title: "See whether LivingRelay fits your rental workflow",
+      summary: "Owners, property managers, and small landlords can share a few details and get a follow-up about tenant intake, owner approvals, vendor coordination, and repair records.",
+      primary: "Start the form",
+      primaryHref: "#sales-lead-form",
+      secondary: "Open app",
+      secondaryHref: "/"
     },
     resourceIndex: {
       eyebrow: "Maintenance Resources",
@@ -1916,6 +1928,7 @@ function PublicSitePage({ page }) {
         </a>
         <div>
           <a href="/marketing">Marketing</a>
+          <a href="/sales">Sales</a>
           <a href="/about">About</a>
           <a href="/resources">Resources</a>
           <a href="/property-maintenance">City guides</a>
@@ -1937,6 +1950,7 @@ function PublicSitePage({ page }) {
       </section>
 
       {page === "marketing" && <MarketingContent />}
+      {page === "sales" && <SalesPageContent />}
       {page === "about" && <AboutContent />}
       {page === "support" && <SupportContent />}
       {page === "privacy" && <PrivacyContent />}
@@ -5771,6 +5785,7 @@ function AdminIntegrations({ accounts, properties, orders, connections, events, 
   const firstAccountId = accounts[0]?.id || "";
   const firstProviderId = providers.find((provider) => ["doorloop", "buildium"].includes(provider.id))?.id || providers[0]?.id || "doorloop";
   const [form, setForm] = useState({ accountId: firstAccountId, provider: firstProviderId, credentialRef: "" });
+  const [csvImport, setCsvImport] = useState({ connectionId: connections[0]?.id || "", csv: csvImportTemplate() });
   const [status, setStatus] = useState({ state: "idle", message: "" });
   const headers = siteAdminToken ? { Authorization: `Bearer ${siteAdminToken}` } : {};
 
@@ -5804,6 +5819,29 @@ function AdminIntegrations({ accounts, properties, orders, connections, events, 
       return;
     }
     setStatus({ state: "ok", message: `${data.connection.providerName || data.connection.provider} dry run updated.` });
+    await reloadState();
+  }
+
+  async function importCsv(event) {
+    event.preventDefault();
+    const connectionId = csvImport.connectionId || connections[0]?.id || "";
+    if (!connectionId) {
+      setStatus({ state: "error", message: "Create a connection before importing a CSV." });
+      return;
+    }
+    setStatus({ state: "saving", message: "Importing PMS directory CSV..." });
+    const response = await fetch(`/api/integrations/${connectionId}/import-directory`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ csv: csvImport.csv })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setStatus({ state: "error", message: data.error || "CSV import failed." });
+      return;
+    }
+    const result = data.result || {};
+    setStatus({ state: "ok", message: `Imported ${result.propertiesCreated || 0} properties, ${result.peopleCreated || 0} people, and ${result.vendorsCreated || 0} vendors.` });
     await reloadState();
   }
 
@@ -5848,6 +5886,15 @@ function AdminIntegrations({ accounts, properties, orders, connections, events, 
       </section>
 
       <section className="panel span-2">
+        <SectionTitle icon={<Upload />} title="CSV directory import" eyebrow="Bootstrap properties and contacts" />
+        <form className="admin-form" onSubmit={importCsv}>
+          <label className="span-2">Connection<select value={csvImport.connectionId || connections[0]?.id || ""} onChange={(event) => setCsvImport({ ...csvImport, connectionId: event.target.value })}>{connections.map((connection) => <option value={connection.id} key={connection.id}>{connection.providerName || connection.provider} · {connectionAccount(connection)?.name || connection.accountId}</option>)}</select></label>
+          <label className="span-2">CSV<textarea rows="7" value={csvImport.csv} onChange={(event) => setCsvImport({ ...csvImport, csv: event.target.value })} /></label>
+          <button className="primary wide" type="submit"><Upload size={16} /> Import directory</button>
+        </form>
+      </section>
+
+      <section className="panel span-2">
         <SectionTitle icon={<ClipboardList />} title="Provider shortlist" eyebrow="Build order" />
         <DataTable
           columns={["Provider", "Readiness", "Auth", "Useful first sync"]}
@@ -5879,6 +5926,13 @@ function AdminIntegrations({ accounts, properties, orders, connections, events, 
       </section>
     </div>
   );
+}
+
+function csvImportTemplate() {
+  return [
+    "propertyExternalId,propertyName,address,unit,tenantName,tenantPhone,ownerName,ownerPhone,managerName,managerPhone,vendorName,vendorTrade,vendorPhone",
+    "prop-101,Oak Street Duplex,\"101 Oak St, Austin, TX\",A,Sam Rivera,+15125550101,Alex Owner,+15125550102,Morgan PM,+15125550103,Clear Pipe Plumbing,Plumbing,+15125550104"
+  ].join("\n");
 }
 
 function AdminBilling({ accounts, properties, invoices, billingEvents, activeProperties, pendingInvoices, reloadState }) {

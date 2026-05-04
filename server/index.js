@@ -21,7 +21,7 @@ import { attachMediaRelay, getMediaRelayRoom } from "./mediaRelay.js";
 import { consumeVerifiedPhoneToken, createPhoneChallenge, verifyPhoneChallenge } from "./phoneVerification.js";
 import { defaultNotifyForRole, dispatchNotification, getPushStatus, mergeNotifySettings, notificationCatalog, registerPushDevice } from "./notifications.js";
 import { decryptTransitFields, getTransitPublicKey } from "./transitEncryption.js";
-import { createIntegrationConnection, deleteIntegrationConnection, dryRunIntegrationSync, listIntegrationSummary, pmsProviders, updateIntegrationConnection } from "./pmsIntegrations.js";
+import { createIntegrationConnection, deleteIntegrationConnection, dryRunIntegrationSync, importDirectoryCsv, listIntegrationSummary, pmsProviders, updateIntegrationConnection } from "./pmsIntegrations.js";
 import {
   buildTenantAvailability,
   buildInvoiceDeliveryInstructions,
@@ -1455,6 +1455,18 @@ app.post("/api/integrations/:id/dry-run", (req, res) => {
       connectionId: req.params.id
     });
     res.json({ connection });
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message });
+  }
+});
+
+app.post("/api/integrations/:id/import-directory", (req, res) => {
+  try {
+    res.json(importDirectoryCsv({
+      user: req.user,
+      connectionId: req.params.id,
+      csv: req.body.csv
+    }));
   } catch (error) {
     res.status(error.statusCode || 400).json({ error: error.message });
   }
