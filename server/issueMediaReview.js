@@ -2,6 +2,7 @@ const MAX_ISSUE_MEDIA_ITEMS = 10;
 const MAX_MEDIA_BYTES = 5 * 1024 * 1024;
 const SUPPORTED_MEDIA_TYPES = /^(image|video)\//;
 const DATA_URL_PATTERN = /^data:([^;,]+);base64,(.+)$/;
+const DEFAULT_ANTHROPIC_MODELS = ["claude-sonnet-4-20250514", "claude-3-5-sonnet-20241022"];
 
 export function normalizeIssueMediaAttachments(input = []) {
   const items = Array.isArray(input) ? input : [];
@@ -75,22 +76,11 @@ async function reviewWithAnthropic({ order, mediaItems }) {
     })
   ];
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01"
-    },
-    body: JSON.stringify({
-      model: process.env.ANTHROPIC_MEDIA_REVIEW_MODEL || "claude-3-5-sonnet-20241022",
-      max_tokens: 700,
-      temperature: 0.2,
-      messages: [{ role: "user", content }]
-    })
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error?.message || `Anthropic media review failed: ${response.status}`);
+  const configuredModel = process.env.ANTHROPIC_MEDIA_REVIEW_MODEL;
+  const models = configuredModel
+    ? [configuredModel, ...DEFAULT_ANTHROPIC_MODELS.filter((model) => model !== configuredModel)]
+    : DEFAULT_ANTHROPIC_MODELS;
+  const { data, model } = await createAnthropicMessageWithFallback({ models, content });
   const text = data.content?.map((part) => part.text || "").join("\n").trim() || "";
   return {
     provider: "anthropic",
@@ -100,10 +90,40 @@ async function reviewWithAnthropic({ order, mediaItems }) {
     imageCount: mediaItems.filter((item) => item.kind === "image").length,
     videoCount: videoItems.length,
     visualCount: visualItems.length,
-    model: data.model || process.env.ANTHROPIC_MEDIA_REVIEW_MODEL || "claude-3-5-sonnet-20241022",
+    model: data.model || model,
     rawSummary: text,
     insights: parseJsonObject(text)
   };
+}
+
+async function createAnthropicMessageWithFallback({ models, content }) {
+  const errors = [];
+  for (const model of models) {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 700,
+        temperature: 0.2,
+        messages: [{ role: "user", content }]
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok) return { data, model };
+    const message = data.error?.message || `Anthropic media review failed: ${response.status}`;
+    errors.push(`${model}: ${message}`);
+    if (!isModelSelectionError(message)) break;
+  }
+  throw new Error(errors.join("; "));
+}
+
+function isModelSelectionError(message = "") {
+  return /model|not found|does not exist|invalid/i.test(String(message));
 }
 
 function buildSkippedReview({ provider, reason, mediaItems }) {

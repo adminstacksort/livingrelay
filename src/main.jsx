@@ -5402,8 +5402,8 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
               ))}
             </DiagnosticBlock>
             <DiagnosticBlock title="Messages">
-              {run.deliveries.length === 0 && <DiagnosticRow label="Delivery" value="No phone or email entered." tone="warn" />}
-              {run.deliveries.filter((delivery) => !String(delivery.channel || "").startsWith("lifecycle_")).map((delivery, index) => (
+              {(run.deliveries || []).length === 0 && <DiagnosticRow label="Delivery" value="No phone or email entered." tone="warn" />}
+              {(run.deliveries || []).filter((delivery) => !String(delivery.channel || "").startsWith("lifecycle_")).map((delivery, index) => (
                 <DiagnosticRow key={`${delivery.channel}-${index}`} label={delivery.channel} value={[delivery.to, delivery.status, delivery.errorCode ? `Twilio ${delivery.errorCode}` : "", delivery.providerId, delivery.reason].filter(Boolean).join(" · ")} tone={delivery.skipped ? "warn" : delivery.sent ? "ok" : "error"} />
               ))}
             </DiagnosticBlock>
@@ -5428,8 +5428,8 @@ function AdminQaPanel({ siteAdminToken, onSiteAdminAuthExpired, reloadState, set
               )}
             </DiagnosticBlock>
             <DiagnosticBlock title="Lifecycle Updates">
-              {!run.deliveries?.some((delivery) => String(delivery.channel || "").startsWith("lifecycle_")) && <DiagnosticRow label="Lifecycle" value="No lifecycle notifications generated." tone="warn" />}
-              {run.deliveries?.filter((delivery) => String(delivery.channel || "").startsWith("lifecycle_")).map((delivery, index) => (
+              {!(run.deliveries || []).some((delivery) => String(delivery.channel || "").startsWith("lifecycle_")) && <DiagnosticRow label="Lifecycle" value="No lifecycle notifications generated." tone="warn" />}
+              {(run.deliveries || []).filter((delivery) => String(delivery.channel || "").startsWith("lifecycle_")).map((delivery, index) => (
                 <QaDeliveryPreview delivery={delivery} key={`${delivery.channel}-${delivery.stepId}-${delivery.role}-${index}`} />
               ))}
             </DiagnosticBlock>
@@ -5513,13 +5513,16 @@ function qaProviderRows(providers = {}) {
   const sms = providers.sms || {};
   const email = providers.email || {};
   const push = providers.push || {};
+  const smsUsesMessagingService = sms.senderMode === "messaging_service" || Boolean(sms.messagingServiceSid);
   return [
     {
       label: "SMS",
-      status: sms.configured ? "Ready" : "Needs setup",
-      tone: sms.configured ? "ok" : "warn",
+      status: sms.configured ? smsUsesMessagingService ? "Ready" : "A2P risk" : "Needs setup",
+      tone: sms.configured && smsUsesMessagingService ? "ok" : "warn",
       detail: sms.configured
-        ? [sms.senderMode === "messaging_service" ? "Messaging Service" : "Phone number", sms.messagingServiceSid || sms.from].filter(Boolean).join(": ")
+        ? smsUsesMessagingService
+          ? ["Messaging Service", sms.messagingServiceSid].filter(Boolean).join(": ")
+          : `Direct number ${sms.from || "configured"}; A2P delivery should use a registered Messaging Service`
         : `Missing ${sms.missing?.join(", ") || "Twilio sender config"}`
     },
     {
