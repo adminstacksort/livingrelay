@@ -23,8 +23,28 @@ Use Twilio first for SMS. Voice can come after the SMS workflow is reliable.
 TWILIO_ACCOUNT_SID
 TWILIO_AUTH_TOKEN
 TWILIO_MESSAGING_NUMBER
+TWILIO_MESSAGING_SERVICE_SID
 TWILIO_STATUS_CALLBACK_URL
 ```
+
+### A2P 10DLC Registration
+
+Current Stacksort Labs A2P 10DLC brand registration:
+
+```text
+Brand name: Stacksort Labs
+Brand type: Low Volume Standard
+Customer type: Private
+Registration status: Registered
+External Brand ID: BIT45EP
+Brand registration SID: BNbf745b652fed81a6038c145a94718812
+Trust Hub A2P Bundle SID: BUdf8639aa1a1d2ff7c51959b19406ee03
+Connected Customer Profile SID: BUbc4cdf87303613875a4fb252e0405acb
+Date created: 2026-05-04 11:38:27
+Date updated: 2026-05-04 11:39:13
+```
+
+Use the approved campaign-linked Messaging Service for outbound SMS so Twilio message logs show a Messaging Service instead of a direct unregistered sender.
 
 ### Local API
 
