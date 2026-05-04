@@ -17,6 +17,7 @@ livingrelay-ios-demo/
 
 # Local brand exports and generated asset bundles
 assets/brand/
+google-play-upload/
 
 # AWS provisioning scratch scripts kept local unless intentionally promoted
 scripts/provision-aws-dev-runtime.mjs

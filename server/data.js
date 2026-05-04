@@ -250,6 +250,50 @@ const seedState = {
     }
   ],
   prospectingLeads: [],
+  integrationConnections: [
+    {
+      id: "int-demo-doorloop",
+      accountId: "acct-1",
+      provider: "doorloop",
+      providerName: "DoorLoop",
+      status: "Planned",
+      authMode: "api_key",
+      credentialRef: "",
+      scopes: ["properties:read", "tenants:read", "vendors:read", "work_orders:write"],
+      sync: {
+        importDirectory: true,
+        importMaintenanceRequests: false,
+        exportWorkOrders: true,
+        exportInvoices: true
+      },
+      counts: {
+        importedProperties: 0,
+        importedPeople: 0,
+        importedVendors: 0,
+        exportedWorkOrders: 0
+      },
+      lastSyncAt: "",
+      lastError: "",
+      createdAt: "2026-05-04T12:00:00.000Z",
+      updatedAt: "2026-05-04T12:00:00.000Z"
+    }
+  ],
+  externalMappings: [],
+  integrationEvents: [
+    {
+      id: "intevt-demo-1",
+      connectionId: "int-demo-doorloop",
+      accountId: "acct-1",
+      provider: "doorloop",
+      direction: "internal",
+      objectType: "connection",
+      objectId: "int-demo-doorloop",
+      action: "planned",
+      status: "ok",
+      summary: "Demo DoorLoop connector placeholder created for integration planning.",
+      createdAt: "2026-05-04T12:00:00.000Z"
+    }
+  ],
   accessRequests: [],
   notifications: [],
   qaRuns: [],
@@ -269,6 +313,9 @@ export const invoices = state.invoices;
 export const billingEvents = state.billingEvents;
 export const referrals = state.referrals || (state.referrals = []);
 export const prospectingLeads = state.prospectingLeads || (state.prospectingLeads = []);
+export const integrationConnections = state.integrationConnections || (state.integrationConnections = []);
+export const externalMappings = state.externalMappings || (state.externalMappings = []);
+export const integrationEvents = state.integrationEvents || (state.integrationEvents = []);
 export const accessRequests = state.accessRequests;
 export const notifications = state.notifications || (state.notifications = []);
 export const qaRuns = state.qaRuns || (state.qaRuns = []);
@@ -405,10 +452,40 @@ function mergeLoadedState(loaded) {
     billingEvents: loaded.billingEvents || seedState.billingEvents,
     referrals: loaded.referrals || seedState.referrals,
     prospectingLeads: loaded.prospectingLeads || seedState.prospectingLeads,
+    integrationConnections: (loaded.integrationConnections || seedState.integrationConnections).map(normalizeIntegrationConnection),
+    externalMappings: loaded.externalMappings || seedState.externalMappings,
+    integrationEvents: loaded.integrationEvents || seedState.integrationEvents,
     accessRequests: loaded.accessRequests || seedState.accessRequests,
     notifications: loaded.notifications || seedState.notifications,
     qaRuns: loaded.qaRuns || seedState.qaRuns,
     auditLog: loaded.auditLog || []
+  };
+}
+
+function normalizeIntegrationConnection(connection = {}) {
+  return {
+    ...connection,
+    status: connection.status || "Draft",
+    authMode: connection.authMode || "api_key",
+    scopes: Array.isArray(connection.scopes) ? connection.scopes : [],
+    sync: {
+      importDirectory: true,
+      importMaintenanceRequests: false,
+      exportWorkOrders: true,
+      exportInvoices: true,
+      ...(connection.sync || {})
+    },
+    counts: {
+      importedProperties: 0,
+      importedPeople: 0,
+      importedVendors: 0,
+      exportedWorkOrders: 0,
+      ...(connection.counts || {})
+    },
+    lastSyncAt: connection.lastSyncAt || "",
+    lastError: connection.lastError || "",
+    createdAt: connection.createdAt || new Date().toISOString(),
+    updatedAt: connection.updatedAt || connection.createdAt || new Date().toISOString()
   };
 }
 

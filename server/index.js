@@ -3,7 +3,7 @@ import express from "express";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { accessRequests, accounts, auditLog, billingEvents, event, invoices, message, notifications, people, platformSettings, properties, prospectingLeads, qaRuns, recordAudit, referrals, saveState, vendors, waitForStatePersistence, workOrders } from "./data.js";
+import { accessRequests, accounts, auditLog, billingEvents, event, externalMappings, integrationConnections, integrationEvents, invoices, message, notifications, people, platformSettings, properties, prospectingLeads, qaRuns, recordAudit, referrals, saveState, vendors, waitForStatePersistence, workOrders } from "./data.js";
 import { composeActionMessage, handleInboundCommand, normalizePhone } from "./smsLogic.js";
 import { getSmsMessageStatus, getTwilioStatus, sendSms } from "./twilioClient.js";
 import { getEmailStatus, sendEmail } from "./emailClient.js";
@@ -21,6 +21,7 @@ import { attachMediaRelay, getMediaRelayRoom } from "./mediaRelay.js";
 import { consumeVerifiedPhoneToken, createPhoneChallenge, verifyPhoneChallenge } from "./phoneVerification.js";
 import { defaultNotifyForRole, dispatchNotification, getPushStatus, mergeNotifySettings, notificationCatalog, registerPushDevice } from "./notifications.js";
 import { decryptTransitFields, getTransitPublicKey } from "./transitEncryption.js";
+import { createIntegrationConnection, deleteIntegrationConnection, dryRunIntegrationSync, listIntegrationSummary, pmsProviders, updateIntegrationConnection } from "./pmsIntegrations.js";
 import {
   buildTenantAvailability,
   buildInvoiceDeliveryInstructions,
@@ -263,6 +264,10 @@ app.get("/api/state", (req, res) => {
     notificationCatalog: notificationCatalog(),
     referrals: includeSiteAdmin ? referrals : referrals.map(publicReferral),
     prospectingLeads: includeSiteAdmin ? prospectingLeads : [],
+    integrationConnections: includeSiteAdmin ? integrationConnections.map(publicIntegrationConnection) : [],
+    externalMappings: includeSiteAdmin ? externalMappings : [],
+    integrationEvents: includeSiteAdmin ? integrationEvents.slice(0, 50) : [],
+    pmsProviders,
     accessRequests: includeSiteAdmin ? accessRequests : [],
     auditLog,
     twilio: getTwilioStatus(),
@@ -828,6 +833,7 @@ function isAuthorizedAppRequest(req, user) {
   if (path.startsWith("/api/billing")) return ownerManagerRoles.has(role);
   if (path.startsWith("/api/account")) return role !== "Site Admin";
   if (path.startsWith("/api/referrals")) return ownerManagerRoles.has(role);
+  if (path.startsWith("/api/integrations")) return ownerManagerRoles.has(role);
   if (path.startsWith("/api/invoices")) return ownerManagerRoles.has(role);
   if (path.startsWith("/api/properties")) return ownerManagerRoles.has(role);
   if (path.startsWith("/api/people")) return managerRoles.has(role) || path.includes(`/${user.id}/`);
@@ -840,6 +846,7 @@ app.use([
   "/api/billing",
   "/api/account",
   "/api/referrals",
+  "/api/integrations",
   "/api/work-orders",
   "/api/invoices",
   "/api/people",
@@ -1405,6 +1412,63 @@ app.delete("/api/account", (req, res) => {
   saveState();
   recordAudit(user.name, "Deleted own user account", `${user.name} deleted their ${user.role} login from dashboard.`);
   res.json({ deleted: true, scope, summary: { people: deletedPeople, vendors: deletedVendors } });
+});
+
+app.get("/api/integrations", (req, res) => {
+  res.json(listIntegrationSummary({ user: req.user }));
+});
+
+app.post("/api/integrations", (req, res) => {
+  try {
+    const connection = createIntegrationConnection({
+      user: req.user,
+      accountId: req.body.accountId,
+      provider: req.body.provider,
+      authMode: req.body.authMode,
+      credentialRef: req.body.credentialRef,
+      sync: req.body.sync,
+      scopes: req.body.scopes
+    });
+    res.json({ connection });
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message });
+  }
+});
+
+app.patch("/api/integrations/:id", (req, res) => {
+  try {
+    const connection = updateIntegrationConnection({
+      user: req.user,
+      connectionId: req.params.id,
+      patch: req.body
+    });
+    res.json({ connection });
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message });
+  }
+});
+
+app.post("/api/integrations/:id/dry-run", (req, res) => {
+  try {
+    const connection = dryRunIntegrationSync({
+      user: req.user,
+      connectionId: req.params.id
+    });
+    res.json({ connection });
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message });
+  }
+});
+
+app.delete("/api/integrations/:id", (req, res) => {
+  try {
+    res.json(deleteIntegrationConnection({
+      user: req.user,
+      connectionId: req.params.id
+    }));
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message });
+  }
 });
 
 app.post("/api/demo/scenario", (req, res) => {
@@ -2534,6 +2598,14 @@ function publicReferral(referral = {}) {
   };
 }
 
+function publicIntegrationConnection(connection = {}) {
+  return {
+    ...connection,
+    credentialConfigured: Boolean(connection.credentialRef),
+    credentialRef: connection.credentialRef ? maskCredentialRef(connection.credentialRef) : ""
+  };
+}
+
 function referralRewardSummary(referrerRole, referredRole) {
   const ownerEligible = referrerRole === "Owner" || referredRole === "Owner";
   return ownerEligible
@@ -3424,6 +3496,12 @@ function maskEmail(email = "") {
   const [name = "", domain = ""] = String(email).split("@");
   if (!name || !domain) return email ? "configured" : "";
   return `${name.slice(0, 2)}***@${domain}`;
+}
+
+function maskCredentialRef(value = "") {
+  const text = String(value);
+  if (text.length <= 8) return "configured";
+  return `${text.slice(0, 3)}...${text.slice(-3)}`;
 }
 
 function validEmail(email = "") {
