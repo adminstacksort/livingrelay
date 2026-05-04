@@ -195,8 +195,23 @@ The current `/sales` form is usable, and the app now includes campaign-specific 
 - `/rental-maintenance-workflow-audit`
 - `/rental-maintenance-intake-kit`
 - `/maintenance-kit`
+- `/rental-maintenance-software`
+- `/property-maintenance-coordination`
+- `/tenant-maintenance-texts`
+- `/try-livingrelay`
+- `/pilot`
 
 Paid traffic should primarily route to `/maintenance-workflow-audit` for qualified calls and `/rental-maintenance-intake-kit` for broader list building.
+
+If founder/operator time is constrained, prioritize lower-touch routes:
+
+- `/try-livingrelay` or `/pilot` for early access leads who can be handled asynchronously.
+- `/rental-maintenance-software` for scalable software-interest traffic.
+- `/tenant-maintenance-texts` for SMS pain-angle ads.
+- `/property-maintenance-coordination` for owner/manager/vendor handoff ads.
+- `/rental-maintenance-intake-kit` for broad, cheaper template lead capture.
+
+Use `/maintenance-workflow-audit` only when there is enough calendar capacity for live calls.
 
 Nice-to-have:
 
