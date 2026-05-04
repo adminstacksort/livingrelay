@@ -40,15 +40,21 @@ function normalizeMediaItem(item = {}, index) {
     kind: contentType.startsWith("video/") ? "video" : "image",
     size,
     url: dataUrl,
+    previewFrameDataUrl: String(item.previewFrameDataUrl || "").trim(),
     receivedAt: item.receivedAt || new Date().toISOString()
   };
 }
 
 async function reviewWithAnthropic({ order, mediaItems }) {
-  const imageItems = mediaItems.filter((item) => item.kind === "image" && DATA_URL_PATTERN.test(item.url));
+  const visualItems = mediaItems
+    .map((item) => ({ ...item, visualUrl: item.kind === "video" ? item.previewFrameDataUrl : item.url }))
+    .filter((item) => DATA_URL_PATTERN.test(item.visualUrl));
   const videoItems = mediaItems.filter((item) => item.kind === "video");
-  if (!imageItems.length) {
-    return buildSkippedReview({ provider: "anthropic", reason: "Only video attachments were provided; video frame review is not enabled yet.", mediaItems });
+  if (!visualItems.length) {
+    const reason = mediaItems.some((item) => item.kind === "image")
+      ? "Image URL fetching for SMS media is not enabled yet."
+      : "Video preview frame review is not available for these attachments yet.";
+    return buildSkippedReview({ provider: "anthropic", reason, mediaItems });
   }
   const content = [
     {
@@ -60,11 +66,11 @@ async function reviewWithAnthropic({ order, mediaItems }) {
         `Issue: ${order?.issue || ""}`,
         `Property/unit: ${order?.unit || "Unknown unit"}`,
         `Existing triage: ${order?.severity || "Unknown"} ${order?.trade || "General"}`,
-        videoItems.length ? `Videos attached but not visually decoded by this adapter yet: ${videoItems.map((item) => item.name).join(", ")}` : ""
+        videoItems.length ? `Video attachments are represented by generated preview frames: ${videoItems.map((item) => item.name || item.contentType).join(", ")}` : ""
       ].filter(Boolean).join("\n")
     },
-    ...imageItems.map((item) => {
-      const [, mediaType, data] = item.url.match(DATA_URL_PATTERN);
+    ...visualItems.map((item) => {
+      const [, mediaType, data] = item.visualUrl.match(DATA_URL_PATTERN);
       return { type: "image", source: { type: "base64", media_type: mediaType, data } };
     })
   ];
@@ -91,8 +97,9 @@ async function reviewWithAnthropic({ order, mediaItems }) {
     status: "reviewed",
     reviewedAt: new Date().toISOString(),
     mediaCount: mediaItems.length,
-    imageCount: imageItems.length,
+    imageCount: mediaItems.filter((item) => item.kind === "image").length,
     videoCount: videoItems.length,
+    visualCount: visualItems.length,
     model: data.model || process.env.ANTHROPIC_MEDIA_REVIEW_MODEL || "claude-3-5-sonnet-20241022",
     rawSummary: text,
     insights: parseJsonObject(text)

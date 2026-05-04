@@ -338,6 +338,10 @@ const publicSitePages = {
   "/sales": "sales",
   "/talk-to-sales": "sales",
   "/contact-sales": "sales",
+  "/maintenance-workflow-audit": "workflowAudit",
+  "/rental-maintenance-workflow-audit": "workflowAudit",
+  "/rental-maintenance-intake-kit": "maintenanceKit",
+  "/maintenance-kit": "maintenanceKit",
   "/resources": "resourceIndex",
   "/privacy": "privacy",
   "/privacy-policy": "privacy",
@@ -1772,14 +1776,20 @@ async function prepareIssueMediaAttachments(files = []) {
   if (invalid) throw new Error("Only image and video files can be attached.");
   const oversized = selected.find((file) => file.size > 5 * 1024 * 1024);
   if (oversized) throw new Error("Each image or video must be 5 MB or smaller.");
-  return Promise.all(selected.map(async (file, index) => ({
-    id: `media-${Date.now()}-${index + 1}`,
-    name: file.name,
-    contentType: file.type,
-    size: file.size,
-    dataUrl: await readFileAsDataUrl(file),
-    receivedAt: new Date().toISOString()
-  })));
+  return Promise.all(selected.map(async (file, index) => {
+    const attachment = {
+      id: `media-${Date.now()}-${index + 1}`,
+      name: file.name,
+      contentType: file.type,
+      size: file.size,
+      dataUrl: await readFileAsDataUrl(file),
+      receivedAt: new Date().toISOString()
+    };
+    if (file.type.startsWith("video/")) {
+      attachment.previewFrameDataUrl = await readVideoPreviewFrame(file).catch(() => "");
+    }
+    return attachment;
+  }));
 }
 
 function readFileAsDataUrl(file) {
@@ -1788,6 +1798,34 @@ function readFileAsDataUrl(file) {
     reader.onload = () => resolve(String(reader.result || ""));
     reader.onerror = () => reject(new Error("Could not read one of the selected files."));
     reader.readAsDataURL(file);
+  });
+}
+
+function readVideoPreviewFrame(file) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    const url = URL.createObjectURL(file);
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+    video.onloadedmetadata = () => {
+      video.currentTime = Math.min(0.2, Math.max(0, (video.duration || 0) / 2));
+    };
+    video.onseeked = () => {
+      const canvas = document.createElement("canvas");
+      const maxWidth = 960;
+      const scale = video.videoWidth > maxWidth ? maxWidth / video.videoWidth : 1;
+      canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+      canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+      canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/jpeg", 0.78));
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Could not read a preview frame from one video."));
+    };
+    video.src = url;
   });
 }
 
@@ -1842,6 +1880,28 @@ function PublicSitePage({ page }) {
       primaryHref: "#sales-lead-form",
       secondary: "Open app",
       secondaryHref: "/"
+    },
+    workflowAudit: {
+      eyebrow: "Workflow Audit",
+      title: "Rental maintenance workflow audit for small operators",
+      metaTitle: "Rental Maintenance Workflow Audit | LivingRelay",
+      metaDescription: "Book a short rental maintenance workflow audit for tenant intake, owner approvals, vendor coordination, and repair records.",
+      summary: "Map how tenant repair requests, owner approvals, vendor follow-up, and invoice records move today, then see where LivingRelay can clean up the handoff.",
+      primary: "Request audit",
+      primaryHref: "#workflow-audit-form",
+      secondary: "Get the kit",
+      secondaryHref: "/rental-maintenance-intake-kit"
+    },
+    maintenanceKit: {
+      eyebrow: "Maintenance Kit",
+      title: "Free rental maintenance intake kit",
+      metaTitle: "Rental Maintenance Intake Kit | LivingRelay",
+      metaDescription: "Request rental maintenance templates for tenant intake, owner approvals, vendor coordination, status updates, and repair records.",
+      summary: "Get practical templates for tenant repair intake, owner approval requests, vendor coordination, status updates, and repair logs.",
+      primary: "Request kit",
+      primaryHref: "#maintenance-kit-form",
+      secondary: "Book audit",
+      secondaryHref: "/maintenance-workflow-audit"
     },
     resourceIndex: {
       eyebrow: "Maintenance Resources",
@@ -1978,6 +2038,8 @@ function PublicSitePage({ page }) {
 
       {page === "marketing" && <MarketingContent />}
       {page === "sales" && <SalesPageContent />}
+      {page === "workflowAudit" && <CampaignLandingPage variant="audit" />}
+      {page === "maintenanceKit" && <CampaignLandingPage variant="kit" />}
       {page === "about" && <AboutContent />}
       {page === "support" && <SupportContent />}
       {page === "privacy" && <PrivacyContent />}
@@ -2059,6 +2121,169 @@ function SalesPageContent() {
 
       <SalesLeadEmbed context="Standalone sales page" id="sales-lead-form" />
     </>
+  );
+}
+
+const campaignLandingContent = {
+  audit: {
+    id: "workflow-audit-form",
+    context: "Meta workflow audit landing page",
+    formTitle: "Request a workflow audit",
+    formText: "Share how repairs move today and we will follow up about tenant intake, approvals, vendor coordination, and records.",
+    submitLabel: "Request audit",
+    initialMessage: "I am interested in a rental maintenance workflow audit.",
+    messageLabel: "What gets messy today?",
+    messagePlaceholder: "Tenant texts, owner approvals, vendor follow-up, invoices, after-hours requests...",
+    stats: [
+      ["15 min", "Short workflow review"],
+      ["4 handoffs", "Tenant, manager, owner, vendor"],
+      ["Small teams", "Built for owner-managers and lean operators"]
+    ],
+    cards: [
+      { icon: <MessageSquare />, title: "Tenant intake", text: "Turn scattered repair texts into issue, unit, photos, access notes, urgency, and next action." },
+      { icon: <ShieldCheck />, title: "Owner approval", text: "Keep estimate context, thresholds, decisions, and repair history tied to the work order." },
+      { icon: <Phone />, title: "Vendor coordination", text: "Compare availability, quote signals, booking notes, invoice instructions, and follow-up status." }
+    ],
+    steps: [
+      ["1", "Map the current path", "Tenant report, manager triage, owner decision, vendor outreach, tenant update, invoice closeout."],
+      ["2", "Find the drag", "We look for missing photos, repeated explanations, approval stalls, vendor call loops, and records that disappear."],
+      ["3", "Show the LivingRelay version", "See how the same repair can move through an SMS-first workflow with records attached."]
+    ],
+    proofTitle: "For the awkward middle ground between texts and an enterprise PMS.",
+    proofText: "LivingRelay is for operators who need repair coordination and records without making every tenant, owner, and vendor learn another heavy portal."
+  },
+  kit: {
+    id: "maintenance-kit-form",
+    context: "Meta maintenance intake kit landing page",
+    formTitle: "Request the maintenance intake kit",
+    formText: "Tell us where to send the kit and what kind of rental maintenance workflow you are organizing.",
+    submitLabel: "Request kit",
+    initialMessage: "I am interested in the rental maintenance intake kit.",
+    messageLabel: "What template would help most?",
+    messagePlaceholder: "Tenant request, owner approval, vendor checklist, status updates, repair log...",
+    stats: [
+      ["5 templates", "Intake, approval, vendor, status, records"],
+      ["SMS-first", "Built around real maintenance messages"],
+      ["Free", "Useful before you adopt software"]
+    ],
+    cards: [
+      { icon: <ClipboardList />, title: "Tenant request intake", text: "Collect the details that usually trigger a second call: location, symptoms, timing, photos, and access." },
+      { icon: <FileText />, title: "Owner approval note", text: "Summarize issue, estimate, vendor recommendation, timing, and decision needed." },
+      { icon: <ReceiptText />, title: "Repair record log", text: "Keep vendor, amount, invoice, completion, warranty, and tax-year notes together." }
+    ],
+    steps: [
+      ["1", "Use the templates", "Start with plain operational language for routine maintenance intake and follow-up."],
+      ["2", "Spot repeat friction", "Notice where templates still create manual follow-up or recordkeeping work."],
+      ["3", "Move the workflow into LivingRelay", "When copy/paste gets heavy, route the same process through shared work orders and SMS updates."]
+    ],
+    proofTitle: "Templates for the work small rental operators already do.",
+    proofText: "The kit is intentionally practical: tenant intake, owner approvals, vendor coordination, status updates, and repair records."
+  }
+};
+
+function CampaignLandingPage({ variant }) {
+  const content = campaignLandingContent[variant] || campaignLandingContent.audit;
+  return (
+    <>
+      <section className="campaign-proof-strip" aria-label="Campaign highlights">
+        {content.stats.map(([value, label]) => (
+          <div key={label}>
+            <strong>{value}</strong>
+            <span>{label}</span>
+          </div>
+        ))}
+      </section>
+
+      <section className="campaign-visual-band" aria-label="LivingRelay workflow preview">
+        <div className="campaign-workflow-copy">
+          <span className="eyebrow">How LivingRelay helps</span>
+          <h2>{content.proofTitle}</h2>
+          <p>{content.proofText}</p>
+          <div className="public-checklist">
+            <p><Check size={18} /> Tenant texts become structured repair records</p>
+            <p><Check size={18} /> Owners see approval context before deciding</p>
+            <p><Check size={18} /> Vendor notes and invoice records stay with the property</p>
+          </div>
+        </div>
+        <WorkflowPreview />
+      </section>
+
+      <section className="public-grid three">
+        {content.cards.map((card) => <PublicCard key={card.title} {...card} />)}
+      </section>
+
+      <section className="campaign-process" aria-label="Campaign process">
+        <div>
+          <span className="eyebrow">{variant === "kit" ? "From template to workflow" : "What happens next"}</span>
+          <h2>{variant === "kit" ? "Start lightweight, then systematize the parts that repeat." : "A focused call around the repair workflow you already run."}</h2>
+        </div>
+        <div className="campaign-process-grid">
+          {content.steps.map(([step, title, text]) => (
+            <article key={title}>
+              <span>{step}</span>
+              <strong>{title}</strong>
+              <p>{text}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <SalesLeadEmbed
+        context={content.context}
+        id={content.id}
+        eyebrow={variant === "kit" ? "For owners and managers" : "For owner-managers and small property managers"}
+        title={content.formTitle}
+        text={content.formText}
+        submitLabel={content.submitLabel}
+        initialRole={variant === "kit" ? "Small landlord" : "Owner-manager"}
+        initialMessage={content.initialMessage}
+        messageLabel={content.messageLabel}
+        messagePlaceholder={content.messagePlaceholder}
+      />
+
+      {variant === "kit" && (
+        <section className="public-grid three">
+          <PublicCard icon={<MessageSquare />} title="Tenant intake template" text="Use it when a resident reports a routine repair and you need usable details before dispatch." />
+          <PublicCard icon={<ShieldCheck />} title="Owner approval template" text="Use it when spend, scope, or vendor choice needs a cleaner owner decision trail." />
+          <PublicCard icon={<ReceiptText />} title="Invoice checklist" text="Use it after completion to collect invoice, warranty, paid-status, and tax-year notes." />
+        </section>
+      )}
+    </>
+  );
+}
+
+function WorkflowPreview() {
+  return (
+    <div className="workflow-preview" aria-label="LivingRelay repair workflow mockup">
+      <div className="workflow-preview-head">
+        <span className="app-mark"><Wrench size={18} /></span>
+        <div>
+          <strong>Kitchen sink leak</strong>
+          <span>Noe Valley Duplex · Garden flat</span>
+        </div>
+      </div>
+      <div className="workflow-message tenant">
+        <span>Tenant</span>
+        <p>Water under sink again. Photos attached. Best access after 3pm.</p>
+      </div>
+      <div className="workflow-status-grid">
+        <div><strong>Trade</strong><span>Plumbing</span></div>
+        <div><strong>Urgency</strong><span>Time-sensitive</span></div>
+        <div><strong>Access</strong><span>After 3pm</span></div>
+        <div><strong>Approval</strong><span>Owner threshold</span></div>
+      </div>
+      <div className="workflow-message owner">
+        <span>Owner approval</span>
+        <p>Estimate expected under $300. Manager recommends Carlos Plumbing.</p>
+      </div>
+      <div className="workflow-vendor-row">
+        <Phone size={16} />
+        <div>
+          <strong>Vendor option ready</strong>
+          <span>Availability, callout fee, invoice instructions, and booking notes captured.</span>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -2548,29 +2773,56 @@ function PublicCard({ icon, title, text }) {
   );
 }
 
-function SalesLeadEmbed({ context, compact = false, id }) {
+function SalesLeadEmbed({
+  context,
+  compact = false,
+  id,
+  eyebrow = "For owners and managers",
+  title = "Want to see whether LivingRelay fits your rental workflow?",
+  text = "Share a few details and someone from LivingRelay will follow up about maintenance intake, owner approvals, vendor coordination, and repair records.",
+  submitLabel,
+  initialRole,
+  initialMessage,
+  messageLabel,
+  messagePlaceholder
+}) {
   return (
     <section id={id} className={compact ? "sales-lead-band compact" : "sales-lead-band"} aria-label="Talk to LivingRelay">
       <div>
-        <span className="eyebrow">For owners and managers</span>
-        <h2>Want to see whether LivingRelay fits your rental workflow?</h2>
-        <p>Share a few details and someone from LivingRelay will follow up about maintenance intake, owner approvals, vendor coordination, and repair records.</p>
+        <span className="eyebrow">{eyebrow}</span>
+        <h2>{title}</h2>
+        <p>{text}</p>
       </div>
-      <SalesLeadForm context={context} />
+      <SalesLeadForm
+        context={context}
+        submitLabel={submitLabel}
+        initialRole={initialRole}
+        initialMessage={initialMessage}
+        messageLabel={messageLabel}
+        messagePlaceholder={messagePlaceholder}
+      />
     </section>
   );
 }
 
-function SalesLeadForm({ context, compact = false }) {
+function SalesLeadForm({
+  context,
+  compact = false,
+  submitLabel = "Talk to someone",
+  initialRole = "Property manager",
+  initialMessage = "",
+  messageLabel = "What would you like to solve?",
+  messagePlaceholder = ""
+}) {
   const [form, setForm] = useState({
     contactName: "",
-    role: "Property manager",
+    role: initialRole,
     company: "",
     email: "",
     phone: "",
     market: "",
     unitCount: "",
-    message: ""
+    message: initialMessage
   });
   const [status, setStatus] = useState({ state: "idle", message: "" });
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
@@ -2586,7 +2838,12 @@ function SalesLeadForm({ context, compact = false }) {
       const payload = {
         ...form,
         pageLabel: context,
-        pageUrl: window.location.href
+        pageUrl: window.location.href,
+        utmSource: new URLSearchParams(window.location.search).get("utm_source") || "",
+        utmMedium: new URLSearchParams(window.location.search).get("utm_medium") || "",
+        utmCampaign: new URLSearchParams(window.location.search).get("utm_campaign") || "",
+        utmContent: new URLSearchParams(window.location.search).get("utm_content") || "",
+        utmTerm: new URLSearchParams(window.location.search).get("utm_term") || ""
       };
       const response = await fetch("/api/public/sales-leads", {
         method: "POST",
@@ -2603,7 +2860,7 @@ function SalesLeadForm({ context, compact = false }) {
         phone: "",
         market: "",
         unitCount: "",
-        message: ""
+        message: initialMessage
       });
       setStatus({ state: "ok", message: "Thanks. We received your request." });
     } catch (error) {
@@ -2625,9 +2882,9 @@ function SalesLeadForm({ context, compact = false }) {
       <label>Phone<input value={form.phone} onChange={(event) => update("phone", event.target.value)} inputMode="tel" autoComplete="tel" /></label>
       <label>Market<input value={form.market} onChange={(event) => update("market", event.target.value)} placeholder="City or region" /></label>
       <label>Portfolio size<input value={form.unitCount} onChange={(event) => update("unitCount", event.target.value)} placeholder="Units or properties" /></label>
-      <label className="span-2">What would you like to solve?<textarea value={form.message} onChange={(event) => update("message", event.target.value)} rows={3} /></label>
+      <label className="span-2">{messageLabel}<textarea value={form.message} onChange={(event) => update("message", event.target.value)} placeholder={messagePlaceholder} rows={3} /></label>
       <button className="primary" type="submit" disabled={status.state === "saving"}>
-        <Send size={16} /> {status.state === "saving" ? "Sending" : "Talk to someone"}
+        <Send size={16} /> {status.state === "saving" ? "Sending" : submitLabel}
       </button>
       {status.message && <p className={`lead-form-status ${status.state === "error" ? "error" : status.state === "ok" ? "ok" : ""}`}>{status.message}</p>}
     </form>
@@ -5245,7 +5502,7 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
         <label>Contact name<input value={form.contactName} onChange={(event) => setForm({ ...form, contactName: event.target.value })} /></label>
         <label>Contact role<input value={form.contactRole} onChange={(event) => setForm({ ...form, contactRole: event.target.value })} /></label>
         <label>Email<input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
-        <label>Phone<input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label>
+        <label>Phone<input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value, publicPhonePresent: Boolean(event.target.value.trim()) })} /></label>
         <label>Website<input value={form.website} onChange={(event) => setForm({ ...form, website: event.target.value })} /></label>
         <label>Listing URL<input value={form.listingUrl} onChange={(event) => setForm({ ...form, listingUrl: event.target.value })} /></label>
         <label>Market<input list="prospecting-target-markets" value={form.market} onChange={(event) => setForm({ ...form, market: event.target.value })} /></label>
@@ -7595,7 +7852,7 @@ function IssueMediaPicker({ request, setRequest, compact = false }) {
       </label>
       <div className="issue-media-meta">
         <span><Upload size={14} /> {files.length ? `${files.length}/10 selected` : "Up to 10 files"}</span>
-        <small>Images can be reviewed by AI for added triage perspective. Videos stay attached to the work order.</small>
+        <small>Images and video preview frames are reviewed by AI for added triage perspective.</small>
       </div>
       {!!files.length && (
         <div className="issue-media-chips">

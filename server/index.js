@@ -4339,6 +4339,10 @@ function buildPublicSalesLead(input = {}) {
   const message = sanitizeText(input.message || input.notes);
   const pageUrl = sanitizeText(input.pageUrl).slice(0, 500);
   const pageLabel = sanitizeText(input.pageLabel || input.context);
+  const utmParts = ["utmSource", "utmMedium", "utmCampaign", "utmContent", "utmTerm"]
+    .map((key) => [key, sanitizeText(input[key])])
+    .filter(([, value]) => value)
+    .map(([key, value]) => `${key}: ${value}`);
   if (!contactName) return { error: "Name is required." };
   if (!email && !phone) return { error: "Add an email or phone number so we can follow up." };
   if (email && !isValidEmail(email)) return { error: "Enter a valid email address." };
@@ -4347,6 +4351,7 @@ function buildPublicSalesLead(input = {}) {
   const noteParts = [
     message,
     sourceContext ? `Submitted from ${sourceContext}.` : "",
+    utmParts.length ? `Campaign tracking: ${utmParts.join(", ")}.` : "",
     `Contact: ${contactName}${role ? `, ${role}` : ""}.`
   ].filter(Boolean);
   return {
