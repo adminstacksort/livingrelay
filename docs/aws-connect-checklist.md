@@ -119,7 +119,7 @@ Email defaults to Amazon SES when `EMAIL_PROVIDER=ses`. Give the ECS task role p
 https://<environment-host>/api/ses/notifications?token=<SES_SNS_WEBHOOK_SECRET>
 ```
 
-LivingRelay records SES bounces and complaints in its email suppression list before future sends.
+LivingRelay records SES bounces and complaints in its email suppression list before future sends. Set `SES_SNS_AUTO_CONFIRM=true` in deployed environments so SNS subscription confirmations are accepted after the token and SNS signature checks pass.
 
 Keep `SES_MAX_SEND_RATE_PER_SECOND` at or below the account send-rate quota. The initial approved SES rate is 14 messages per second. SNS message signature verification is enabled by default; only set `SES_SNS_VERIFY_SIGNATURE=false` for local testing.
 

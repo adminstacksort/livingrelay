@@ -25,6 +25,7 @@
         { "name": "EMAIL_PROVIDER", "value": "ses" },
         { "name": "AWS_SES_REGION", "value": "us-east-1" },
         { "name": "SES_MAX_SEND_RATE_PER_SECOND", "value": "14" },
+        { "name": "SES_SNS_AUTO_CONFIRM", "value": "true" },
         { "name": "ENABLE_VENDOR_CALLS", "value": "false" }
       ],
       "secrets": [
