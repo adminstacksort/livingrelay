@@ -83,7 +83,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
 });
 
 app.use(express.json({
-  limit: "30mb",
+  limit: "90mb",
   verify: (req, res, buffer) => {
     req.rawBody = buffer;
   }
