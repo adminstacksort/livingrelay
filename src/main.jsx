@@ -300,6 +300,13 @@ function formatMoney(value) {
   return `$${value.toLocaleString()}`;
 }
 
+function formatDateTime(value) {
+  if (!value) return "Not yet";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
 function referralTokenFromLocation() {
   const params = new URLSearchParams(window.location.search);
   const queryToken = params.get("ref") || params.get("referral") || params.get("referral_code") || "";
@@ -327,6 +334,9 @@ const publicSitePages = {
   "/about": "about",
   "/support": "support",
   "/marketing": "marketing",
+  "/sales": "sales",
+  "/talk-to-sales": "sales",
+  "/contact-sales": "sales",
   "/resources": "resourceIndex",
   "/privacy": "privacy",
   "/privacy-policy": "privacy",
@@ -1165,6 +1175,8 @@ function sectionFromRoutePage(role, page) {
       qa: "qa",
       billing: "billing",
       revenue: "billing",
+      integrations: "integrations",
+      pms: "integrations",
       diagnostics: "diagnostics",
       audit: "audit"
     }[page] || "accounts";
@@ -1190,6 +1202,7 @@ function pageFromSection(role, section) {
       workOrders: "support",
       qa: "qa",
       billing: "revenue",
+      integrations: "integrations",
       diagnostics: "diagnostics",
       audit: "audit"
     }[section] || "dashboard";
@@ -1791,8 +1804,17 @@ function PublicSitePage({ page }) {
       summary: "LivingRelay turns tenant texts into organized repair workflows, approvals, vendor coordination, and invoice records for small property operators.",
       primary: "Open app",
       primaryHref: "/",
-      secondary: "Get support",
-      secondaryHref: "/support"
+      secondary: "Talk to sales",
+      secondaryHref: "/sales"
+    },
+    sales: {
+      eyebrow: "Talk to LivingRelay",
+      title: "See whether LivingRelay fits your rental workflow",
+      summary: "Owners, property managers, and small landlords can share a few details and get a follow-up about tenant intake, owner approvals, vendor coordination, and repair records.",
+      primary: "Start the form",
+      primaryHref: "#sales-lead-form",
+      secondary: "Open app",
+      secondaryHref: "/"
     },
     resourceIndex: {
       eyebrow: "Maintenance Resources",
@@ -1906,6 +1928,7 @@ function PublicSitePage({ page }) {
         </a>
         <div>
           <a href="/marketing">Marketing</a>
+          <a href="/sales">Sales</a>
           <a href="/about">About</a>
           <a href="/resources">Resources</a>
           <a href="/property-maintenance">City guides</a>
@@ -1927,6 +1950,7 @@ function PublicSitePage({ page }) {
       </section>
 
       {page === "marketing" && <MarketingContent />}
+      {page === "sales" && <SalesPageContent />}
       {page === "about" && <AboutContent />}
       {page === "support" && <SupportContent />}
       {page === "privacy" && <PrivacyContent />}
@@ -1985,6 +2009,28 @@ function MarketingContent() {
       </section>
 
       <FaqSection items={productFaqs} />
+    </>
+  );
+}
+
+function SalesPageContent() {
+  return (
+    <>
+      <section className="answer-strip" aria-label="Sales lead summary">
+        <div>
+          <span className="eyebrow">Owners and managers</span>
+          <h2>A quick way to start a real conversation.</h2>
+        </div>
+        <p>Use this page when you want to learn whether LivingRelay can help with maintenance requests, vendor calls, owner approval loops, repair history, or cleaner communication across a small rental portfolio.</p>
+      </section>
+
+      <section className="public-grid three">
+        <PublicCard icon={<MessageSquare />} title="Tenant intake" text="Talk through how repair requests arrive today and what details are missing before dispatch." />
+        <PublicCard icon={<Phone />} title="Vendor coordination" text="Review where AI vendor calls, availability checks, and booking notes could reduce manual follow-up." />
+        <PublicCard icon={<ShieldCheck />} title="Owner approvals" text="Map approval thresholds, owner visibility, and invoice records to the way your rentals already operate." />
+      </section>
+
+      <SalesLeadEmbed context="Standalone sales page" id="sales-lead-form" />
     </>
   );
 }
@@ -2748,6 +2794,9 @@ function App() {
   const billingEventsData = appData?.billingEvents || seedBillingEvents;
   const referralsData = appData?.referrals || [];
   const prospectingLeadsData = appData?.prospectingLeads || [];
+  const integrationConnectionsData = appData?.integrationConnections || [];
+  const integrationEventsData = appData?.integrationEvents || [];
+  const pmsProvidersData = appData?.pmsProviders || [];
   const accessRequestsData = appData?.accessRequests || [];
   const platformSettings = appData?.platformSettings || { vendorCallTestMode: true, productionVendorCallsEnabled: true, vendorCallTestNumber: "" };
   const stripeData = appData?.stripe || { configured: false, missing: ["STRIPE_SECRET_KEY", "APP_PUBLIC_URL"], dispatchFeeCents: 2500 };
@@ -3495,6 +3544,9 @@ function App() {
           referrals={referralsData}
           prospectingLeads={prospectingLeadsData}
           accessRequests={accessRequestsData}
+          integrationConnections={integrationConnectionsData}
+          integrationEvents={integrationEventsData}
+          pmsProviders={pmsProvidersData}
           auditLog={auditData}
           platformSettings={platformSettings}
           reloadState={loadState}
@@ -4160,6 +4212,7 @@ const LandingPage = LandingPageUnused;
 function AdminConsoleNav({ active, setActive }) {
   const items = [
     ["accounts", LayoutDashboard, "Customers"],
+    ["inboundLeads", Mail, "Inbound"],
     ["prospecting", Target, "Prospecting"],
     ["accessRequests", Send, "Access"],
     ["directory", Users, "People"],
@@ -4167,6 +4220,7 @@ function AdminConsoleNav({ active, setActive }) {
     ["workOrders", ClipboardList, "Support"],
     ["qa", ShieldCheck, "QA"],
     ["billing", DollarSign, "Revenue"],
+    ["integrations", Database, "Integrations"],
     ["diagnostics", Bot, "Diagnostics"],
     ["audit", Database, "Audit"]
   ];
@@ -4191,6 +4245,7 @@ function SiteOwnerHero({ accounts, people, properties, orders, billingEvents, ac
     return createdAt && Date.now() - createdAt < 1000 * 60 * 60 * 24 * 30;
   }).length;
   const newProspectingLeads = prospectingLeads.filter((lead) => ["New", "Ready to contact"].includes(lead.status || "New")).length;
+  const inboundSalesLeads = prospectingLeads.filter(isInboundSalesLead).length;
   return (
     <section className="owner-console-hero">
       <div>
@@ -4203,6 +4258,7 @@ function SiteOwnerHero({ accounts, people, properties, orders, billingEvents, ac
         <MiniRow icon={<DollarSign />} label="Dispatch revenue" value={formatMoney(dispatchRevenue)} />
         <MiniRow icon={<ClipboardList />} label="Open support load" value={openOrders} />
         <MiniRow icon={<Send />} label="Access referrals" value={recentAccessRequests || accessRequests.length} />
+        <MiniRow icon={<Mail />} label="Inbound leads" value={inboundSalesLeads} />
         <MiniRow icon={<Target />} label="Prospecting" value={newProspectingLeads || prospectingLeads.length} />
         <MiniRow icon={<Users />} label="Owner users" value={ownerUsers} />
         <MiniRow icon={<CreditCard />} label="Stripe" value={stripe.configured ? "Ready" : "Needs keys"} />
@@ -4421,15 +4477,18 @@ function AccountSettingsPanel({ user, account, property, properties, authHeaders
   );
 }
 
-function AdminConsole({ active, accounts, people, properties, vendors, orders, invoices, billingEvents, referrals = [], prospectingLeads = [], accessRequests = [], auditLog, platformSettings, reloadState, siteAdminToken, onSiteAdminAuthExpired, setActivePropertyId, setActiveOrderId, setAdminSection }) {
+function AdminConsole({ active, accounts, people, properties, vendors, orders, invoices, billingEvents, referrals = [], prospectingLeads = [], accessRequests = [], integrationConnections = [], integrationEvents = [], pmsProviders = [], auditLog, platformSettings, reloadState, siteAdminToken, onSiteAdminAuthExpired, setActivePropertyId, setActiveOrderId, setAdminSection }) {
   const activeProperties = properties.length;
   const pendingInvoices = invoices.filter((invoice) => !String(invoice.status).toLowerCase().includes("paid")).length;
   const openOrders = orders.filter((order) => order.status !== "Closed").length;
   const dispatchRevenue = billingEvents.reduce((sum, event) => sum + Number(event.amount || 0), 0);
+  const inboundLeads = prospectingLeads.filter(isInboundSalesLead);
+  const openInboundLeads = inboundLeads.filter((lead) => ["New", "Researching", "Ready to contact"].includes(lead.status || "New")).length;
   return (
     <section className="admin-console">
       <div className="admin-overview">
         <Metric icon={<LayoutDashboard />} label="Customer accounts" value={accounts.length} />
+        <Metric icon={<Mail />} label="Inbound leads" value={openInboundLeads || inboundLeads.length} />
         <Metric icon={<Target />} label="Prospecting leads" value={prospectingLeads.length} />
         <Metric icon={<Send />} label="Access requests" value={accessRequests.length} />
         <Metric icon={<DollarSign />} label="Dispatch fees" value={formatMoney(dispatchRevenue)} />
@@ -4439,6 +4498,7 @@ function AdminConsole({ active, accounts, people, properties, vendors, orders, i
         <PlatformVendorCallSettings platformSettings={platformSettings} reloadState={reloadState} siteAdminToken={siteAdminToken} />
         <SiteAccounts accounts={accounts} properties={properties} people={people} orders={orders} invoices={invoices} reloadState={reloadState} siteAdminToken={siteAdminToken} />
       </>}
+      {active === "inboundLeads" && <AdminInboundLeads prospectingLeads={prospectingLeads} reloadState={reloadState} siteAdminToken={siteAdminToken} />}
       {active === "prospecting" && <AdminProspecting prospectingLeads={prospectingLeads} reloadState={reloadState} siteAdminToken={siteAdminToken} onSiteAdminAuthExpired={onSiteAdminAuthExpired} />}
       {active === "accessRequests" && <AdminAccessRequests accessRequests={accessRequests} referrals={referrals} reloadState={reloadState} siteAdminToken={siteAdminToken} />}
       {active === "directory" && <AdminDirectory people={people} properties={properties} accounts={accounts} reloadState={reloadState} />}
@@ -4446,6 +4506,7 @@ function AdminConsole({ active, accounts, people, properties, vendors, orders, i
       {active === "workOrders" && <AdminWorkOrders orders={orders} properties={properties} people={people} vendors={vendors} accounts={accounts} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setActiveOrderId={setActiveOrderId} setAdminSection={setAdminSection} />}
       {active === "qa" && <AdminQaPanel siteAdminToken={siteAdminToken} onSiteAdminAuthExpired={onSiteAdminAuthExpired} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setActiveOrderId={setActiveOrderId} setAdminSection={setAdminSection} />}
       {active === "billing" && <AdminBilling accounts={accounts} properties={properties} invoices={invoices} billingEvents={billingEvents} activeProperties={activeProperties} pendingInvoices={pendingInvoices} reloadState={reloadState} />}
+      {active === "integrations" && <AdminIntegrations accounts={accounts} properties={properties} orders={orders} connections={integrationConnections} events={integrationEvents} providers={pmsProviders} reloadState={reloadState} siteAdminToken={siteAdminToken} />}
       {active === "diagnostics" && <AdminDiagnostics siteAdminToken={siteAdminToken} platformSettings={platformSettings} />}
       {active === "audit" && <AdminAudit auditLog={auditLog} />}
     </section>
@@ -5119,6 +5180,111 @@ function AdminProspecting({ prospectingLeads = [], reloadState, siteAdminToken, 
   );
 }
 
+function AdminInboundLeads({ prospectingLeads = [], reloadState, siteAdminToken }) {
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("Open");
+  const inboundLeads = prospectingLeads
+    .filter(isInboundSalesLead)
+    .filter((lead) => statusFilter === "All" || (
+      statusFilter === "Open"
+        ? ["New", "Researching", "Ready to contact"].includes(lead.status || "New")
+        : (lead.status || "New") === statusFilter
+    ))
+    .filter((lead) => [
+      lead.name,
+      lead.contactName,
+      lead.contactRole,
+      lead.email,
+      lead.phone,
+      lead.market,
+      lead.unitCount,
+      lead.notes,
+      lead.fit,
+      lead.sourceName
+    ].join(" ").toLowerCase().includes(query.toLowerCase()))
+    .sort((left, right) => new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0));
+  const openCount = prospectingLeads.filter((lead) => isInboundSalesLead(lead) && ["New", "Researching", "Ready to contact"].includes(lead.status || "New")).length;
+  const contactedCount = prospectingLeads.filter((lead) => isInboundSalesLead(lead) && ["Contacted", "Replied"].includes(lead.status || "")).length;
+
+  async function updateLead(lead, updates) {
+    await fetch(`/api/site-admin/prospecting-leads/${lead.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${siteAdminToken}` },
+      body: JSON.stringify(await encryptContactTransitFields(updates))
+    });
+    await reloadState?.();
+  }
+
+  return (
+    <section className="panel">
+      <SectionTitle icon={<Mail />} title="Inbound leads" eyebrow="Owner and manager requests" />
+      <div className="admin-overview">
+        <Metric icon={<Bell />} label="Open inbound" value={openCount} />
+        <Metric icon={<Check />} label="Contacted or replied" value={contactedCount} />
+        <Metric icon={<Target />} label="Total inbound" value={prospectingLeads.filter(isInboundSalesLead).length} />
+      </div>
+      <div className="search-box">
+        <Search size={16} />
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search inbound leads by name, contact, market, page, or message" />
+      </div>
+      <div className="role-section-tabs prospecting-filters">
+        {["Open", "All", "New", "Researching", "Ready to contact", "Contacted", "Replied", "Not a fit", "Do not contact"].map((status) => (
+          <button key={status} className={statusFilter === status ? "active" : ""} onClick={() => setStatusFilter(status)}>{status}</button>
+        ))}
+      </div>
+      <div className="admin-card-list">
+        {inboundLeads.length === 0 && <p className="form-note">No inbound sales leads match this view yet.</p>}
+        {inboundLeads.map((lead) => (
+          <article className="admin-record prospecting-record inbound-lead-record" key={lead.id}>
+            <div>
+              <span>{lead.createdAt ? new Date(lead.createdAt).toLocaleString() : "Unknown date"} · {lead.status || "New"} · {lead.priority || "High"} priority</span>
+              <strong>{lead.name}</strong>
+              <div className="prospecting-summary">
+                <ProspectingDetail label="Contact" value={[lead.contactName, lead.contactRole, lead.email, lead.phone].filter(Boolean).join(" · ") || "Contact details pending"} />
+                <ProspectingDetail label="Portfolio" value={[lead.market, lead.unitCount].filter(Boolean).join(" · ") || "Portfolio details pending"} />
+                <ProspectingDetail label="Submitted from" value={inboundLeadSource(lead) || lead.sourceName || "Public sales form"} />
+                <ProspectingDetail label="Message" value={inboundLeadMessage(lead) || lead.notes || lead.fit} />
+              </div>
+            </div>
+            <div className="record-actions">
+              <select value={lead.status || "New"} onChange={(event) => updateLead(lead, { status: event.target.value })}>
+                {["New", "Researching", "Ready to contact", "Contacted", "Replied", "Not a fit", "Do not contact"].map((status) => <option key={status}>{status}</option>)}
+              </select>
+              <select value={lead.priority || "High"} onChange={(event) => updateLead(lead, { priority: event.target.value })}>
+                {["High", "Medium", "Low"].map((priority) => <option key={priority}>{priority}</option>)}
+              </select>
+              {lead.email && <a className="primary link-like-button" href={`mailto:${lead.email}`}>Email</a>}
+              {lead.phone && <a className="ghost link-like-button" href={`tel:${lead.phone}`}>Call</a>}
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function isInboundSalesLead(lead = {}) {
+  const source = String(lead.sourceName || lead.source || "").toLowerCase();
+  const fit = String(lead.fit || "").toLowerCase();
+  const notes = String(lead.notes || "").toLowerCase();
+  return source.includes("sales lead form")
+    || source.includes("inbound sales")
+    || fit.includes("talk to someone")
+    || notes.includes("submitted from");
+}
+
+function inboundLeadSource(lead = {}) {
+  const match = String(lead.notes || "").match(/Submitted from\s+(.+?)(?:\.\s|$)/i);
+  return match?.[1] || "";
+}
+
+function inboundLeadMessage(lead = {}) {
+  return String(lead.notes || "")
+    .replace(/Submitted from\s+.+?(?:\.\s|$)/i, "")
+    .replace(/Contact:\s+.+?(?:\.\s|$)/i, "")
+    .trim();
+}
+
 function AdminAccessRequests({ accessRequests, referrals = [], reloadState, siteAdminToken }) {
   const [query, setQuery] = useState("");
   const filteredRequests = accessRequests
@@ -5635,6 +5801,160 @@ function AdminWorkOrders({ orders, properties, people, vendors, accounts, reload
       </section>
     </div>
   );
+}
+
+function AdminIntegrations({ accounts, properties, orders, connections, events, providers, reloadState, siteAdminToken }) {
+  const firstAccountId = accounts[0]?.id || "";
+  const firstProviderId = providers.find((provider) => ["doorloop", "buildium"].includes(provider.id))?.id || providers[0]?.id || "doorloop";
+  const [form, setForm] = useState({ accountId: firstAccountId, provider: firstProviderId, credentialRef: "" });
+  const [csvImport, setCsvImport] = useState({ connectionId: connections[0]?.id || "", csv: csvImportTemplate() });
+  const [status, setStatus] = useState({ state: "idle", message: "" });
+  const headers = siteAdminToken ? { Authorization: `Bearer ${siteAdminToken}` } : {};
+
+  async function createConnection(event) {
+    event.preventDefault();
+    setStatus({ state: "saving", message: "Creating integration connection..." });
+    const response = await fetch("/api/integrations", {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify(form)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setStatus({ state: "error", message: data.error || "Could not create integration connection." });
+      return;
+    }
+    setStatus({ state: "ok", message: "Integration connection created." });
+    setForm({ ...form, credentialRef: "" });
+    await reloadState();
+  }
+
+  async function dryRun(connection) {
+    setStatus({ state: "saving", message: `Preparing ${connection.providerName || connection.provider} dry run...` });
+    const response = await fetch(`/api/integrations/${connection.id}/dry-run`, {
+      method: "POST",
+      headers
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setStatus({ state: "error", message: data.error || "Dry run failed." });
+      return;
+    }
+    setStatus({ state: "ok", message: `${data.connection.providerName || data.connection.provider} dry run updated.` });
+    await reloadState();
+  }
+
+  async function importCsv(event) {
+    event.preventDefault();
+    const connectionId = csvImport.connectionId || connections[0]?.id || "";
+    if (!connectionId) {
+      setStatus({ state: "error", message: "Create a connection before importing a CSV." });
+      return;
+    }
+    setStatus({ state: "saving", message: "Importing PMS directory CSV..." });
+    const response = await fetch(`/api/integrations/${connectionId}/import-directory`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ csv: csvImport.csv })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setStatus({ state: "error", message: data.error || "CSV import failed." });
+      return;
+    }
+    const result = data.result || {};
+    setStatus({ state: "ok", message: `Imported ${result.propertiesCreated || 0} properties, ${result.peopleCreated || 0} people, and ${result.vendorsCreated || 0} vendors.` });
+    await reloadState();
+  }
+
+  const connectionAccount = (connection) => accounts.find((account) => account.id === connection.accountId);
+  const providerFor = (connection) => providers.find((provider) => provider.id === connection.provider);
+
+  return (
+    <div className="admin-grid">
+      <section className="panel">
+        <SectionTitle icon={<Database />} title="PMS connections" eyebrow="Maintenance sync spine" />
+        <div className="admin-card-list">
+          {connections.map((connection) => {
+            const counts = connection.counts || {};
+            return (
+              <article className="admin-record" key={connection.id}>
+                <div>
+                  <span>{connection.status} · {connectionAccount(connection)?.name || connection.accountId}</span>
+                  <strong>{connection.providerName || connection.provider}</strong>
+                  <p>{providerFor(connection)?.notes || "Provider-neutral connection ready for importer and writeback work."}</p>
+                  <p>{counts.importedProperties || 0} properties · {counts.importedPeople || 0} people · {counts.importedVendors || 0} vendors · {counts.exportedWorkOrders || 0} work orders</p>
+                  {connection.lastError && <p className="integration-status error">{connection.lastError}</p>}
+                </div>
+                <div className="record-actions">
+                  <button className="ghost" onClick={() => dryRun(connection)}><Database size={15} /> Dry run</button>
+                </div>
+              </article>
+            );
+          })}
+          {!connections.length && <p className="muted">No PMS connections yet. Start with DoorLoop or Buildium once a customer has credentials ready.</p>}
+        </div>
+      </section>
+
+      <section className="panel">
+        <SectionTitle icon={<Plus />} title="Add connector" eyebrow="No live API calls yet" />
+        <form className="admin-form" onSubmit={createConnection}>
+          <label>Account<select value={form.accountId} onChange={(event) => setForm({ ...form, accountId: event.target.value })}>{accounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select></label>
+          <label>Provider<select value={form.provider} onChange={(event) => setForm({ ...form, provider: event.target.value })}>{providers.map((provider) => <option value={provider.id} key={provider.id}>{provider.name}</option>)}</select></label>
+          <label className="span-2">Credential reference<input value={form.credentialRef} onChange={(event) => setForm({ ...form, credentialRef: event.target.value })} placeholder="Secret manager key, sandbox label, or leave blank" /></label>
+          <button className="primary wide" type="submit"><Database size={16} /> Create connection</button>
+        </form>
+        {status.message && <p className={`integration-status ${status.state === "error" ? "error" : status.state === "ok" ? "ok" : "idle"}`}>{status.message}</p>}
+      </section>
+
+      <section className="panel span-2">
+        <SectionTitle icon={<Upload />} title="CSV directory import" eyebrow="Bootstrap properties and contacts" />
+        <form className="admin-form" onSubmit={importCsv}>
+          <label className="span-2">Connection<select value={csvImport.connectionId || connections[0]?.id || ""} onChange={(event) => setCsvImport({ ...csvImport, connectionId: event.target.value })}>{connections.map((connection) => <option value={connection.id} key={connection.id}>{connection.providerName || connection.provider} · {connectionAccount(connection)?.name || connection.accountId}</option>)}</select></label>
+          <label className="span-2">CSV<textarea rows="7" value={csvImport.csv} onChange={(event) => setCsvImport({ ...csvImport, csv: event.target.value })} /></label>
+          <button className="primary wide" type="submit"><Upload size={16} /> Import directory</button>
+        </form>
+      </section>
+
+      <section className="panel span-2">
+        <SectionTitle icon={<ClipboardList />} title="Provider shortlist" eyebrow="Build order" />
+        <DataTable
+          columns={["Provider", "Readiness", "Auth", "Useful first sync"]}
+          rows={providers.map((provider) => [
+            provider.name,
+            provider.readiness,
+            provider.authMode,
+            [
+              provider.supported?.importDirectory ? "directory import" : "",
+              provider.supported?.importMaintenanceRequests ? "request ingest" : "",
+              provider.supported?.exportWorkOrders ? "work-order writeback" : ""
+            ].filter(Boolean).join(", ") || "manual"
+          ])}
+        />
+      </section>
+
+      <section className="panel span-2">
+        <SectionTitle icon={<Database />} title="Recent integration events" eyebrow={`${orders.length} current work orders can be mapped later`} />
+        <DataTable
+          columns={["When", "Provider", "Action", "Status", "Summary"]}
+          rows={events.slice(0, 8).map((event) => [
+            formatDateTime(event.createdAt),
+            event.provider,
+            event.action,
+            event.status,
+            event.summary
+          ])}
+        />
+      </section>
+    </div>
+  );
+}
+
+function csvImportTemplate() {
+  return [
+    "propertyExternalId,propertyName,address,unit,tenantName,tenantPhone,ownerName,ownerPhone,managerName,managerPhone,vendorName,vendorTrade,vendorPhone",
+    "prop-101,Oak Street Duplex,\"101 Oak St, Austin, TX\",A,Sam Rivera,+15125550101,Alex Owner,+15125550102,Morgan PM,+15125550103,Clear Pipe Plumbing,Plumbing,+15125550104"
+  ].join("\n");
 }
 
 function AdminBilling({ accounts, properties, invoices, billingEvents, activeProperties, pendingInvoices, reloadState }) {

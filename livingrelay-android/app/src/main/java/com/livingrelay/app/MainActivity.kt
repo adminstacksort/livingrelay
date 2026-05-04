@@ -25,15 +25,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Receipt
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
@@ -41,10 +42,10 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
 import androidx.compose.material3.ElevatedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -80,7 +81,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.KeyFactory
+import java.security.spec.MGF1ParameterSpec
+import java.security.spec.X509EncodedKeySpec
+import java.util.Base64
 import java.util.UUID
+import javax.crypto.Cipher
+import javax.crypto.spec.OAEPParameterSpec
+import javax.crypto.spec.PSource
 
 private val Canvas = Color(0xFFF5F4EF)
 private val Panel = Color(0xFFFFFFFF)
@@ -210,6 +218,24 @@ class RelayViewModel : ViewModel() {
     var loginCode by mutableStateOf("")
     var loginMessage by mutableStateOf("")
     var authToken by mutableStateOf("")
+    var accountDeletionStatus by mutableStateOf("")
+    private var transitPublicKey: JSONObject? = null
+    private val contactTransitFields = listOf(
+        "phone",
+        "pin",
+        "password",
+        "managerPhone",
+        "ownerPhone",
+        "vendorPhone",
+        "recipientPhone",
+        "testVendorPhone",
+        "to",
+        "email",
+        "ownerEmail",
+        "managerEmail",
+        "recipientEmail",
+        "referredEmail"
+    )
 
     val environmentLabel: String
         get() = if (BuildConfig.FLAVOR == "production") "PRODUCTION" else "STAGING"
@@ -264,7 +290,11 @@ class RelayViewModel : ViewModel() {
             try {
                 if (loginChallengeId.isEmpty()) {
                     apiStatus = "Sending verification code..."
-                    val response = requestJson("POST", "api/auth/login/start", JSONObject().put("phone", phone).put("pin", pin))
+                    val response = requestJson(
+                        "POST",
+                        "api/auth/login/start",
+                        encryptTransitFields(JSONObject().put("phone", phone).put("pin", pin), listOf("phone", "pin"))
+                    )
                     val token = response.optString("token")
                     if (token.isNotBlank()) {
                         finishLogin(response, token)
@@ -282,11 +312,14 @@ class RelayViewModel : ViewModel() {
                 val response = requestJson(
                     "POST",
                     "api/auth/login/verify",
-                    JSONObject()
-                        .put("phone", phone)
-                        .put("pin", pin)
-                        .put("challengeId", loginChallengeId)
-                        .put("code", loginCode)
+                    encryptTransitFields(
+                        JSONObject()
+                            .put("phone", phone)
+                            .put("pin", pin)
+                            .put("challengeId", loginChallengeId)
+                            .put("code", loginCode),
+                        listOf("phone", "pin")
+                    )
                 )
                 finishLogin(response, response.optString("token"))
             } catch (error: Exception) {
@@ -301,6 +334,30 @@ class RelayViewModel : ViewModel() {
         loginChallengeId = ""
         loginCode = ""
         loginMessage = ""
+        accountDeletionStatus = ""
+    }
+
+    fun deleteAccount(scope: String) {
+        viewModelScope.launch {
+            try {
+                accountDeletionStatus = if (scope == "data") "Deleting data..." else "Deleting account..."
+                requestJson(
+                    "DELETE",
+                    "api/account",
+                    JSONObject().put("scope", scope)
+                )
+                if (scope == "data") {
+                    loadRemoteState()
+                    accountDeletionStatus = "Data deleted. Your account is still active."
+                    apiStatus = accountDeletionStatus
+                } else {
+                    signOut()
+                    apiStatus = "Account deleted."
+                }
+            } catch (error: Exception) {
+                accountDeletionStatus = error.message ?: "Unable to delete account"
+            }
+        }
     }
 
     fun createOnboardingProperty() {
@@ -326,7 +383,10 @@ class RelayViewModel : ViewModel() {
                     val response = requestJson(
                         "POST",
                         "api/phone-verifications/start",
-                        JSONObject().put("phone", onboardingForm.managerPhone).put("purpose", "onboarding")
+                        encryptTransitFields(
+                            JSONObject().put("phone", onboardingForm.managerPhone).put("purpose", "onboarding"),
+                            listOf("phone")
+                        )
                     )
                     onboardingChallengeId = response.optString("challengeId")
                     onboardingCode = ""
@@ -354,14 +414,17 @@ class RelayViewModel : ViewModel() {
                 val response = requestJson(
                     "POST",
                     "api/onboarding/property",
-                    JSONObject()
-                        .put("propertyName", propertyName)
-                        .put("address", onboardingForm.address.trim())
-                        .put("managerName", managerName)
-                        .put("managerPhone", onboardingForm.managerPhone)
-                        .put("role", onboardingForm.role)
-                        .put("pin", onboardingForm.pin)
-                        .put("phoneVerificationToken", onboardingToken)
+                    encryptTransitFields(
+                        JSONObject()
+                            .put("propertyName", propertyName)
+                            .put("address", onboardingForm.address.trim())
+                            .put("managerName", managerName)
+                            .put("managerPhone", onboardingForm.managerPhone)
+                            .put("role", onboardingForm.role)
+                            .put("pin", onboardingForm.pin)
+                            .put("phoneVerificationToken", onboardingToken),
+                        listOf("managerPhone", "pin")
+                    )
                 )
                 upsertOnboardingResponse(response)
                 authToken = response.optString("token", authToken)
@@ -531,6 +594,34 @@ class RelayViewModel : ViewModel() {
         invoices = invoices.filterNot { it.id == invoice.id } + invoice
     }
 
+    private suspend fun encryptTransitFields(body: JSONObject, fields: List<String>): JSONObject {
+        val key = transitPublicKey ?: requestJson("GET", "api/encryption/public-key").also { transitPublicKey = it }
+        val publicKeyBytes = Base64.getDecoder().decode(key.getString("publicKey"))
+        val publicKey = KeyFactory.getInstance("RSA").generatePublic(X509EncodedKeySpec(publicKeyBytes))
+        val encryptedFields = JSONObject()
+        fields.filter { body.has(it) }
+            .filter { body.optString(it).isNotBlank() }
+            .forEach { field ->
+                val cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding")
+                cipher.init(
+                    Cipher.ENCRYPT_MODE,
+                    publicKey,
+                    OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec("SHA-256"), PSource.PSpecified.DEFAULT)
+                )
+                val ciphertext = cipher.doFinal(body.optString(field).toByteArray(Charsets.UTF_8))
+                encryptedFields.put(
+                    field,
+                    JSONObject()
+                        .put("alg", key.getString("alg"))
+                        .put("keyId", key.getString("keyId"))
+                        .put("ciphertext", Base64.getEncoder().encodeToString(ciphertext))
+                )
+                body.put(field, "")
+            }
+        if (encryptedFields.length() > 0) body.put("_encryptedFields", encryptedFields)
+        return body
+    }
+
     private suspend fun requestText(path: String): String = withContext(Dispatchers.IO) {
         val connection = URL("${apiBaseUrl.trimEnd('/')}/$path").openConnection() as HttpURLConnection
         connection.requestMethod = "GET"
@@ -547,10 +638,11 @@ class RelayViewModel : ViewModel() {
         val connection = URL("${apiBaseUrl.trimEnd('/')}/$path").openConnection() as HttpURLConnection
         connection.requestMethod = method
         connection.setRequestProperty("Accept", "application/json")
+        if (authToken.isNotBlank()) connection.setRequestProperty("Authorization", "Bearer $authToken")
         if (body != null) {
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json")
-            connection.outputStream.use { it.write(body.toString().toByteArray()) }
+            connection.outputStream.use { it.write(encryptTransitFields(body, contactTransitFields).toString().toByteArray()) }
         }
         try {
             val stream = if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream
@@ -679,7 +771,7 @@ fun DashboardScreen(store: RelayViewModel) {
                 },
                 actions = {
                     IconButton(onClick = { store.signOut() }) {
-                        Icon(Icons.Filled.Logout, contentDescription = "Sign out")
+                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Sign out")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Canvas)
@@ -694,6 +786,7 @@ fun DashboardScreen(store: RelayViewModel) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             SessionPanel(store)
+            AccountDeletionPanel(store)
             MetricGrid(store)
             when (store.session?.role) {
                 "Site Admin" -> EmptyPanel("Use the web admin console", "Site admin operations stay host-gated on admin.livingrelay.com.")
@@ -708,6 +801,94 @@ fun DashboardScreen(store: RelayViewModel) {
 }
 
 @Composable
+fun AccountDeletionPanel(store: RelayViewModel) {
+    val user = store.session ?: return
+    val canDeleteCustomerAccount = user.role in listOf("Admin", "Manager", "Owner")
+    var scope by remember(user.id) { mutableStateOf(if (canDeleteCustomerAccount) "customer-account" else "personal") }
+    var confirmation by remember(user.id, scope) { mutableStateOf("") }
+    val required = if (scope == "customer-account") "DELETE" else if (scope == "data") "DELETE DATA" else user.name
+    val enabled = confirmation.trim() == required
+
+    PanelCard {
+        SectionHeader(Icons.Filled.Delete, "Delete account", "Account settings")
+        Text(
+            if (scope == "customer-account") {
+                "Deletes the customer account, linked properties, people, work orders, invoices, vendors, and billing events."
+            } else if (scope == "data") {
+                "Deletes repair, invoice, vendor, and billing-event data while keeping your LivingRelay login active."
+            } else {
+                "Deletes your personal LivingRelay login and any vendor profile linked directly to you."
+            },
+            color = Muted
+        )
+        if (canDeleteCustomerAccount) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                FilterChip(
+                    selected = scope == "customer-account",
+                    onClick = {
+                        scope = "customer-account"
+                        confirmation = ""
+                    },
+                    label = { Text("Customer account") }
+                )
+                FilterChip(
+                    selected = scope == "personal",
+                    onClick = {
+                        scope = "personal"
+                        confirmation = ""
+                    },
+                    label = { Text("My login only") }
+                )
+                FilterChip(
+                    selected = scope == "data",
+                    onClick = {
+                        scope = "data"
+                        confirmation = ""
+                    },
+                    label = { Text("Data only") }
+                )
+            }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                FilterChip(
+                    selected = scope == "personal",
+                    onClick = {
+                        scope = "personal"
+                        confirmation = ""
+                    },
+                    label = { Text("My login") }
+                )
+                FilterChip(
+                    selected = scope == "data",
+                    onClick = {
+                        scope = "data"
+                        confirmation = ""
+                    },
+                    label = { Text("Data only") }
+                )
+            }
+        }
+        OutlinedTextField(
+            value = confirmation,
+            onValueChange = { confirmation = it },
+            label = { Text("Type $required to confirm") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        Button(
+            onClick = { store.deleteAccount(scope) },
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Filled.Delete, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text(if (scope == "data") "Delete data" else "Delete account")
+        }
+        if (store.accountDeletionStatus.isNotBlank()) StatusText(store.accountDeletionStatus)
+    }
+}
+
+@Composable
 fun SessionPanel(store: RelayViewModel) {
     PanelCard {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -717,7 +898,7 @@ fun SessionPanel(store: RelayViewModel) {
                 Text("Shared session - ${store.session?.role.orEmpty()}", color = Muted)
             }
         }
-        Divider()
+        HorizontalDivider()
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             store.properties.filter { store.session?.propertyIds?.contains(it.id) == true }.forEach { property ->
                 FilterChip(
@@ -734,7 +915,7 @@ fun SessionPanel(store: RelayViewModel) {
 fun MetricGrid(store: RelayViewModel) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MetricCard("Open", "${store.openCount}", Icons.Filled.List, Modifier.weight(1f))
+            MetricCard("Open", "${store.openCount}", Icons.AutoMirrored.Filled.List, Modifier.weight(1f))
             MetricCard("Approvals", "${store.approvalsCount}", Icons.Filled.Warning, Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -822,7 +1003,7 @@ fun ActionGrid(store: RelayViewModel, order: WorkOrder) {
                 onClick = { store.patchActiveOrder("Vendor scheduled", "Vendor text sent", "Vendor received scope and access notes.") },
                 modifier = Modifier.weight(1f)
             ) {
-                Icon(Icons.Filled.Send, contentDescription = null)
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
                 Spacer(Modifier.width(6.dp))
                 Text("Text vendor")
             }

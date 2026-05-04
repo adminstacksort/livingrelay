@@ -3,7 +3,7 @@
 Current setup:
 
 - Package name: `adminstacksort.livingrelay`
-- Version: `1.0.0` / `versionCode = 1`
+- Version: `1.0.0` / `versionCode = 2`
 - Target SDK: 35
 - Release artifact: Android App Bundle (`.aab`)
 
