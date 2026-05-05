@@ -8217,6 +8217,7 @@ function OwnerView({ property, account, orders, invoices, patchInvoice, reloadSt
             </div>
           </article>
         ))}
+        <OwnerVendorCallTranscriptPanel orders={orders} />
         <OwnerOperatingSystemBuilder
           form={operatingForm}
           setForm={setOperatingForm}
@@ -8241,6 +8242,41 @@ function OwnerView({ property, account, orders, invoices, patchInvoice, reloadSt
         ))}
       </div>
     </section>
+  );
+}
+
+function OwnerVendorCallTranscriptPanel({ orders }) {
+  const callRecords = orders
+    .flatMap((order) => [
+      ...(order.vendorCalls || []).map((call) => ({ order, call, transcript: call.transcript || [], summary: call.summary || "" })),
+      ...(order.vendorOutreach?.attempts || []).map((attempt) => ({ order, call: attempt, transcript: attempt.transcript || [], summary: attempt.outcome || "" }))
+    ])
+    .filter((item) => item.transcript.length || item.summary)
+    .slice(0, 6);
+  if (!callRecords.length) return null;
+  return (
+    <div className="tax-panel owner-call-transcripts">
+      <SectionTitle icon={<Phone size={18} />} title="Vendor call transcripts" eyebrow="Repair coordination" />
+      {callRecords.map(({ order, call, transcript, summary }, index) => (
+        <article className="owner-call-transcript" key={`${order.id}-${call.id || call.callSid || call.callKey || index}`}>
+          <div className="quote-top">
+            <strong>{call.vendorName || "Vendor"} · {order.id}</strong>
+            <span>{call.status || "Recorded"}</span>
+          </div>
+          {summary && <p>{summary}</p>}
+          {!!transcript.length && (
+            <div className="call-transcript">
+              {transcript.slice(-6).map((line, lineIndex) => (
+                <div key={`${order.id}-${index}-${lineIndex}`}>
+                  <strong>{line.speaker}</strong>
+                  <span>{line.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </article>
+      ))}
+    </div>
   );
 }
 

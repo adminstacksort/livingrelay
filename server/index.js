@@ -3163,6 +3163,38 @@ function normalizeElevenLabsTranscript(transcript = []) {
   })).filter((turn) => turn.text);
 }
 
+function parseElevenLabsTranscriptEvent(body = {}) {
+  const data = body.data || body;
+  const dynamicVariables =
+    data.conversation_initiation_client_data?.dynamic_variables ||
+    body.conversation_initiation_client_data?.dynamic_variables ||
+    body.dynamic_variables ||
+    {};
+  const metadata = data.metadata || body.metadata || {};
+  const providerBody = metadata.body || metadata.phone_call || {};
+  const transcript = normalizeElevenLabsTranscript(data.transcript || body.transcript || []);
+  const latest = transcript.at(-1) || {
+    speaker: body.speaker || body.role || data.speaker || data.role || "unknown",
+    text: body.text || body.message || body.delta || data.text || data.message || data.delta || "",
+    time: body.time_in_call_secs ?? body.time ?? data.time_in_call_secs ?? data.time ?? null
+  };
+  return {
+    workOrderId: body.work_order_id || body.workOrderId || dynamicVariables.work_order_id,
+    vendor: body.vendor_name || body.vendorName || dynamicVariables.vendor_name || "",
+    phone: body.phone || body.to_number || data.to_number || dynamicVariables.vendor_phone || providerBody.To || providerBody.Called || providerBody.to || "",
+    conversationId: body.conversation_id || data.conversation_id || "",
+    callSid: body.call_sid || providerBody.CallSid || providerBody.call_sid || metadata.twilio_call_sid || "",
+    callKey: body.call_key || body.callKey || dynamicVariables.call_key || "",
+    line: {
+      speaker: latest.speaker || "unknown",
+      text: latest.text || "",
+      time: latest.time ?? null,
+      stamp: new Date().toISOString(),
+      partial: body.partial === true || data.partial === true
+    }
+  };
+}
+
 function valueFrom(collection, key) {
   const value = collection?.[key];
   if (value && typeof value === "object") return value.value ?? value.result ?? value.text ?? value.answer;
@@ -3205,6 +3237,79 @@ function updateVendorCallSessionFromCall(order, call = {}) {
   session.transcript = call.transcript?.length ? call.transcript : session.transcript;
   session.lastTranscriptAt = new Date().toISOString();
   session.completedAt = new Date().toISOString();
+}
+
+function appendVendorCallTranscriptLine(order, call = {}) {
+  const line = normalizeTranscriptLine(call.line);
+  if (!line?.text) return { saved: false, reason: "empty_transcript_line" };
+  const session = findOrCreateVendorCallSession(order, call);
+  session.transcript = appendTranscriptLine(session.transcript || [], line);
+  session.lastTranscriptAt = new Date().toISOString();
+  session.status = session.status || "Live";
+  session.mode = session.mode || "AI handling";
+  session.summary = line.partial ? session.summary : `Latest: ${line.text}`;
+
+  const attempt = upsertCallAttempt(order, { ...call, vendorName: call.vendor || call.vendorName }, {
+    status: call.status || "answered",
+    conversationId: call.conversationId,
+    callSid: call.callSid,
+    callKey: call.callKey
+  });
+  attempt.transcript = appendTranscriptLine(attempt.transcript || [], line);
+  attempt.outcome = attempt.outcome || "Transcript streaming";
+  attempt.answeredAt = attempt.answeredAt || new Date().toISOString();
+  return { saved: true, callId: session.id, attemptId: attempt.id, line };
+}
+
+function findOrCreateVendorCallSession(order, call = {}) {
+  order.vendorCalls = order.vendorCalls || [];
+  const existing = order.vendorCalls.find((item) =>
+    (call.callSid && item.callSid === call.callSid) ||
+    (call.conversationId && item.conversationId === call.conversationId) ||
+    (call.callKey && item.callKey === call.callKey) ||
+    (call.phone && normalizePhone(item.phone) === normalizePhone(call.phone))
+  );
+  if (existing) return existing;
+  const session = {
+    id: `call-${order.id}-${order.vendorCalls.length + 1}`,
+    vendorName: call.vendor || "Vendor",
+    phone: call.phone || "",
+    callKey: call.callKey || null,
+    status: "Live",
+    mode: "AI handling",
+    canMonitor: true,
+    canTakeOver: true,
+    listenInAvailable: false,
+    monitorUrl: call.conversationId ? `wss://api.elevenlabs.io/v1/convai/conversations/${call.conversationId}/monitor` : null,
+    browserListenUrl: null,
+    conversationId: call.conversationId || null,
+    callSid: call.callSid || null,
+    startedAt: new Date().toISOString(),
+    lastTranscriptAt: new Date().toISOString(),
+    summary: "Transcript streaming from vendor call.",
+    transcript: []
+  };
+  order.vendorCalls.unshift(session);
+  return session;
+}
+
+function normalizeTranscriptLine(line = {}) {
+  return {
+    speaker: line.speaker || line.role || "unknown",
+    text: String(line.text || line.message || "").trim(),
+    time: line.time ?? line.time_in_call_secs ?? null,
+    stamp: line.stamp || new Date().toISOString(),
+    partial: Boolean(line.partial)
+  };
+}
+
+function appendTranscriptLine(transcript = [], line) {
+  const prior = transcript[transcript.length - 1];
+  if (prior && prior.partial && line.partial && prior.speaker === line.speaker) {
+    return [...transcript.slice(0, -1), line];
+  }
+  if (prior && prior.speaker === line.speaker && prior.text === line.text && prior.time === line.time) return transcript;
+  return [...transcript, line].slice(-80);
 }
 
 function scheduleVendorCallRetry(order, attempt) {
@@ -4412,6 +4517,26 @@ app.post("/api/elevenlabs/vendor-call-result", async (req, res) => {
   const autoBooking = await maybeAutoBookVendorOutcome(order, parsed.call, { actor: "ElevenLabs webhook" });
   saveState();
   res.json({ ok: true, orderId, outcomes: order.vendorOutreach.outcomes, autoBooking });
+});
+
+app.post("/api/elevenlabs/vendor-call-transcript", (req, res) => {
+  if (!verifyElevenLabsSignature(req)) {
+    res.status(401).json({ error: "invalid ElevenLabs signature" });
+    return;
+  }
+  const parsed = parseElevenLabsTranscriptEvent(req.body);
+  if (!parsed.workOrderId) {
+    res.status(400).json({ error: "work_order_id is required" });
+    return;
+  }
+  const order = ensureWorkOrderDispatchFields(workOrders.find((item) => item.id === parsed.workOrderId));
+  if (!order) {
+    res.status(404).json({ error: "work order not found" });
+    return;
+  }
+  const appended = appendVendorCallTranscriptLine(order, parsed);
+  saveState();
+  res.json({ ok: true, orderId: order.id, appended });
 });
 
 app.post("/api/twilio/elevenlabs/outbound", async (req, res) => {
