@@ -29,6 +29,7 @@ import {
   createDemoVendorOutreach,
   defaultDispatchSettings,
   ensureWorkOrderDispatchFields,
+  mergeDispatchSettings,
   mergeOutcomes,
   recordVendorCallResults,
   recordVendorCompletion,
@@ -3239,6 +3240,64 @@ function scheduleVendorCallRetry(order, attempt) {
   vendorRetryTimers.set(attempt.id, timer);
 }
 
+async function maybeAutoBookVendorOutcome(order, call = {}, { actor = "automation" } = {}) {
+  if (!order || order.finalBooking || order.status === "Vendor scheduled") return { booked: false, reason: "already_booked" };
+  const property = properties.find((item) => item.id === order.propertyId);
+  const settings = mergeDispatchSettings(property?.dispatchSettings);
+  if (settings.vendorOutreachMode !== "automatic_after_confirmed") {
+    return { booked: false, reason: "manual_booking_required" };
+  }
+  if (order.managerApproved === false) return { booked: false, reason: "manager_approval_required" };
+  if (order.ownerApproved === false) return { booked: false, reason: "owner_approval_required" };
+  if (settings.requireTenantAvailabilityBeforeBooking && order.tenantAvailability?.needsFollowUp) {
+    return { booked: false, reason: "tenant_availability_required" };
+  }
+  const outcome = findOutcomeForCall(order, call);
+  if (!outcome) return { booked: false, reason: "outcome_not_found" };
+  if (!isBookableVendorOutcome(outcome)) return { booked: false, reason: "outcome_not_bookable" };
+
+  const selected = selectVendorOutcome(order.id, outcome.id, { actor });
+  if (selected.error) return { booked: false, reason: selected.error };
+  const refreshedOrder = selected.order;
+  const refreshedProperty = properties.find((item) => item.id === refreshedOrder.propertyId);
+  const account = accountForProperty(refreshedOrder.propertyId);
+  const vendor = vendors.find((item) => item.id === refreshedOrder.vendorId);
+  refreshedOrder.status = "Vendor scheduled";
+  refreshedOrder.dispatchStage = "vendor_booked";
+  refreshedOrder.finalBooking = {
+    vendorName: selected.outcome.vendorName,
+    phone: selected.outcome.phone,
+    serviceWindow: selected.outcome.availability || refreshedOrder.tenantAvailability?.preferredWindows?.[0] || "Needs confirmation",
+    tenantConfirmed: true,
+    bookedAt: new Date().toISOString(),
+    notes: "Automatically booked from an available vendor call outcome after approval and tenant availability checks cleared."
+  };
+  refreshedOrder.timeline.push(event(
+    "Vendor auto-booked",
+    `${refreshedOrder.finalBooking.vendorName} was auto-booked for ${refreshedOrder.finalBooking.serviceWindow}.`
+  ));
+  const billingEvent = await recordDispatchBillingEvent({ account, property: refreshedProperty, order: refreshedOrder, actor });
+  await dispatchNotification("vendor_booked", { order: refreshedOrder, property: refreshedProperty, vendor, billingEvent });
+  recordAudit(actor, "Auto-booked vendor", `${refreshedOrder.id}: ${refreshedOrder.finalBooking.vendorName}.`);
+  return { booked: true, outcomeId: selected.outcome.id, billingStatus: billingEvent?.status || "" };
+}
+
+function findOutcomeForCall(order, call = {}) {
+  return (order.vendorOutreach?.outcomes || []).find((outcome) =>
+    (call.conversationId && outcome.conversationId === call.conversationId) ||
+    (call.callSid && outcome.callSid === call.callSid) ||
+    (call.phone && normalizePhone(outcome.phone) === normalizePhone(call.phone))
+  );
+}
+
+function isBookableVendorOutcome(outcome = {}) {
+  const status = String(outcome.status || "").toLowerCase();
+  if (!["available", "accepted", "can dispatch", "confirmed"].some((item) => status.includes(item))) return false;
+  if (outcome.needsPhotos) return false;
+  const text = `${outcome.availability || ""} ${outcome.notes || ""}`.toLowerCase();
+  return !/(needs confirmation|call back|not available|declined|cannot|can't|photos first)/.test(text);
+}
+
 function safeEqualHex(left, right) {
   if (!/^[0-9a-f]+$/i.test(String(left || "")) || !/^[0-9a-f]+$/i.test(String(right || ""))) return false;
   const leftBuffer = Buffer.from(left, "hex");
@@ -4317,7 +4376,7 @@ function notificationEventForAction(action = {}) {
   return "";
 }
 
-app.post("/api/elevenlabs/vendor-call-result", (req, res) => {
+app.post("/api/elevenlabs/vendor-call-result", async (req, res) => {
   if (!verifyElevenLabsSignature(req)) {
     res.status(401).json({ error: "invalid ElevenLabs signature" });
     return;
@@ -4350,8 +4409,9 @@ app.post("/api/elevenlabs/vendor-call-result", (req, res) => {
   });
   updateVendorCallSessionFromCall(order, parsed.call);
   scheduleVendorCallRetry(order, attempt);
+  const autoBooking = await maybeAutoBookVendorOutcome(order, parsed.call, { actor: "ElevenLabs webhook" });
   saveState();
-  res.json({ ok: true, orderId, outcomes: order.vendorOutreach.outcomes });
+  res.json({ ok: true, orderId, outcomes: order.vendorOutreach.outcomes, autoBooking });
 });
 
 app.post("/api/twilio/elevenlabs/outbound", async (req, res) => {
