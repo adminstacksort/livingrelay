@@ -1,6 +1,10 @@
 import { event, people, properties, recordAudit, saveState, workOrders } from "./data.js";
 import { createMediaRelayToken } from "./mediaRelay.js";
 import { callManagerForListenIn, redirectLiveCall } from "./twilioClient.js";
+import { upsertCallAttempt } from "./vendorWorkflow.js";
+import { WebSocket } from "ws";
+
+const transcriptMonitors = new Map();
 
 export function getLiveCalls(orderId) {
   const order = workOrders.find((item) => item.id === orderId);
@@ -53,7 +57,49 @@ export function attachOutboundCallSessions(order, callResults = []) {
     transcript: call.success ? buildDemoTranscript(order, null, call) : []
   }));
   saveState();
+  for (const call of callResults) {
+    startTranscriptMonitorForCall(order, call);
+  }
   return order.vendorCalls;
+}
+
+export function startTranscriptMonitorForCall(order, call = {}) {
+  const conversationId = call.conversation_id || call.conversationId;
+  if (!order || !conversationId || !process.env.ELEVENLABS_API_KEY) return { started: false, reason: "missing_conversation_or_key" };
+  if (transcriptMonitors.has(conversationId)) return { started: false, reason: "already_monitoring" };
+  const url = `wss://api.elevenlabs.io/v1/convai/conversations/${encodeURIComponent(conversationId)}/monitor`;
+  const ws = new WebSocket(url, {
+    headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY }
+  });
+  transcriptMonitors.set(conversationId, ws);
+  const callRef = {
+    ...call,
+    conversationId,
+    vendorName: call.vendorName || call.vendor || "Vendor",
+    phone: call.phone || ""
+  };
+  ws.on("message", (raw) => {
+    let message;
+    try {
+      message = JSON.parse(raw.toString());
+    } catch {
+      return;
+    }
+    const line = transcriptLineFromMonitorEvent(message);
+    if (!line) return;
+    appendTranscriptLineToOrder(order, callRef, line);
+  });
+  ws.on("open", () => {
+    appendCallNote(order, callRef, "Transcript monitor connected.");
+  });
+  ws.on("error", (error) => {
+    appendCallNote(order, callRef, `Transcript monitor unavailable: ${error.message}`);
+  });
+  ws.on("close", () => {
+    transcriptMonitors.delete(conversationId);
+    appendCallNote(order, callRef, "Transcript monitor closed.");
+  });
+  return { started: true, conversationId };
 }
 
 export function listenToCall(orderId, callId, actorId) {
@@ -177,6 +223,86 @@ function findCall(orderId, callId) {
   const order = workOrders.find((item) => item.id === orderId);
   const call = order?.vendorCalls?.find((item) => item.id === callId);
   return { order, call };
+}
+
+function transcriptLineFromMonitorEvent(message = {}) {
+  if (message.type === "user_transcript") {
+    const text = message.user_transcription_event?.user_transcript;
+    if (!text) return null;
+    return { speaker: "Vendor", text, stamp: new Date().toISOString() };
+  }
+  if (message.type === "agent_response") {
+    const text = message.agent_response_event?.agent_response;
+    if (!text) return null;
+    return { speaker: "AI agent", text, stamp: new Date().toISOString() };
+  }
+  if (message.type === "agent_response_correction") {
+    const text = message.agent_response_correction_event?.corrected_agent_response;
+    if (!text) return null;
+    return { speaker: "AI agent", text, stamp: new Date().toISOString() };
+  }
+  return null;
+}
+
+function appendTranscriptLineToOrder(order, call, line) {
+  const session = findOrCreateCallSession(order, call);
+  session.transcript = appendTranscriptLine(session.transcript || [], line);
+  session.lastTranscriptAt = new Date().toISOString();
+  session.summary = `Latest: ${line.text}`;
+  const attempt = upsertCallAttempt(order, call, {
+    status: "answered",
+    conversationId: call.conversationId,
+    callSid: call.callSid || call.call_sid,
+    callKey: call.callKey
+  });
+  attempt.transcript = appendTranscriptLine(attempt.transcript || [], line);
+  attempt.answeredAt = attempt.answeredAt || new Date().toISOString();
+  saveState();
+}
+
+function appendCallNote(order, call, note) {
+  const session = findOrCreateCallSession(order, call);
+  session.monitorStatus = note;
+  session.lastTranscriptAt = new Date().toISOString();
+  saveState();
+}
+
+function findOrCreateCallSession(order, call) {
+  order.vendorCalls = order.vendorCalls || [];
+  const existing = order.vendorCalls.find((item) =>
+    (call.conversationId && item.conversationId === call.conversationId) ||
+    (call.callSid && item.callSid === call.callSid) ||
+    (call.callKey && item.callKey === call.callKey) ||
+    (call.phone && item.phone === call.phone)
+  );
+  if (existing) return existing;
+  const session = {
+    id: `call-${order.id}-${order.vendorCalls.length + 1}`,
+    vendorName: call.vendorName || call.vendor || "Vendor",
+    phone: call.phone || "",
+    callKey: call.callKey || null,
+    status: "Live",
+    mode: "AI handling",
+    canMonitor: true,
+    canTakeOver: true,
+    listenInAvailable: false,
+    monitorUrl: call.conversationId ? `wss://api.elevenlabs.io/v1/convai/conversations/${call.conversationId}/monitor` : null,
+    browserListenUrl: null,
+    conversationId: call.conversationId || null,
+    callSid: call.callSid || call.call_sid || null,
+    startedAt: new Date().toISOString(),
+    lastTranscriptAt: new Date().toISOString(),
+    summary: "Transcript monitor started.",
+    transcript: []
+  };
+  order.vendorCalls.unshift(session);
+  return session;
+}
+
+function appendTranscriptLine(transcript = [], line) {
+  const prior = transcript[transcript.length - 1];
+  if (prior && prior.speaker === line.speaker && prior.text === line.text) return transcript;
+  return [...transcript, line].slice(-80);
 }
 
 function buildMonitorUrl(call) {

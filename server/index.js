@@ -945,7 +945,8 @@ app.get("/api/site-admin/diagnostics", async (req, res) => {
         twilioStatus: `${baseUrl}/api/twilio/voice-status`,
         twilioMediaStream: process.env.TWILIO_MEDIA_STREAM_URL || `${baseUrl.replace(/^https:/, "wss:").replace(/^http:/, "ws:")}/api/media/twilio`,
         stripeWebhook: `${baseUrl}/api/stripe/webhook`,
-        elevenLabsResult: `${baseUrl}/api/elevenlabs/vendor-call-result`
+        elevenLabsResult: `${baseUrl}/api/elevenlabs/vendor-call-result`,
+        elevenLabsTranscript: `${baseUrl}/api/elevenlabs/vendor-call-transcript`
       },
       attempts: {
         total: vendorAttempts.length,
