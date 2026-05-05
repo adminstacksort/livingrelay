@@ -55,14 +55,46 @@ export function classifyServiceWindow({ severity = "Normal", issue = "", access 
   return severity === "Urgent" ? "ASAP / emergency" : "Next available";
 }
 
+export function tenantPresenceLikelyRelevant({ issue = "", trade = "", severity = "Normal" } = {}) {
+  const text = `${trade} ${severity} ${issue}`.toLowerCase();
+  if (["plumbing", "hvac", "electrical"].some((word) => text.includes(word))) return true;
+  return [
+    "appliance",
+    "broken",
+    "ceiling",
+    "door",
+    "drain",
+    "faucet",
+    "garage",
+    "heat",
+    "inside",
+    "leak",
+    "lock",
+    "outlet",
+    "pipe",
+    "repair person",
+    "service person",
+    "sink",
+    "shower",
+    "technician",
+    "thermostat",
+    "toilet",
+    "vendor",
+    "water",
+    "window"
+  ].some((word) => text.includes(word));
+}
+
 export function buildTenantAvailability({ access = "", severity = "Normal", issue = "" }) {
   const serviceWindow = classifyServiceWindow({ severity, issue, access });
+  const presenceRelevant = tenantPresenceLikelyRelevant({ issue, severity });
   return {
     serviceWindow,
     preferredWindows: extractAvailabilityWindows(access),
     accessNotes: access || "Needs tenant availability follow-up",
+    presenceRelevant,
     permissionToEnter: /(?:ok|okay|permission|can enter|enter|lockbox|key)/i.test(access),
-    needsFollowUp: !access || /needs follow-up|unknown|tbd/i.test(access),
+    needsFollowUp: !access || (presenceRelevant && !extractAvailabilityWindows(access).length && !/(?:permission|can enter|lockbox|key|text before entry|enter)/i.test(access)) || /needs follow-up|unknown|tbd/i.test(access),
     updatedAt: new Date().toISOString()
   };
 }

@@ -9,6 +9,7 @@ import {
   Building2,
   Check,
   ChevronRight,
+  Clock,
   ClipboardList,
   CreditCard,
   Database,
@@ -1994,6 +1995,36 @@ function tenantSelfSolveGuidance(issue = "", property) {
     steps: ["Take one close photo and one wider photo.", "Write when it started and whether it is getting worse.", "Try only an obvious reset or switch once if it is safe."],
     propertyNote
   };
+}
+
+function tenantPresenceLikelyRelevant(issue = "", trade = "") {
+  const text = `${trade} ${issue}`.toLowerCase();
+  if (["plumbing", "hvac", "electrical"].some((word) => text.includes(word))) return true;
+  return [
+    "appliance",
+    "broken",
+    "ceiling",
+    "door",
+    "drain",
+    "faucet",
+    "garage",
+    "heat",
+    "inside",
+    "leak",
+    "lock",
+    "outlet",
+    "pipe",
+    "repair person",
+    "service person",
+    "sink",
+    "shower",
+    "technician",
+    "thermostat",
+    "toilet",
+    "vendor",
+    "water",
+    "window"
+  ].some((word) => text.includes(word));
 }
 
 async function prepareIssueMediaAttachments(files = []) {
@@ -8494,7 +8525,10 @@ function TenantView({ request, setRequest, createOrder, orders, property, user }
   const defaultAvailability = request.defaultAvailability || user?.defaultAvailability || "";
   const selectedAccess = request.useDefaultAvailability && defaultAvailability ? defaultAvailability : request.access;
   const tenantGuidance = tenantSelfSolveGuidance(request.issue, property);
-  const availabilityRequired = request.escalationChoice !== "self_solve";
+  const requestTrade = request.issue ? classifyIssue(request.issue).trade : "";
+  const tenantPresenceRelevant = tenantPresenceLikelyRelevant(request.issue, requestTrade);
+  const askingForVendor = request.escalationChoice === "vendor_outreach";
+  const availabilityRequired = request.escalationChoice !== "self_solve" && (tenantPresenceRelevant || askingForVendor);
 
   return (
     <section className="tenant-dashboard">
@@ -8549,6 +8583,12 @@ function TenantView({ request, setRequest, createOrder, orders, property, user }
               {tenantGuidance.propertyNote && <p>{tenantGuidance.propertyNote}</p>}
             </div>
           )}
+          {tenantPresenceRelevant && (
+            <div className="tenant-presence-note">
+              <Clock size={16} />
+              <span>If this needs a repair person inside or you need to be home, add the windows that work below.</span>
+            </div>
+          )}
           <fieldset className="tenant-choice-group">
             <legend>What should happen next?</legend>
             <label>
@@ -8575,14 +8615,15 @@ function TenantView({ request, setRequest, createOrder, orders, property, user }
             </label>
           )}
           <label>
-            Availability and access for this issue
+            {tenantPresenceRelevant || askingForVendor ? "Availability and access for this issue" : "Access notes if needed"}
             <textarea
               rows="3"
               value={request.useDefaultAvailability && defaultAvailability ? selectedAccess : request.access}
               onChange={(event) => setRequest({ ...request, access: event.target.value, useDefaultAvailability: false })}
-              placeholder="Example: ASAP, tonight 8-10 PM, or tomorrow 7-10 AM. Add pets, gate codes, parking, or permission to enter."
+              placeholder={tenantPresenceRelevant || askingForVendor ? "Example: ASAP, tonight 8-10 PM, or tomorrow 7-10 AM. Add pets, gate codes, parking, or permission to enter." : "Example: text before entry, gate code, parking, or anything the manager should know."}
               required={availabilityRequired && !defaultAvailability}
             />
+            {availabilityRequired && !defaultAvailability && <span className="field-hint">This issue may need in-unit access, so availability is required before manager or vendor coordination.</span>}
           </label>
           <label className="check-row">
             <input type="checkbox" checked={request.saveDefaultAvailability} onChange={(event) => setRequest({ ...request, saveDefaultAvailability: event.target.checked })} />

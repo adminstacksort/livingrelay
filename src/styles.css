@@ -3912,6 +3912,20 @@ body:has(.login-card.admin-login-card) {
   padding-top: 10px;
 }
 
+.tenant-presence-note {
+  align-items: center;
+  background: #eef7f4;
+  border: 1px solid #cfe6de;
+  border-radius: 8px;
+  color: #244a42;
+  display: grid;
+  font-size: 13px;
+  gap: 8px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  line-height: 1.4;
+  padding: 10px 12px;
+}
+
 .tenant-choice-group {
   border: 1px solid #dce7e2;
   border-radius: 8px;
@@ -4615,6 +4629,14 @@ body:has(.login-card.admin-login-card) {
 .check-row input {
   width: 16px;
   height: 16px;
+}
+
+.field-hint {
+  color: #5d6b67;
+  display: block;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 6px;
 }
 
 .audit-list {

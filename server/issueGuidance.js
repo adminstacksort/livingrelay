@@ -1,4 +1,5 @@
 import { event, message, saveState } from "./data.js";
+import { tenantPresenceLikelyRelevant } from "./vendorWorkflow.js";
 
 const ESCALATION_WORDS = [
   "still",
@@ -22,7 +23,10 @@ const NEGATED_FIXED_WORDS = ["not fixed", "not resolved", "not done", "still bro
 export function buildInitialGuidance({ order, tenant, mediaItems = [] }) {
   const guidance = guidanceForOrder(order);
   const mediaLine = mediaItems.length ? "I got the photo/video too. " : "";
-  return `${mediaLine}Thanks ${tenant.name.split(" ")[0]}. I opened ${order.id} for Unit ${order.unit}. Before we contact vendors, try this safely:\n\n${guidance.steps.join("\n")}\n\nReply DONE if fixed, STILL if it did not work, or send a photo/video and I will keep guiding. ${guidance.safety}`;
+  const availabilityLine = tenantPresenceLikelyRelevant(order)
+    ? "\n\nIf a repair person needs to come inside or you need to be present, reply AVAILABLE with windows that work, like AVAILABLE tomorrow 7-10 AM, plus any entry notes."
+    : "";
+  return `${mediaLine}Thanks ${tenant.name.split(" ")[0]}. I opened ${order.id} for Unit ${order.unit}. Before we contact vendors, try this safely:\n\n${guidance.steps.join("\n")}${availabilityLine}\n\nReply DONE if fixed, STILL if it did not work, or send a photo/video and I will keep guiding. ${guidance.safety}`;
 }
 
 export function handleTenantTroubleshootingReply({ order, tenant, body, mediaItems = [] }) {
@@ -47,10 +51,13 @@ export function handleTenantTroubleshootingReply({ order, tenant, body, mediaIte
   if (shouldEscalate(lower, mediaItems)) {
     order.status = "Manager review";
     order.timeline.push(event("Troubleshooting escalated", `${tenant.name} reported the issue still needs help.`));
-    order.messages.push(message("relay", `${mediaItems.length ? "I got the photo/video. " : ""}Thanks. I am escalating ${order.id} to the manager now with your latest update. They will review before vendor outreach.`));
+    const availabilityLine = tenantPresenceLikelyRelevant(order) && order.tenantAvailability?.needsFollowUp
+      ? " If a repair person needs to come inside or you need to be present, reply AVAILABLE with windows that work."
+      : "";
+    order.messages.push(message("relay", `${mediaItems.length ? "I got the photo/video. " : ""}Thanks. I am escalating ${order.id} to the manager now with your latest update. They will review before vendor outreach.${availabilityLine}`));
     saveState();
     return {
-      response: `${mediaItems.length ? "I got the photo/video. " : ""}Thanks. I am escalating ${order.id} to the manager now with your latest update. They will review before vendor outreach.`,
+      response: `${mediaItems.length ? "I got the photo/video. " : ""}Thanks. I am escalating ${order.id} to the manager now with your latest update. They will review before vendor outreach.${availabilityLine}`,
       escalate: true
     };
   }

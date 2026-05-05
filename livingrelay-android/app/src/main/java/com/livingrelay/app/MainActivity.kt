@@ -1048,12 +1048,20 @@ fun TenantView(store: RelayViewModel) {
     var issue by remember { mutableStateOf("") }
     var access by remember { mutableStateOf("") }
     var photos by remember { mutableStateOf("") }
+    val presenceRelevant = tenantPresenceLikelyRelevant(issue)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         PanelCard {
             SectionHeader(Icons.Filled.Home, "Tenant Android", "Report an issue")
             TextFieldRow("Unit", unit, { unit = it })
             TextFieldRow("Issue", issue, { issue = it })
-            TextFieldRow("Access notes", access, { access = it })
+            if (presenceRelevant) {
+                Text(
+                    "If this needs a repair person inside or you need to be home, include the windows that work.",
+                    color = Muted,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            TextFieldRow(if (presenceRelevant) "Availability and access" else "Access notes", access, { access = it })
             TextFieldRow("Photos/videos", photos, { photos = it })
             Button(onClick = { store.createTenantOrder(unit, issue, access) }, modifier = Modifier.fillMaxWidth()) {
                 Text("Send to manager")
@@ -1066,6 +1074,35 @@ fun TenantView(store: RelayViewModel) {
             }
         }
     }
+}
+
+fun tenantPresenceLikelyRelevant(issue: String): Boolean {
+    val body = issue.lowercase()
+    return listOf(
+        "appliance",
+        "broken",
+        "ceiling",
+        "door",
+        "drain",
+        "faucet",
+        "garage",
+        "heat",
+        "inside",
+        "leak",
+        "lock",
+        "outlet",
+        "pipe",
+        "repair person",
+        "service person",
+        "sink",
+        "shower",
+        "technician",
+        "thermostat",
+        "toilet",
+        "vendor",
+        "water",
+        "window"
+    ).any(body::contains)
 }
 
 @Composable
@@ -1183,7 +1220,7 @@ fun TextFieldRow(
         onValueChange = onValueChange,
         label = { Text(label) },
         modifier = Modifier.fillMaxWidth(),
-        singleLine = label != "Issue" && label != "Access notes",
+        singleLine = label != "Issue" && label != "Access notes" && label != "Availability and access",
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         visualTransformation = if (isPassword && !passwordVisible) PasswordVisualTransformation() else VisualTransformation.None,
         trailingIcon = if (isPassword) {
