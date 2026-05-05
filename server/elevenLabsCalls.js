@@ -102,6 +102,7 @@ export async function startVendorQuoteCalls(orderId, { actor = "manager", demoFa
 
 async function startOutboundCall({ vendor, property, tenant, order }) {
   try {
+    const callKey = `${order.id}:${vendor.phone}`;
     const response = await fetch("https://api.elevenlabs.io/v1/convai/twilio/outbound-call", {
       method: "POST",
       headers: {
@@ -116,7 +117,9 @@ async function startOutboundCall({ vendor, property, tenant, order }) {
         conversation_initiation_client_data: {
           dynamic_variables: {
             vendor_name: vendor.name,
+            vendor_phone: vendor.phone,
             original_vendor_name: vendor.originalVendorName || vendor.name,
+            original_vendor_phone: vendor.originalVendorPhone || vendor.phone,
             test_mode: vendor.testMode ? "true" : "false",
             property_name: property.name,
             property_address: property.address,
@@ -130,6 +133,7 @@ async function startOutboundCall({ vendor, property, tenant, order }) {
             access_notes: order.tenantAvailability?.accessNotes || order.access || "Needs confirmation",
             estimate: String(order.estimate),
             work_order_id: order.id,
+            call_key: callKey,
             inbound_invoice_email: process.env.INBOUND_EMAIL_ADDRESS || "invoices@livingrelay.com",
             invoice_delivery_instructions: order.vendorOutreach?.invoiceDeliveryInstructions || `Send invoice to the property manager, owner, and ${process.env.INBOUND_EMAIL_ADDRESS || "invoices@livingrelay.com"} unless told otherwise.`,
             vendor_questions: vendorCallQuestions.join(" | ")
@@ -142,7 +146,7 @@ async function startOutboundCall({ vendor, property, tenant, order }) {
     if (!response.ok) {
       throw new Error(data?.detail || data?.message || `ElevenLabs call failed: ${response.status}`);
     }
-    return { vendor: vendor.name, phone: vendor.phone, success: true, ...data };
+    return { vendor: vendor.name, phone: vendor.phone, success: true, callKey, ...data };
   } catch (error) {
     return { vendor: vendor.name, phone: vendor.phone, success: false, error: error.message };
   }
@@ -193,6 +197,7 @@ export async function registerTwilioCallWithElevenLabs({ fromNumber, toNumber, o
       conversation_initiation_client_data: {
         dynamic_variables: {
           vendor_name: vendorName || "Vendor",
+          vendor_phone: toNumber || "",
           property_name: property?.name || "the property",
           property_address: property?.address || "",
           tenant_name: tenant?.name || "tenant",

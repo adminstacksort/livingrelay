@@ -17,6 +17,14 @@ The app sends page views for public pages, the unauthenticated app entry, and ro
 
 Use Twilio first for SMS. Voice can come after the SMS workflow is reliable.
 
+### Future Opportunity: AWS End User Messaging SMS
+
+AWS End User Messaging SMS could be evaluated later as an alternate SMS provider for outbound transactional messaging. It may fit well with the existing AWS deployment path and can send direct SMS through the SMS and Voice v2 API, receive two-way SMS through SNS or Amazon Connect, and publish delivery events through EventBridge or configuration-set destinations.
+
+Treat this as a future provider-abstraction opportunity rather than a near-term Twilio replacement. The current LivingRelay implementation depends on Twilio webhook fields, TwiML responses, delivery/status behavior, inbound media handling, and Twilio-owned voice flows. Before switching, confirm AWS support for the full maintenance workflow: tenant replies, STOP/HELP handling, delivery reporting, US 10DLC or toll-free registration, and especially tenant photo/MMS intake.
+
+Recommended first step, when revisited: introduce a provider-neutral messaging client with `sendSms`, provider status, inbound parsing, and delivery-event handling, then pilot AWS for low-risk outbound QA or verification SMS while keeping Twilio live for inbound SMS/media and voice.
+
 ### Required Credentials
 
 ```text
@@ -24,6 +32,7 @@ TWILIO_ACCOUNT_SID
 TWILIO_AUTH_TOKEN
 TWILIO_MESSAGING_NUMBER
 TWILIO_MESSAGING_SERVICE_SID
+TWILIO_VERIFY_SERVICE_SID
 TWILIO_STATUS_CALLBACK_URL
 ```
 
@@ -45,6 +54,14 @@ Date updated: 2026-05-04 11:39:13
 ```
 
 Use the approved campaign-linked Messaging Service for outbound SMS so Twilio message logs show a Messaging Service instead of a direct unregistered sender.
+
+Phone verification and login OTPs use Twilio Verify when `TWILIO_VERIFY_SERVICE_SID` is configured. This keeps the OTP challenge/check lifecycle with Twilio and avoids exposing local dev codes during normal testing.
+
+Configure outbound SMS delivery receipts separately from inbound replies:
+
+```text
+TWILIO_STATUS_CALLBACK_URL=https://YOUR-APP-HOST/api/twilio/message-status
+```
 
 ### Local API
 
@@ -98,6 +115,22 @@ App behavior:
 5. If owner: parse `APPROVE`, `DENY`, questions, and `PAID`.
 6. If vendor: parse `ACCEPT`, `DECLINE`, ETA, invoice/photo messages.
 7. Store every message on the work order timeline.
+
+### Outbound SMS Status Callback
+
+Endpoint:
+
+```text
+POST /api/twilio/message-status
+```
+
+Expected Twilio fields:
+
+- `MessageSid`
+- `MessageStatus`
+- `ErrorCode`
+
+Use this endpoint for `TWILIO_STATUS_CALLBACK_URL`. Do not point delivery status callbacks at `/api/twilio/inbound`; that route is reserved for tenant, manager, owner, and vendor text replies.
 
 ### Notification Settings
 
@@ -174,11 +207,18 @@ Twilio-owned call mode:
 
 ```text
 VENDOR_CALL_PROVIDER=twilio_register
-TWILIO_VOICE_NUMBER=+1...
+TWILIO_VOICE_NUMBER=+16469708904
 TWILIO_MEDIA_STREAM_URL=wss://your-media-relay.example.com/twilio/media
 ```
 
-In this mode LivingRelay starts outbound voice calls through Twilio, Twilio calls back to `/api/twilio/elevenlabs/outbound`, and LivingRelay registers the answered call with ElevenLabs through `POST /v1/convai/twilio/register-call`. ElevenLabs returns TwiML, which LivingRelay returns to Twilio.
+Current Twilio voice number:
+
+```text
+Phone number: +16469708904
+Phone Number SID: PN8a222054e9a30e7159236348ce4c9076
+```
+
+In this mode LivingRelay starts outbound voice calls through Twilio from `TWILIO_VOICE_NUMBER`, Twilio calls back to `/api/twilio/elevenlabs/outbound`, and LivingRelay registers the answered call with ElevenLabs through `POST /v1/convai/twilio/register-call`. ElevenLabs returns TwiML, which LivingRelay returns to Twilio.
 
 This gives LivingRelay ownership of the Twilio call lifecycle and prepares the listen-in path. LivingRelay now exposes a built-in media relay:
 

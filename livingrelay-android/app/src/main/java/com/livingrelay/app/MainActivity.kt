@@ -293,7 +293,7 @@ class RelayViewModel : ViewModel() {
                     val response = requestJson(
                         "POST",
                         "api/auth/login/start",
-                        encryptTransitFields(JSONObject().put("phone", phone).put("pin", pin), listOf("phone", "pin"))
+                        JSONObject().put("phone", phone).put("pin", pin)
                     )
                     val token = response.optString("token")
                     if (token.isNotBlank()) {
@@ -312,14 +312,11 @@ class RelayViewModel : ViewModel() {
                 val response = requestJson(
                     "POST",
                     "api/auth/login/verify",
-                    encryptTransitFields(
-                        JSONObject()
-                            .put("phone", phone)
-                            .put("pin", pin)
-                            .put("challengeId", loginChallengeId)
-                            .put("code", loginCode),
-                        listOf("phone", "pin")
-                    )
+                    JSONObject()
+                        .put("phone", phone)
+                        .put("pin", pin)
+                        .put("challengeId", loginChallengeId)
+                        .put("code", loginCode)
                 )
                 finishLogin(response, response.optString("token"))
             } catch (error: Exception) {
@@ -363,8 +360,8 @@ class RelayViewModel : ViewModel() {
     fun createOnboardingProperty() {
         val propertyName = onboardingForm.propertyName.trim()
         val managerName = onboardingForm.managerName.trim()
-        if (propertyName.isEmpty() || managerName.isEmpty()) {
-            onboardingStatus = "Enter a property name and your name."
+        if (propertyName.isEmpty()) {
+            onboardingStatus = "Enter a property name."
             return
         }
         if (onboardingForm.managerPhone.count(Char::isDigit) != 10) {
@@ -383,10 +380,7 @@ class RelayViewModel : ViewModel() {
                     val response = requestJson(
                         "POST",
                         "api/phone-verifications/start",
-                        encryptTransitFields(
-                            JSONObject().put("phone", onboardingForm.managerPhone).put("purpose", "onboarding"),
-                            listOf("phone")
-                        )
+                        JSONObject().put("phone", onboardingForm.managerPhone).put("purpose", "onboarding")
                     )
                     onboardingChallengeId = response.optString("challengeId")
                     onboardingCode = ""
@@ -414,17 +408,14 @@ class RelayViewModel : ViewModel() {
                 val response = requestJson(
                     "POST",
                     "api/onboarding/property",
-                    encryptTransitFields(
-                        JSONObject()
-                            .put("propertyName", propertyName)
-                            .put("address", onboardingForm.address.trim())
-                            .put("managerName", managerName)
-                            .put("managerPhone", onboardingForm.managerPhone)
-                            .put("role", onboardingForm.role)
-                            .put("pin", onboardingForm.pin)
-                            .put("phoneVerificationToken", onboardingToken),
-                        listOf("managerPhone", "pin")
-                    )
+                    JSONObject()
+                        .put("propertyName", propertyName)
+                        .put("address", onboardingForm.address.trim())
+                        .put("managerName", managerName)
+                        .put("managerPhone", onboardingForm.managerPhone)
+                        .put("role", onboardingForm.role)
+                        .put("pin", onboardingForm.pin)
+                        .put("phoneVerificationToken", onboardingToken)
                 )
                 upsertOnboardingResponse(response)
                 authToken = response.optString("token", authToken)
@@ -635,27 +626,41 @@ class RelayViewModel : ViewModel() {
     }
 
     private suspend fun requestJson(method: String, path: String, body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
-        val connection = URL("${apiBaseUrl.trimEnd('/')}/$path").openConnection() as HttpURLConnection
-        connection.requestMethod = method
-        connection.setRequestProperty("Accept", "application/json")
-        if (authToken.isNotBlank()) connection.setRequestProperty("Authorization", "Bearer $authToken")
-        if (body != null) {
-            connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.outputStream.use { it.write(encryptTransitFields(body, contactTransitFields).toString().toByteArray()) }
-        }
-        try {
-            val stream = if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream
-            val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (connection.responseCode !in 200..299) {
-                val message = runCatching { JSONObject(text).optString("error") }.getOrNull().takeUnless { it.isNullOrBlank() } ?: text
-                throw IllegalStateException(message)
+        var refreshedTransitKey = false
+        while (true) {
+            val connection = URL("${apiBaseUrl.trimEnd('/')}/$path").openConnection() as HttpURLConnection
+            connection.requestMethod = method
+            connection.setRequestProperty("Accept", "application/json")
+            if (authToken.isNotBlank()) connection.setRequestProperty("Authorization", "Bearer $authToken")
+            if (body != null) {
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/json")
+                val requestBody = JSONObject(body.toString())
+                connection.outputStream.use { it.write(encryptTransitFields(requestBody, contactTransitFields).toString().toByteArray()) }
             }
-            JSONObject(text)
-        } finally {
-            connection.disconnect()
+            try {
+                val stream = if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream
+                val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                if (connection.responseCode !in 200..299) {
+                    val message = runCatching { JSONObject(text).optString("error") }.getOrNull().takeUnless { it.isNullOrBlank() } ?: text
+                    if (!refreshedTransitKey && isTransitKeyError(message)) {
+                        transitPublicKey = null
+                        refreshedTransitKey = true
+                        continue
+                    }
+                    throw IllegalStateException(message)
+                }
+                return@withContext JSONObject(text)
+            } finally {
+                connection.disconnect()
+            }
         }
+        error("Unreachable")
     }
+
+    private fun isTransitKeyError(message: String): Boolean =
+        message.contains("Invalid encrypted field envelope", ignoreCase = true)
+            || message.contains("Could not decrypt encrypted field", ignoreCase = true)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -738,7 +743,7 @@ fun CreatePropertyFields(store: RelayViewModel) {
     val form = store.onboardingForm
     TextFieldRow("Property", form.propertyName, { store.onboardingForm = store.onboardingForm.copy(propertyName = it) })
     TextFieldRow("Address", form.address, { store.onboardingForm = store.onboardingForm.copy(address = it) })
-    TextFieldRow("Manager", form.managerName, { store.onboardingForm = store.onboardingForm.copy(managerName = it) })
+    TextFieldRow("Manager (optional)", form.managerName, { store.onboardingForm = store.onboardingForm.copy(managerName = it) })
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         listOf("Property manager", "Owner operator", "Admin").forEach { role ->
             FilterChip(selected = form.role == role, onClick = { store.onboardingForm = store.onboardingForm.copy(role = role) }, label = { Text(role) })

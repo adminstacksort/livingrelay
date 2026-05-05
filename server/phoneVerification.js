@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { sendSms } from "./twilioClient.js";
+import { checkPhoneVerificationSms, getSmsMessageStatus, startPhoneVerificationSms, sendSms } from "./twilioClient.js";
 
 const challengeTtlMs = 10 * 60 * 1000;
 const tokenTtlMs = 30 * 60 * 1000;
@@ -39,21 +39,41 @@ export async function createPhoneChallenge({ phone, purpose, subjectId = "" }) {
     phone: normalizedPhone,
     purpose,
     subjectId,
+    provider: useTwilioVerify() ? "twilio_verify" : "livingrelay_sms",
     code,
     attempts: 0,
     expiresAt: Date.now() + challengeTtlMs
   };
   challenges.set(challengeId, challenge);
 
-  const sms = await sendSms({
-    to: normalizedPhone,
-    body: `Your LivingRelay verification code is ${code}. It expires in 10 minutes.`
-  });
-  if (!sms.sent && process.env.NODE_ENV === "production") {
+  let sms;
+  try {
+    sms = challenge.provider === "twilio_verify"
+      ? await startPhoneVerificationSms({ to: normalizedPhone })
+      : await startLivingRelaySmsVerification({ to: normalizedPhone, code });
+  } catch (error) {
     challenges.delete(challengeId);
-    const error = new Error("Could not send verification code. Try again later.");
+    const wrapped = new Error(error.message ? `Could not send verification code: ${error.message}` : "Could not send verification code. Try again later.");
+    wrapped.statusCode = 502;
+    throw wrapped;
+  }
+  if (!sms.sent && !allowDevCodeFallback(sms)) {
+    challenges.delete(challengeId);
+    const error = new Error(sms.error ? `Could not send verification code: ${sms.error}` : "Could not send verification code. Try again later.");
     error.statusCode = 502;
     throw error;
+  }
+  if (challenge.provider === "livingrelay_sms" && sms.sent && sms.sid) {
+    const delivery = await waitForVerificationSmsStatus(sms.sid);
+    sms.deliveryStatus = delivery.status;
+    sms.errorCode = delivery.errorCode || sms.errorCode;
+    sms.errorMessage = delivery.errorMessage || sms.errorMessage;
+    if (["failed", "undelivered"].includes(String(delivery.status || "").toLowerCase())) {
+      challenges.delete(challengeId);
+      const error = new Error(twilioVerificationFailureDetail(delivery));
+      error.statusCode = 502;
+      throw error;
+    }
   }
 
   return {
@@ -66,6 +86,7 @@ export async function createPhoneChallenge({ phone, purpose, subjectId = "" }) {
 
 export function verifyPhoneChallenge({ challengeId, code, purpose, subjectId = "" }) {
   pruneExpired();
+  const verificationCode = normalizeVerificationCode(code);
   const challenge = challenges.get(challengeId);
   if (!challenge || challenge.purpose !== purpose || challenge.subjectId !== subjectId) {
     const error = new Error("Verification code expired. Request a new code.");
@@ -85,19 +106,46 @@ export function verifyPhoneChallenge({ challengeId, code, purpose, subjectId = "
     error.statusCode = 429;
     throw error;
   }
-  if (String(code || "").trim() !== challenge.code) {
+  if (verificationCode.length !== 6) {
+    const error = new Error("Incorrect verification code.");
+    error.statusCode = 401;
+    throw error;
+  }
+  if (challenge.provider === "twilio_verify") return verifyTwilioChallenge({ challenge, verificationCode });
+  if (verificationCode !== challenge.code) {
     const error = new Error("Incorrect verification code.");
     error.statusCode = 401;
     throw error;
   }
 
-  challenges.delete(challengeId);
+  return approveChallenge(challenge);
+}
+
+async function verifyTwilioChallenge({ challenge, verificationCode }) {
+  let result;
+  try {
+    result = await checkPhoneVerificationSms({ to: challenge.phone, code: verificationCode });
+  } catch (error) {
+    const wrapped = new Error(error.message ? `Could not verify that code: ${error.message}` : "Could not verify that code.");
+    wrapped.statusCode = 502;
+    throw wrapped;
+  }
+  if (!result.approved) {
+    const error = new Error("Incorrect verification code.");
+    error.statusCode = 401;
+    throw error;
+  }
+  return approveChallenge(challenge);
+}
+
+function approveChallenge(challenge) {
+  challenges.delete(challenge.id);
   const token = randomToken(24);
   const verified = {
     token,
     phone: challenge.phone,
-    purpose,
-    subjectId,
+    purpose: challenge.purpose,
+    subjectId: challenge.subjectId,
     expiresAt: Date.now() + tokenTtlMs
   };
   verifiedTokens.set(token, verified);
@@ -121,7 +169,46 @@ export function consumeVerifiedPhoneToken({ token, phone, purpose, subjectId = "
 }
 
 function exposeDevCode(sms) {
-  return process.env.NODE_ENV !== "production";
+  return allowDevCodeFallback(sms);
+}
+
+function allowDevCodeFallback(sms) {
+  return process.env.NODE_ENV !== "production"
+    && process.env.PHONE_VERIFICATION_DEV_CODE === "true"
+    && !sms.sent;
+}
+
+async function startLivingRelaySmsVerification({ to, code }) {
+  return sendSms({
+    to,
+    body: `Your LivingRelay verification code is ${code}. It expires in 10 minutes.`
+  });
+}
+
+function useTwilioVerify() {
+  return Boolean(process.env.TWILIO_VERIFY_SERVICE_SID);
+}
+
+async function waitForVerificationSmsStatus(messageSid) {
+  let latest = { sid: messageSid, status: "queued" };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1500));
+    latest = await getSmsMessageStatus(messageSid);
+    const status = String(latest.status || "").toLowerCase();
+    if (["delivered", "sent", "failed", "undelivered"].includes(status)) break;
+  }
+  return latest;
+}
+
+function twilioVerificationFailureDetail(status = {}) {
+  if (Number(status.errorCode) === 30034) {
+    return "Could not send verification code: Twilio blocked this SMS because the US A2P 10DLC campaign is not approved or not fully associated yet.";
+  }
+  return ["Could not send verification code", status.errorCode ? `Twilio ${status.errorCode}` : "", status.errorMessage || status.status || ""].filter(Boolean).join(": ");
+}
+
+function normalizeVerificationCode(code = "") {
+  return String(code).replace(/\D/g, "").slice(0, 6);
 }
 
 function randomToken(bytes) {

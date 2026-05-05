@@ -1451,6 +1451,16 @@ function formatPinInput(value = "") {
   return String(value).replace(/\D/g, "").slice(0, 4);
 }
 
+function formatVerificationCodeInput(value = "") {
+  return String(value).replace(/\D/g, "").slice(0, 6);
+}
+
+function twilioSenderLabel(twilio) {
+  if (!twilio) return "";
+  if (twilio.senderMode === "messaging_service" && twilio.messagingServiceSid) return `Messaging Service ${twilio.messagingServiceSid}`;
+  return twilio.from || "configured sender";
+}
+
 let transitPublicKeyPromise;
 const contactTransitFields = [
   "phone",
@@ -1481,7 +1491,8 @@ function bytesToBase64(bytes) {
   return window.btoa(binary);
 }
 
-async function getTransitPublicKey() {
+async function getTransitPublicKey({ refresh = false } = {}) {
+  if (refresh) transitPublicKeyPromise = undefined;
   if (!transitPublicKeyPromise) {
     transitPublicKeyPromise = fetch("/api/encryption/public-key")
       .then(async (response) => {
@@ -1530,6 +1541,32 @@ async function encryptTransitFields(payload, fields) {
 
 async function encryptContactTransitFields(payload) {
   return encryptTransitFields(payload, contactTransitFields);
+}
+
+async function encryptedJsonFetch(url, { payload, fields = contactTransitFields, headers = {}, ...options } = {}) {
+  const send = async () => fetch(url, {
+    ...options,
+    method: options.method || "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(await encryptTransitFields(payload, fields))
+  });
+
+  let response = await send();
+  if (await responseHasStaleTransitKey(response)) {
+    await getTransitPublicKey({ refresh: true });
+    response = await send();
+  }
+  return response;
+}
+
+async function responseHasStaleTransitKey(response) {
+  if (response.ok) return false;
+  try {
+    const data = await response.clone().json();
+    return /Invalid encrypted field envelope|Could not decrypt encrypted field/i.test(data?.error || "");
+  } catch {
+    return false;
+  }
 }
 
 function samePhone(left = "", right = "") {
@@ -3437,6 +3474,8 @@ function App() {
   const [invoices, setInvoices] = useState(seedInvoices);
   const [activeOrderId, setActiveOrderId] = useState(seedOrders[0].id);
   const [request, setRequest] = useState(defaultRequest);
+  const [createHandoff, setCreateHandoff] = useState({ state: "idle", orderId: "", message: "" });
+  const [phoneVerifiedBanner, setPhoneVerifiedBanner] = useState("");
   const [twilioStatus, setTwilioStatus] = useState(null);
   const [twilioCheck, setTwilioCheck] = useState({ state: "idle", message: "" });
   const [sendStatus, setSendStatus] = useState("");
@@ -3458,6 +3497,7 @@ function App() {
   const [signupVerification, setSignupVerification] = useState({ challengeId: "", code: "", token: "", state: "idle", message: "" });
   const siteAdminConsoleAvailable = isSiteAdminConsoleHost();
   const demoExperienceAvailable = isDemoExperienceHost();
+  const workOrderHandoffRef = useRef(null);
   const demoLoginShortcutsAvailable = isDemoLoginShortcutsHost();
   const accountsData = appData?.accounts || accounts;
   const peopleData = appData?.people || (siteAdminConsoleAvailable ? people : people.filter((person) => person.role !== "Site Admin"));
@@ -3563,6 +3603,14 @@ function App() {
   }, [siteAdminConsoleAvailable]);
 
   useEffect(() => {
+    if (createHandoff.state !== "created" || !createHandoff.orderId) return;
+    const timeout = window.setTimeout(() => {
+      workOrderHandoffRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 140);
+    return () => window.clearTimeout(timeout);
+  }, [createHandoff.state, createHandoff.orderId]);
+
+  useEffect(() => {
     if (user) return;
     trackPageView();
   }, [user?.id]);
@@ -3649,10 +3697,9 @@ function App() {
         setLoginError("Admin console is only available at admin.livingrelay.com");
         return;
       }
-      const response = await fetch("/api/site-admin/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(await encryptTransitFields({ password: sitePassword, remember: siteAdminRemember }, ["password"]))
+      const response = await encryptedJsonFetch("/api/site-admin/login", {
+        payload: { password: sitePassword, remember: siteAdminRemember },
+        fields: ["password"]
       });
       const data = await response.json();
       if (!response.ok) {
@@ -3684,10 +3731,9 @@ function App() {
     }
     if (!loginVerification.challengeId) {
       setLoginVerification({ challengeId: "", code: "", state: "sending", message: "Sending verification code..." });
-      const response = await fetch("/api/auth/login/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(await encryptTransitFields({ phone, pin }, ["phone", "pin"]))
+      const response = await encryptedJsonFetch("/api/auth/login/start", {
+        payload: { phone, pin },
+        fields: ["phone", "pin"]
       });
       const data = await response.json();
       if (!response.ok) {
@@ -3707,11 +3753,15 @@ function App() {
       });
       return;
     }
+    const verificationCode = formatVerificationCodeInput(loginVerification.code);
+    if (verificationCode.length !== 6) {
+      setLoginVerification((current) => ({ ...current, code: verificationCode, state: "sent", message: "Enter the 6-digit verification code from the text message." }));
+      return;
+    }
     setLoginVerification((current) => ({ ...current, state: "checking", message: "Checking verification code..." }));
-    const response = await fetch("/api/auth/login/verify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(await encryptTransitFields({ phone, pin, challengeId: loginVerification.challengeId, code: loginVerification.code }, ["phone", "pin"]))
+    const response = await encryptedJsonFetch("/api/auth/login/verify", {
+      payload: { phone, pin, challengeId: loginVerification.challengeId, code: verificationCode },
+      fields: ["phone", "pin"]
     });
     const data = await response.json();
     if (!response.ok) {
@@ -3735,10 +3785,9 @@ function App() {
     try {
       let phoneVerificationToken = signupVerification.token;
       if (!phoneVerificationToken && !signupVerification.challengeId) {
-        const response = await fetch("/api/phone-verifications/start", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(await encryptTransitFields({ phone: signupForm.managerPhone, purpose: "onboarding" }, ["phone"]))
+        const response = await encryptedJsonFetch("/api/phone-verifications/start", {
+          payload: { phone: signupForm.managerPhone, purpose: "onboarding" },
+          fields: ["phone"]
         });
         const data = await response.json();
         if (!response.ok) {
@@ -3756,24 +3805,29 @@ function App() {
         return;
       }
       if (!phoneVerificationToken) {
+        const verificationCode = formatVerificationCodeInput(signupVerification.code);
+        if (verificationCode.length !== 6) {
+          setSignupVerification((current) => ({ ...current, code: verificationCode, state: "sent", message: "Enter the 6-digit verification code from the text message." }));
+          setSignupStatus({ state: "idle", message: "Enter the verification code to finish creating the property." });
+          return;
+        }
         const response = await fetch("/api/phone-verifications/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ challengeId: signupVerification.challengeId, code: signupVerification.code, purpose: "onboarding" })
+          body: JSON.stringify({ challengeId: signupVerification.challengeId, code: verificationCode, purpose: "onboarding" })
         });
         const data = await response.json();
         if (!response.ok) {
-          setSignupVerification((current) => ({ ...current, state: "sent", message: data.error || "Could not verify that code." }));
+          setSignupVerification((current) => ({ ...current, state: "sent", message: "" }));
           setSignupStatus({ state: "error", message: data.error || "Could not verify that code." });
           return;
         }
         phoneVerificationToken = data.token;
         setSignupVerification((current) => ({ ...current, token: data.token, state: "ok", message: "Phone verified." }));
       }
-      const response = await fetch("/api/onboarding/property", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(await encryptTransitFields({ ...signupForm, phoneVerificationToken }, ["managerPhone", "pin"]))
+      const response = await encryptedJsonFetch("/api/onboarding/property", {
+        payload: { ...signupForm, phoneVerificationToken },
+        fields: ["managerPhone", "pin"]
       });
       const data = await response.json();
       if (!response.ok) {
@@ -3787,6 +3841,7 @@ function App() {
       setActivePropertyId(data.property.id);
       setAdminSection("operations");
       setSignupVerification({ challengeId: "", code: "", token: "", state: "idle", message: "" });
+      setPhoneVerifiedBanner(`Phone verified for ${data.account?.name || data.property.name}.`);
       setSignupStatus({ state: "ok", message: `${data.property.name} is ready${data.reconciled ? " on your existing account" : ""}. Your PIN is ${data.person.pin}.` });
     } catch (error) {
       setSignupStatus({ state: "error", message: error.message });
@@ -3795,90 +3850,104 @@ function App() {
 
   async function createOrder(submitEvent) {
     submitEvent.preventDefault();
-    const triage = classifyIssue(request.issue);
-    let mediaAttachments = [];
+    setCreateHandoff({ state: "saving", orderId: "", message: "Creating the work order..." });
     try {
-      mediaAttachments = await prepareIssueMediaAttachments(request.mediaFiles || []);
-    } catch (error) {
-      setRequest((current) => ({ ...current, mediaError: error.message }));
-      return;
-    }
-    const unit = propertyLocationLabel(activeProperty);
-    const tenant = user?.role === "Tenant"
-      ? user
-      : peopleData.find((person) => person.role === "Tenant" && person.propertyIds?.includes(activeProperty.id) && person.unit === unit)
-        || peopleData.find((person) => person.role === "Tenant" && person.propertyIds?.includes(activeProperty.id));
-    const vendor = vendorsData.find((item) => item.trade === triage.trade) || vendorsData[0];
-    const needsOwner = triage.estimate > 150;
-    const tenantDefaultAvailability = request.defaultAvailability || tenant?.defaultAvailability || "";
-    const access = request.useDefaultAvailability && tenantDefaultAvailability ? tenantDefaultAvailability : request.access;
-    const notifyManager = request.escalationChoice !== "self_solve";
-    const requestVendorOutreach = request.escalationChoice === "vendor_outreach";
-    if (appData) {
-      const data = await apiRequest("/api/admin/work-orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          propertyId: activeProperty.id,
-          unit,
-          tenantId: tenant?.id || "",
-          trade: triage.trade,
-          severity: triage.severity,
-          status: "Manager review",
-          estimate: triage.estimate,
-          vendorId: vendor?.id || "",
-          issue: request.issue,
-          access,
-          mediaAttachments,
-          notifyManager,
-          requestVendorOutreach,
-          tenantDefaultAvailability: request.saveDefaultAvailability ? tenantDefaultAvailability || access : undefined,
-          actorName: user?.name || "Logged-in user",
-          actorRole: user?.role || "User"
-        })
-      });
-      if (request.saveDefaultAvailability && tenant?.id && (tenantDefaultAvailability || access)) {
-        await apiRequest(`/api/people/${tenant.id}/availability`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ defaultAvailability: tenantDefaultAvailability || access })
-        });
+      const triage = classifyIssue(request.issue);
+      let mediaAttachments = [];
+      try {
+        mediaAttachments = await prepareIssueMediaAttachments(request.mediaFiles || []);
+      } catch (error) {
+        setRequest((current) => ({ ...current, mediaError: error.message }));
+        setCreateHandoff({ state: "error", orderId: "", message: error.message });
+        return;
       }
-      if (data.order?.id) setActiveOrderId(data.order.id);
+      const unit = propertyLocationLabel(activeProperty);
+      const tenant = user?.role === "Tenant"
+        ? user
+        : peopleData.find((person) => person.role === "Tenant" && person.propertyIds?.includes(activeProperty.id) && person.unit === unit)
+          || peopleData.find((person) => person.role === "Tenant" && person.propertyIds?.includes(activeProperty.id));
+      const vendor = vendorsData.find((item) => item.trade === triage.trade) || vendorsData[0];
+      const needsOwner = triage.estimate > 150;
+      const tenantDefaultAvailability = request.defaultAvailability || tenant?.defaultAvailability || "";
+      const access = request.useDefaultAvailability && tenantDefaultAvailability ? tenantDefaultAvailability : request.access;
+      const notifyManager = request.escalationChoice !== "self_solve";
+      const requestVendorOutreach = request.escalationChoice === "vendor_outreach";
+      if (appData) {
+        const data = await apiRequest("/api/admin/work-orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            propertyId: activeProperty.id,
+            unit,
+            tenantId: tenant?.id || "",
+            trade: triage.trade,
+            severity: triage.severity,
+            status: "Manager review",
+            estimate: triage.estimate,
+            vendorId: vendor?.id || "",
+            issue: request.issue,
+            access,
+            mediaAttachments,
+            notifyManager,
+            requestVendorOutreach,
+            tenantDefaultAvailability: request.saveDefaultAvailability ? tenantDefaultAvailability || access : undefined,
+            actorName: user?.name || "Logged-in user",
+            actorRole: user?.role || "User"
+          })
+        });
+        if (request.saveDefaultAvailability && tenant?.id && (tenantDefaultAvailability || access)) {
+          await apiRequest(`/api/people/${tenant.id}/availability`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ defaultAvailability: tenantDefaultAvailability || access })
+          });
+        }
+        if (data.order?.id) {
+          setActiveOrderId(data.order.id);
+          setCreateHandoff({
+            state: "created",
+            orderId: data.order.id,
+            message: `${data.order.id} is ready for manager review.`
+          });
+        }
+        setRequest({ ...defaultRequest, unit: propertyLocationLabel(activeProperty), defaultAvailability: tenantDefaultAvailability || access });
+        await loadState();
+        return;
+      }
+      const id = `WO-${Math.floor(3000 + Math.random() * 6000)}`;
+      const order = {
+        id,
+        propertyId: activeProperty.id,
+        unit,
+        tenantId: tenant?.id || null,
+        trade: triage.trade,
+        severity: triage.severity,
+        status: notifyManager ? "Manager review" : "Tenant troubleshooting",
+        estimate: triage.estimate,
+        vendorId: vendor.id,
+        issue: request.issue,
+        access,
+        managerApproved: false,
+        ownerApproved: !needsOwner,
+        invoiceId: null,
+        timeline: [
+          event(`${user?.role || "User"} request created`, `${unit} request submitted from logged-in dashboard.`),
+          event("AI triaged request", `${triage.severity} ${triage.trade}; ${notifyManager ? `suggested ${vendor.name}` : "tenant self-solve guidance started"}.`),
+          ...(requestVendorOutreach ? [event("Tenant requested vendor outreach", `${access || "Availability needs confirmation"} shared for vendor calls.`)] : [])
+        ],
+        messages: [
+          sms(user?.role === "Tenant" ? "tenant" : "relay", request.issue),
+          sms("relay", `Thanks. LivingRelay classified this as ${triage.trade}. ${notifyManager ? "Manager review is next." : "Try the self-solve steps first; escalate if it still needs help."}`)
+        ],
+        media: mediaAttachments
+      };
+      setOrders((current) => [order, ...current]);
+      setActiveOrderId(id);
+      setCreateHandoff({ state: "created", orderId: id, message: `${id} is ready for manager review.` });
       setRequest({ ...defaultRequest, unit: propertyLocationLabel(activeProperty), defaultAvailability: tenantDefaultAvailability || access });
-      await loadState();
-      return;
+    } catch (error) {
+      setCreateHandoff({ state: "error", orderId: "", message: error.message });
     }
-    const id = `WO-${Math.floor(3000 + Math.random() * 6000)}`;
-    const order = {
-      id,
-      propertyId: activeProperty.id,
-      unit,
-      tenantId: tenant?.id || null,
-      trade: triage.trade,
-      severity: triage.severity,
-      status: notifyManager ? "Manager review" : "Tenant troubleshooting",
-      estimate: triage.estimate,
-      vendorId: vendor.id,
-      issue: request.issue,
-      access,
-      managerApproved: false,
-      ownerApproved: !needsOwner,
-      invoiceId: null,
-      timeline: [
-        event(`${user?.role || "User"} request created`, `${unit} request submitted from logged-in dashboard.`),
-        event("AI triaged request", `${triage.severity} ${triage.trade}; ${notifyManager ? `suggested ${vendor.name}` : "tenant self-solve guidance started"}.`),
-        ...(requestVendorOutreach ? [event("Tenant requested vendor outreach", `${access || "Availability needs confirmation"} shared for vendor calls.`)] : [])
-      ],
-      messages: [
-        sms(user?.role === "Tenant" ? "tenant" : "relay", request.issue),
-        sms("relay", `Thanks. LivingRelay classified this as ${triage.trade}. ${notifyManager ? "Manager review is next." : "Try the self-solve steps first; escalate if it still needs help."}`)
-      ],
-      media: mediaAttachments
-    };
-    setOrders((current) => [order, ...current]);
-    setActiveOrderId(id);
-    setRequest({ ...defaultRequest, unit: propertyLocationLabel(activeProperty), defaultAvailability: tenantDefaultAvailability || access });
   }
 
   function patchOrder(patch, label, detail) {
@@ -3901,7 +3970,7 @@ function App() {
       setTwilioCheck({
         state: data.twilio?.configured ? "ok" : "error",
         message: data.twilio?.configured
-          ? `Connected at ${checkedAt}. Sending from ${data.twilio.from}.`
+          ? `Connected at ${checkedAt}. Sending with ${twilioSenderLabel(data.twilio)}.`
           : `Missing: ${(data.twilio?.missing || []).join(", ") || "unknown Twilio config"}.`
       });
     } catch (error) {
@@ -4199,6 +4268,17 @@ function App() {
 
       {demoExperienceAvailable && user.role !== "Site Admin" && <DemoModeBanner activeOrder={activeOrder} runFullFlowDemo={runFullFlowDemo} />}
 
+      {phoneVerifiedBanner && user.role !== "Site Admin" && (
+        <section className="phone-verified-banner">
+          <ShieldCheck size={18} />
+          <div>
+            <strong>Phone verified</strong>
+            <span>{phoneVerifiedBanner}</span>
+          </div>
+          <button type="button" onClick={() => setPhoneVerifiedBanner("")}>Dismiss</button>
+        </section>
+      )}
+
       {user.role === "Site Admin" && (
         <SiteOwnerHero
           accounts={accountsData}
@@ -4256,16 +4336,10 @@ function App() {
           createOrder={createOrder}
           property={activeProperty}
           user={user}
-        />
-      )}
-
-      {["Manager", "Owner"].includes(user.role) && adminSection === "operations" && (
-        <ReferralServicePanel
-          user={user}
-          property={activeProperty}
-          account={accountsData.find((account) => account.id === activeProperty.accountId)}
-          referrals={referralsData}
-          reloadState={loadState}
+          handoff={createHandoff}
+          activeOrder={activeOrder}
+          onReviewWorkOrder={() => workOrderHandoffRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          onCallMeFirst={(orderId) => startVendorOutreach(orderId, "test")}
         />
       )}
 
@@ -4281,36 +4355,48 @@ function App() {
       )}
 
       {user.role === "Manager" && adminSection === "operations" && (
-        <AdminManagerView
+        <div ref={workOrderHandoffRef}>
+          <AdminManagerView
+            property={activeProperty}
+            orders={visibleOrders}
+            invoices={invoices}
+            activeOrder={activeOrder}
+            setActiveOrderId={setActiveOrderId}
+            patchOrder={patchOrder}
+            addInvoice={addInvoice}
+            sendSms={sendSms}
+            sendStatus={sendStatus}
+            people={peopleData}
+            vendors={vendorsData}
+            auditLog={auditData}
+            staleOrders={visibleStaleOrders}
+            demoScenarios={appData?.demoScenarios || []}
+            demoStatus={demoStatus}
+            demoExperienceAvailable={demoExperienceAvailable}
+            reloadState={loadState}
+            runDemoOutreach={runDemoOutreach}
+            selectDemoQuote={selectDemoQuote}
+            runFullFlowDemo={runFullFlowDemo}
+            createDemoScenario={createDemoScenario}
+            nudgeOrder={nudgeOrder}
+            nudgeStaleOrders={nudgeStaleOrders}
+            updateLiveCall={updateLiveCall}
+            startVendorOutreach={startVendorOutreach}
+            selectVendorOutcome={selectVendorOutcome}
+            recordCompletionPackage={recordCompletionPackage}
+            bookVendor={bookVendor}
+            setAdminSection={setAdminSection}
+          />
+        </div>
+      )}
+
+      {["Manager", "Owner"].includes(user.role) && adminSection === "operations" && (
+        <ReferralServicePanel
+          user={user}
           property={activeProperty}
-          orders={visibleOrders}
-          invoices={invoices}
-          activeOrder={activeOrder}
-          setActiveOrderId={setActiveOrderId}
-          patchOrder={patchOrder}
-          addInvoice={addInvoice}
-          sendSms={sendSms}
-          sendStatus={sendStatus}
-          people={peopleData}
-          vendors={vendorsData}
-          auditLog={auditData}
-          staleOrders={visibleStaleOrders}
-          demoScenarios={appData?.demoScenarios || []}
-          demoStatus={demoStatus}
-          demoExperienceAvailable={demoExperienceAvailable}
+          account={accountsData.find((account) => account.id === activeProperty.accountId)}
+          referrals={referralsData}
           reloadState={loadState}
-          runDemoOutreach={runDemoOutreach}
-          selectDemoQuote={selectDemoQuote}
-          runFullFlowDemo={runFullFlowDemo}
-          createDemoScenario={createDemoScenario}
-          nudgeOrder={nudgeOrder}
-          nudgeStaleOrders={nudgeStaleOrders}
-          updateLiveCall={updateLiveCall}
-          startVendorOutreach={startVendorOutreach}
-          selectVendorOutcome={selectVendorOutcome}
-          recordCompletionPackage={recordCompletionPackage}
-          bookVendor={bookVendor}
-          setAdminSection={setAdminSection}
         />
       )}
 
@@ -4384,7 +4470,7 @@ function App() {
           <IntegrationCard
             icon={<Smartphone />}
             title="Messaging infrastructure"
-            text={twilioStatus?.configured ? `Twilio is live from ${twilioStatus.from}` : "Twilio needs production credentials."}
+            text={twilioStatus?.configured ? `Twilio is live through ${twilioSenderLabel(twilioStatus)}` : "Twilio needs production credentials."}
             status={twilioCheck.message}
             statusTone={twilioCheck.state}
             action={<button className="ghost" onClick={checkTwilio} disabled={twilioCheck.state === "checking"}>{twilioCheck.state === "checking" ? "Checking" : "Check"}</button>}
@@ -4625,7 +4711,7 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
                       : formatPropertyNameFromAddress(place, prediction) || current.propertyName;
                     return { ...current, address, propertyName };
                   })} placeholder="11820 Pacific Ave" /></label>
-                  <label>Your name<input required value={signupForm.managerName} onChange={(event) => updateSignup("managerName", event.target.value)} placeholder="Jordan Lee" /></label>
+                  <label>Your name <small>optional</small><input value={signupForm.managerName} onChange={(event) => updateSignup("managerName", event.target.value)} placeholder="Jordan Lee" /></label>
                   <label>Your role<select value={signupForm.role} onChange={(event) => updateSignup("role", event.target.value)}><option>Property manager</option><option>Owner</option><option>Owner and property manager</option></select></label>
                   <label>Phone<input required value={signupForm.managerPhone} onChange={(event) => updateSignup("managerPhone", formatPhoneInput(event.target.value))} inputMode="tel" autoComplete="tel" placeholder="(310) 555-0100" /></label>
                   <label>PIN<PinCodeInput value={signupForm.pin} onChange={(value) => updateSignup("pin", value)} /></label>
@@ -4640,7 +4726,7 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
                     </button>
                   )}
                   {signupVerification.challengeId && (
-                    <label className="span-2">Verification code<input required value={signupVerification.code} onChange={(event) => setSignupVerification((current) => ({ ...current, code: event.target.value }))} inputMode="numeric" placeholder="6-digit code" /></label>
+                    <label className="span-2">Verification code<input value={signupVerification.code} onChange={(event) => setSignupVerification((current) => ({ ...current, code: formatVerificationCodeInput(event.target.value) }))} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="6-digit code" /></label>
                   )}
                   <button className="primary wide" type="submit" disabled={signupStatus.state === "saving"}><ArrowRight size={16} /> {signupStatus.state === "saving" ? "Working" : signupVerification.challengeId ? "Verify and create" : "Send code"}</button>
                   {signupVerification.message && <p className={`form-status ${signupVerification.state}`}>{signupVerification.message}</p>}
@@ -4739,7 +4825,7 @@ function LoginForm({ phone, setPhone, pin, setPin, sitePassword, setSitePassword
       {loginVerification?.challengeId && (
         <label>
           Verification code
-          <input value={loginVerification.code} onChange={(event) => setLoginVerification((current) => ({ ...current, code: event.target.value }))} inputMode="numeric" />
+          <input value={loginVerification.code} onChange={(event) => setLoginVerification((current) => ({ ...current, code: formatVerificationCodeInput(event.target.value) }))} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="6-digit code" />
         </label>
       )}
       <button className="primary wide" type="submit"><LockKeyhole size={16} /> {loginVerification?.challengeId ? "Verify and enter" : "Send code"}</button>
@@ -4888,7 +4974,7 @@ function LegacyLandingPage({ phone, setPhone, pin, setPin, sitePassword, setSite
           <form className="stack" onSubmit={createOnboardingProperty}>
             <label>Property name<input required value={signupForm.propertyName} onChange={(event) => setSignupForm({ ...signupForm, propertyName: event.target.value })} /></label>
             <label>Address<input value={signupForm.address} onChange={(event) => setSignupForm({ ...signupForm, address: event.target.value })} /></label>
-            <label>Manager name<input required value={signupForm.managerName} onChange={(event) => setSignupForm({ ...signupForm, managerName: event.target.value })} /></label>
+            <label>Manager name <small>optional</small><input value={signupForm.managerName} onChange={(event) => setSignupForm({ ...signupForm, managerName: event.target.value })} /></label>
             <label>Manager phone<input required value={signupForm.managerPhone} onChange={(event) => setSignupForm({ ...signupForm, managerPhone: event.target.value })} /></label>
             <button className="primary wide" type="submit" disabled={signupStatus.state === "saving"}><Plus size={16} /> Setup property</button>
             {signupStatus.message && <p className={`login-error ${signupStatus.state === "ok" ? "ok" : ""}`}>{signupStatus.message}</p>}
@@ -4990,6 +5076,12 @@ function RoleSectionAction({ active, setActive, role }) {
 
 function AccountSettingsPanel({ user, account, property, properties, authHeaders, signOut, reloadState, initialScope = "" }) {
   const canDeleteCustomerAccount = ["Manager", "Owner", "Admin"].includes(user.role) && account;
+  const accountPhoneVerified = Boolean(account?.phoneVerifiedAt && samePhone(account?.verifiedPhone || user.phone, user.phone));
+  const userPhoneVerified = Boolean(user.phoneVerifiedAt) || accountPhoneVerified;
+  const verifiedAt = user.phoneVerifiedAt || account?.phoneVerifiedAt || "";
+  const phoneVerifiedLabel = userPhoneVerified
+    ? `${formatPhoneInput(user.phone || "") || "This phone"} is verified to ${user.name || "this person"}${verifiedAt ? ` since ${formatDateTime(verifiedAt)}` : ""}`
+    : "Not verified yet";
   const [scope, setScope] = useState(initialScope || (canDeleteCustomerAccount ? "customer-account" : "personal"));
   const [confirmation, setConfirmation] = useState("");
   const [status, setStatus] = useState({ state: "idle", message: "" });
@@ -5088,6 +5180,11 @@ function AccountSettingsPanel({ user, account, property, properties, authHeaders
       <div className="account-profile-grid">
         <MiniRow icon={<UserRound />} label="Signed in as" value={`${user.name} · ${user.role}`} />
         <MiniRow icon={<Phone />} label="Phone" value={formatPhoneInput(user.phone || "") || "Not set"} />
+        <MiniRow
+          icon={<ShieldCheck />}
+          label="Phone verification"
+          value={<span className={userPhoneVerified ? "verified-person-phone" : "unverified-person-phone"}>{phoneVerifiedLabel}</span>}
+        />
         <MiniRow icon={<Mail />} label="Email" value={user.email || "Optional"} />
         <MiniRow icon={<Building2 />} label="Current property" value={property?.name || "Not assigned"} />
         <MiniRow icon={<LayoutDashboard />} label="Customer account" value={account?.name || "Not assigned"} />
@@ -8315,7 +8412,11 @@ function IssueMediaPicker({ request, setRequest, compact = false }) {
   );
 }
 
-function IssueCreatePanel({ request, setRequest, createOrder, property, user }) {
+function IssueCreatePanel({ request, setRequest, createOrder, property, user, handoff, activeOrder, onReviewWorkOrder, onCallMeFirst }) {
+  const createdOrderId = handoff?.orderId || "";
+  const createdOrderIsActive = createdOrderId && activeOrder?.id === createdOrderId;
+  const canReviewWorkOrder = user?.role === "Manager" && createdOrderId;
+  const canCallMeFirst = user?.role === "Manager" && createdOrderId;
   return (
     <section className="panel issue-create-panel">
       <SectionTitle icon={<Plus />} title="Create issue" eyebrow={`${user.role} dashboard`} />
@@ -8329,8 +8430,22 @@ function IssueCreatePanel({ request, setRequest, createOrder, property, user }) 
           <input value={request.access} onChange={(event) => setRequest({ ...request, access: event.target.value })} placeholder="Best entry window or contact note" />
         </label>
         <IssueMediaPicker request={request} setRequest={setRequest} compact />
-        <button className="primary" type="submit"><Send size={16} /> Create issue</button>
+        <button className="primary" type="submit" disabled={handoff?.state === "saving"}><Send size={16} /> {handoff?.state === "saving" ? "Creating" : "Create issue"}</button>
       </form>
+      {handoff?.message && (
+        <div className={`issue-handoff ${handoff.state}`}>
+          <div>
+            <strong>{handoff.state === "created" ? "Issue created" : handoff.state === "saving" ? "Creating issue" : "Could not create issue"}</strong>
+            <span>{handoff.message}{createdOrderIsActive ? " It is selected below." : ""}</span>
+          </div>
+          {handoff.state === "created" && (
+            <div className="issue-handoff-actions">
+              {canReviewWorkOrder && <button className="secondary" type="button" onClick={onReviewWorkOrder}><ClipboardList size={16} /> Review work order</button>}
+              {canCallMeFirst && <button className="secondary" type="button" onClick={() => onCallMeFirst?.(createdOrderId)}><Smartphone size={16} /> Call me first</button>}
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }

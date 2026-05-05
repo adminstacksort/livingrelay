@@ -53,6 +53,7 @@ const siteAdminSessionMaxAgeMs = 1000 * 60 * 60 * 24 * 30;
 const siteAdminSessions = new Set();
 const appSessions = new Map();
 const snsSigningCertCache = new Map();
+const vendorRetryTimers = new Map();
 const publicInviteTemplates = {
   "adopt-livingrelay": {
     issue: "Can we use LivingRelay for this rental?",
@@ -482,9 +483,9 @@ app.post("/api/phone-verifications/start", async (req, res) => {
   }
 });
 
-app.post("/api/phone-verifications/verify", (req, res) => {
+app.post("/api/phone-verifications/verify", async (req, res) => {
   try {
-    const result = verifyPhoneChallenge({
+    const result = await verifyPhoneChallenge({
       challengeId: req.body.challengeId,
       code: req.body.code,
       purpose: req.body.purpose || "phone_verification",
@@ -531,7 +532,7 @@ app.post("/api/auth/login/start", async (req, res) => {
   }
 });
 
-app.post("/api/auth/login/verify", (req, res) => {
+app.post("/api/auth/login/verify", async (req, res) => {
   try {
     const loginIdentity = resolveLoginIdentity(req.body.phone, req.body.pin);
     if (loginIdentity.error) {
@@ -543,7 +544,7 @@ app.post("/api/auth/login/verify", (req, res) => {
       res.status(401).json({ error: "Invalid phone or PIN" });
       return;
     }
-    verifyPhoneChallenge({
+    await verifyPhoneChallenge({
       challengeId: req.body.challengeId,
       code: req.body.code,
       purpose: "login",
@@ -573,8 +574,8 @@ app.post("/api/auth/logout", (req, res) => {
 
 app.post("/api/onboarding/property", (req, res) => {
   const { propertyName, address = "", managerName, managerPhone, role = "Property manager", pin, phoneVerificationToken, referralToken = "" } = req.body;
-  if (!propertyName || !managerName || !managerPhone) {
-    res.status(400).json({ error: "propertyName, managerName, and managerPhone are required" });
+  if (!propertyName || !managerPhone) {
+    res.status(400).json({ error: "propertyName and managerPhone are required" });
     return;
   }
   let verifiedPhone;
@@ -591,6 +592,8 @@ app.post("/api/onboarding/property", (req, res) => {
 
   const personRole = role === "Owner" ? "Owner" : "Manager";
   const canonicalManagerPhone = normalizePhone(verifiedPhone.phone || managerPhone);
+  const fallbackPersonName = personRole === "Owner" ? "Owner" : "Property manager";
+  const displayManagerName = String(managerName || "").trim() || fallbackPersonName;
   const phonePeople = peopleForPhone(canonicalManagerPhone).filter((person) => person.role !== "Site Admin");
   if (phonePeople.length > 1) {
     res.status(409).json({ error: "This phone number is assigned to multiple users. Each person must have a unique phone number before onboarding can continue." });
@@ -615,12 +618,16 @@ app.post("/api/onboarding/property", (req, res) => {
     };
     accounts.push(account);
   }
+  const verifiedAt = new Date().toISOString();
+  account.verifiedPhone = canonicalManagerPhone;
+  account.phoneVerifiedAt = verifiedAt;
+  account.phoneVerificationRequired = false;
 
   let person = selectOnboardingPerson(phonePeople, personRole, pin);
   if (person) {
-    person.name = person.name || managerName;
+    person.name = person.name || displayManagerName;
     person.phone = canonicalManagerPhone;
-    person.phoneVerifiedAt = new Date().toISOString();
+    person.phoneVerifiedAt = verifiedAt;
     person.phoneVerificationRequired = true;
     person.propertyIds = person.propertyIds || [];
     person.accountIds = addUnique(person.accountIds || [], account.id);
@@ -628,10 +635,10 @@ app.post("/api/onboarding/property", (req, res) => {
   } else {
     person = {
       id: `${personRole.toLowerCase()}-${Date.now()}`,
-      name: managerName,
+      name: displayManagerName,
       role: personRole,
       phone: canonicalManagerPhone,
-      phoneVerifiedAt: new Date().toISOString(),
+      phoneVerifiedAt: verifiedAt,
       phoneVerificationRequired: true,
       pin: pin || String(Math.floor(1000 + Math.random() * 9000)),
       propertyIds: [],
@@ -670,7 +677,7 @@ app.post("/api/onboarding/property", (req, res) => {
   });
 
   saveState();
-  recordAudit("self-serve", reconciled ? "Added property to existing account" : "Created property", `${managerName} created ${property.name}${reconciled ? " on an existing phone account" : ""}${referral ? " from a referral invite" : ""}.`);
+  recordAudit("self-serve", reconciled ? "Added property to existing account" : "Created property", `${displayManagerName} created ${property.name}${reconciled ? " on an existing phone account" : ""}${referral ? " from a referral invite" : ""}.`);
   const token = createAppSession(person);
   setAppSessionCookie(res, token);
   res.json({ account, person, property, reconciled, referral, phoneVerified: true, token });
@@ -3082,12 +3089,20 @@ function verifyElevenLabsSignature(req) {
   const timestamp = signature.match(/(?:^|,)t=([^,]+)/)?.[1];
   const provided = signature.match(/(?:^|,)v0=([^,]+)/)?.[1];
   if (!timestamp || !provided || !req.rawBody) return false;
+  const timestampMs = Number(timestamp) * 1000;
+  if (!Number.isFinite(timestampMs) || Math.abs(Date.now() - timestampMs) > 5 * 60 * 1000) return false;
   const expected = createHmac("sha256", secret).update(`${timestamp}.${req.rawBody.toString("utf8")}`).digest("hex");
   return safeEqualHex(provided, expected);
 }
 
-function parseElevenLabsWebhook(body = {}) {
+export function parseElevenLabsWebhook(body = {}) {
   const data = body.data || body;
+  if (body.type === "post_call_audio") {
+    return {
+      ignored: "audio_only",
+      conversationId: data.conversation_id || body.conversation_id || ""
+    };
+  }
   const dynamicVariables =
     data.conversation_initiation_client_data?.dynamic_variables ||
     body.conversation_initiation_client_data?.dynamic_variables ||
@@ -3095,16 +3110,26 @@ function parseElevenLabsWebhook(body = {}) {
     {};
   const analysis = data.analysis || body.analysis || {};
   const metadata = data.metadata || body.metadata || {};
+  const providerBody = metadata.body || metadata.phone_call || {};
   const collected = analysis.data_collection_results || analysis.structured_data || {};
   const callFailure = body.type === "call_initiation_failure";
   const vendor = valueFrom(collected, "vendor_name") || body.vendor_name || body.vendorName || dynamicVariables.vendor_name;
   const phone =
     body.phone ||
     body.to_number ||
-    metadata.phone_call?.to_number ||
-    metadata.twilio_call_sid ||
-    metadata.body?.To ||
-    metadata.body?.to;
+    data.to_number ||
+    dynamicVariables.vendor_phone ||
+    providerBody.To ||
+    providerBody.Called ||
+    providerBody.to ||
+    providerBody.to_number;
+  const callSid =
+    body.call_sid ||
+    metadata.phone_call?.call_sid ||
+    providerBody.CallSid ||
+    providerBody.call_sid ||
+    metadata.twilio_call_sid;
+  const failureReason = body.failure_reason || data.failure_reason || providerBody.CallStatus || providerBody.error_reason;
   return {
     workOrderId: body.work_order_id || body.workOrderId || dynamicVariables.work_order_id,
     call: {
@@ -3115,13 +3140,14 @@ function parseElevenLabsWebhook(body = {}) {
       availability: body.availability || valueFrom(collected, "availability") || valueFrom(collected, "earliest_availability"),
       discount: body.discount || valueFrom(collected, "discount"),
       warranty: body.warranty || valueFrom(collected, "warranty"),
-      needsPhotos: body.needs_photos || valueFrom(collected, "needs_photos") || /photo/i.test(String(analysis.transcript_summary || analysis.call_summary || "")),
+      needsPhotos: booleanValue(body.needs_photos ?? valueFrom(collected, "needs_photos")) || /photo/i.test(String(analysis.transcript_summary || analysis.call_summary || "")),
       invoiceEmail: body.invoice_delivery_instructions || body.invoice_email || valueFrom(collected, "invoice_delivery_instructions") || valueFrom(collected, "invoice_email") || dynamicVariables.invoice_delivery_instructions || dynamicVariables.inbound_invoice_email,
       invoiceRecipients: body.invoice_recipients || [],
       conversationId: body.conversation_id || data.conversation_id,
-      callSid: body.call_sid || metadata.phone_call?.call_sid || metadata.body?.CallSid,
-      summary: body.summary || analysis.transcript_summary || analysis.call_summary || analysis.summary || body.failure_reason || data.failure_reason,
-      status: callFailure ? "failed" : body.status || data.status || "Available",
+      callSid,
+      callKey: body.call_key || body.callKey || dynamicVariables.call_key || "",
+      summary: body.summary || analysis.transcript_summary || analysis.call_summary || analysis.summary || failureReason,
+      status: callFailure ? normalizeRetryableCallStatus(failureReason) : body.status || data.status || statusFromAnalysis(analysis),
       transcript: normalizeElevenLabsTranscript(data.transcript || body.transcript || [])
     }
   };
@@ -3142,7 +3168,79 @@ function valueFrom(collection, key) {
   return value;
 }
 
+function booleanValue(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return ["true", "yes", "y", "1"].includes(value.toLowerCase());
+  return Boolean(value);
+}
+
+function statusFromAnalysis(analysis = {}) {
+  if (analysis.call_successful === "failure" || analysis.call_successful === false) return "failed";
+  if (analysis.call_successful === "success" || analysis.call_successful === true) return "Available";
+  return "Available";
+}
+
+function normalizeRetryableCallStatus(status = "") {
+  const value = String(status || "failed").toLowerCase();
+  if (value.includes("no-answer") || value.includes("no answer")) return "no-answer";
+  if (value.includes("busy")) return "busy";
+  if (value.includes("cancel")) return "canceled";
+  return value || "failed";
+}
+
+function updateVendorCallSessionFromCall(order, call = {}) {
+  const session = order.vendorCalls?.find((item) =>
+    (call.callSid && item.callSid === call.callSid) ||
+    (call.conversationId && item.conversationId === call.conversationId) ||
+    (call.callKey && item.callKey === call.callKey) ||
+    (call.phone && normalizePhone(item.phone) === normalizePhone(call.phone))
+  );
+  if (!session) return;
+  session.status = ["Available", "done", "completed"].includes(call.status) ? "Completed" : call.status || session.status;
+  session.mode = "AI completed";
+  session.conversationId = call.conversationId || session.conversationId || null;
+  session.callSid = call.callSid || session.callSid || null;
+  session.summary = call.summary || session.summary;
+  session.transcript = call.transcript?.length ? call.transcript : session.transcript;
+  session.lastTranscriptAt = new Date().toISOString();
+  session.completedAt = new Date().toISOString();
+}
+
+function scheduleVendorCallRetry(order, attempt) {
+  if (!order || !attempt?.retry?.needed || !attempt.retry.retryAfter) return;
+  if (vendorRetryTimers.has(attempt.id)) return;
+  const delayMs = new Date(attempt.retry.retryAfter).getTime() - Date.now();
+  if (!Number.isFinite(delayMs)) return;
+  const runRetry = async () => {
+    vendorRetryTimers.delete(attempt.id);
+    const currentOrder = ensureWorkOrderDispatchFields(workOrders.find((item) => item.id === order.id));
+    const currentAttempt = currentOrder?.vendorOutreach?.attempts?.find((item) => item.id === attempt.id);
+    if (!currentOrder || !currentAttempt?.retry?.needed) return;
+    currentAttempt.retry.startedAt = new Date().toISOString();
+    currentAttempt.retry.needed = false;
+    try {
+      const result = await startVendorQuoteCalls(currentOrder.id, {
+        actor: "retry-policy",
+        demoFallback: false,
+        onlyVendorPhone: currentAttempt.phone
+      });
+      currentOrder.timeline.push(event(
+        "Vendor call retry attempted",
+        `${currentAttempt.vendorName}: ${result.started === false ? result.reason || result.error || "retry skipped" : "retry started"}.`
+      ));
+    } catch (error) {
+      currentAttempt.retry.needed = true;
+      currentAttempt.retry.error = error.message;
+    }
+    saveState();
+  };
+  const timer = setTimeout(runRetry, Math.max(delayMs, 0));
+  if (typeof timer.unref === "function") timer.unref();
+  vendorRetryTimers.set(attempt.id, timer);
+}
+
 function safeEqualHex(left, right) {
+  if (!/^[0-9a-f]+$/i.test(String(left || "")) || !/^[0-9a-f]+$/i.test(String(right || ""))) return false;
   const leftBuffer = Buffer.from(left, "hex");
   const rightBuffer = Buffer.from(right, "hex");
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
@@ -4155,6 +4253,15 @@ app.post("/api/public/sales-leads", async (req, res) => {
   }
 });
 
+app.post("/api/twilio/message-status", (req, res) => {
+  res.json({
+    ok: true,
+    sid: req.body.MessageSid || req.body.SmsSid || "",
+    status: req.body.MessageStatus || req.body.SmsStatus || "",
+    errorCode: req.body.ErrorCode || ""
+  });
+});
+
 app.post("/api/twilio/inbound", async (req, res) => {
   try {
     const from = req.body.From;
@@ -4216,6 +4323,10 @@ app.post("/api/elevenlabs/vendor-call-result", (req, res) => {
     return;
   }
   const parsed = parseElevenLabsWebhook(req.body);
+  if (parsed.ignored) {
+    res.json({ ok: true, ignored: parsed.ignored });
+    return;
+  }
   const orderId = parsed.workOrderId;
   if (!orderId) {
     res.status(400).json({ error: "work_order_id is required" });
@@ -4228,14 +4339,17 @@ app.post("/api/elevenlabs/vendor-call-result", (req, res) => {
   }
   const order = ensureWorkOrderDispatchFields(workOrders.find((item) => item.id === orderId));
   order.vendorOutreach.outcomes = mergeOutcomes(order.vendorOutreach.outcomes, result.outcomes);
-  upsertCallAttempt(order, parsed.call, {
+  const attempt = upsertCallAttempt(order, parsed.call, {
     status: parsed.call.status || "completed",
     transcript: parsed.call.transcript || [],
     outcome: parsed.call.summary || "",
     conversationId: parsed.call.conversationId,
     callSid: parsed.call.callSid,
+    callKey: parsed.call.callKey,
     completedAt: new Date().toISOString()
   });
+  updateVendorCallSessionFromCall(order, parsed.call);
+  scheduleVendorCallRetry(order, attempt);
   saveState();
   res.json({ ok: true, orderId, outcomes: order.vendorOutreach.outcomes });
 });
@@ -4364,6 +4478,7 @@ app.post("/api/twilio/voice-status", (req, res) => {
           stamp: new Date().toISOString()
         });
       }
+      scheduleVendorCallRetry(order, attempt);
     }
     saveState();
   }

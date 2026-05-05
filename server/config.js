@@ -13,19 +13,30 @@ const productionRequired = [
   "SESSION_SECRET"
 ];
 
+const localRequired = [
+  "APP_PUBLIC_URL",
+  "TWILIO_ACCOUNT_SID",
+  "TWILIO_AUTH_TOKEN",
+  "ANTHROPIC_API_KEY",
+  "SESSION_SECRET"
+];
+
 export function getGooglePlacesApiKey() {
   return process.env.GOOGLE_PLACES_API_KEY || process.env.VITE_GOOGLE_PLACES_API_KEY || "";
 }
 
 export async function getReadiness() {
-  const missing = productionRequired.filter((key) => !process.env[key]);
+  const environment = getRuntimeEnvironment();
+  const strictReadiness = ["production", "staging"].includes(environment);
+  const required = strictReadiness ? productionRequired : localRequired;
+  const missing = required.filter((key) => !process.env[key]);
   const googlePlacesConfigured = Boolean(getGooglePlacesApiKey());
   if (!googlePlacesConfigured) missing.push("GOOGLE_PLACES_API_KEY");
   const database = await getPostgresStatus();
   const twilio = getTwilioStatus();
   if (!twilio.configured) missing.push(...twilio.missing.filter((key) => !missing.includes(key)));
   const email = getEmailStatus();
-  if (!email.configured) missing.push(...email.missing.filter((key) => !missing.includes(key)));
+  if (strictReadiness && !email.configured) missing.push(...email.missing.filter((key) => !missing.includes(key)));
   const push = getPushStatus();
   const vendorCallsEnabled = process.env.ENABLE_VENDOR_CALLS === "true";
   const elevenLabsMissing = vendorCallsEnabled
@@ -36,8 +47,12 @@ export async function getReadiness() {
     : [];
 
   return {
-    ok: missing.length === 0 && database.ok && twilio.configured && email.configured && elevenLabsMissing.length === 0,
-    environment: getRuntimeEnvironment(),
+    ok: missing.length === 0
+      && (strictReadiness ? database.ok : true)
+      && twilio.configured
+      && (strictReadiness ? email.configured : true)
+      && elevenLabsMissing.length === 0,
+    environment,
     nodeEnv: process.env.NODE_ENV || "development",
     stateId: getStateId(),
     appUrl: process.env.APP_PUBLIC_URL || "http://127.0.0.1:5173",

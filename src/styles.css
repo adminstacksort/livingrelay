@@ -3787,6 +3787,40 @@ body:has(.login-card.admin-login-card) {
   line-height: 1.4;
 }
 
+.phone-verified-banner {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #b9ddd1;
+  border-radius: 8px;
+  background: #e8f7f1;
+  color: #174f45;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.phone-verified-banner strong,
+.phone-verified-banner span {
+  display: block;
+}
+
+.phone-verified-banner span {
+  margin-top: 3px;
+  color: #4f5d59;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.phone-verified-banner button {
+  border: 1px solid #a9cfc2;
+  background: #f8fffc;
+  color: #174f45;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-weight: 850;
+}
+
 .panel {
   padding: 18px;
   min-width: 0;
@@ -4047,6 +4081,58 @@ body:has(.login-card.admin-login-card) {
   min-height: 48px;
 }
 
+.issue-handoff {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid rgba(23, 111, 99, 0.22);
+  border-radius: 8px;
+  background: rgba(255, 254, 251, 0.76);
+}
+
+.issue-handoff > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.issue-handoff strong {
+  color: #113f39;
+  font-size: 15px;
+}
+
+.issue-handoff span {
+  color: #4f5d59;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.issue-handoff.saving {
+  border-color: rgba(128, 100, 73, 0.26);
+}
+
+.issue-handoff.error {
+  border-color: rgba(175, 79, 55, 0.34);
+  background: #fff6f1;
+}
+
+.issue-handoff.error strong {
+  color: #9b3c27;
+}
+
+.issue-handoff-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.issue-handoff-actions button {
+  min-height: 40px;
+}
+
 .section-title {
   display: flex;
   align-items: center;
@@ -4143,6 +4229,22 @@ body:has(.login-card.admin-login-card) {
   font-size: 13px;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.verified-person-phone,
+.unverified-person-phone {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.verified-person-phone {
+  color: #1c675b;
+}
+
+.unverified-person-phone {
+  color: #9b3c27;
 }
 
 .order-tabs {
@@ -5533,6 +5635,17 @@ body:has(.login-card.admin-login-card) {
 
   .button-grid {
     grid-template-columns: 1fr;
+  }
+
+  .issue-handoff {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .issue-handoff-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    justify-content: stretch;
   }
 
   .notify-channel-grid,
