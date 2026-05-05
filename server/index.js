@@ -1635,6 +1635,31 @@ app.patch("/api/admin/properties/:id", (req, res) => {
   res.json({ property });
 });
 
+app.post("/api/properties/:id/merge", (req, res) => {
+  const targetProperty = properties.find((item) => item.id === req.params.id);
+  const sourceProperty = properties.find((item) => item.id === req.body.sourcePropertyId);
+  if (!targetProperty || !sourceProperty) {
+    res.status(404).json({ error: "property not found" });
+    return;
+  }
+  if (targetProperty.id === sourceProperty.id) {
+    res.status(400).json({ error: "Choose two different properties to merge" });
+    return;
+  }
+  if (targetProperty.accountId !== sourceProperty.accountId) {
+    res.status(400).json({ error: "Properties can only be merged within the same account" });
+    return;
+  }
+  if (!canMergeProperties(req.user, targetProperty, sourceProperty)) {
+    res.status(403).json({ error: "You can only merge properties you can manage" });
+    return;
+  }
+  const summary = mergePropertyState(targetProperty.id, sourceProperty.id, req.user?.name || "app");
+  saveState();
+  recordAudit(req.user?.name || "app", "Merged properties", `${sourceProperty.name} merged into ${targetProperty.name}.`);
+  res.json({ merged: true, property: targetProperty, sourcePropertyId: sourceProperty.id, summary });
+});
+
 app.post("/api/properties/:id/vendor-team/copy", (req, res) => {
   const property = properties.find((item) => item.id === req.params.id);
   const sourceProperty = properties.find((item) => item.id === req.body.sourcePropertyId);
@@ -2581,6 +2606,134 @@ function deleteUserDataState(user, requestedAccountId = "") {
   };
 }
 
+function canMergeProperties(user, targetProperty, sourceProperty) {
+  if (!user) return false;
+  if (user.role === "Site Admin") return true;
+  if (!["Manager", "Owner", "Admin"].includes(user.role)) return false;
+  const accessiblePropertyIds = addUniqueList(user.propertyIds || [], user.managesPropertyIds || []);
+  const accountIds = addUniqueList(
+    user.accountIds || [],
+    properties
+      .filter((property) => accessiblePropertyIds.includes(property.id))
+      .map((property) => property.accountId)
+      .filter(Boolean)
+  );
+  return (
+    accountIds.includes(targetProperty.accountId)
+    || (accessiblePropertyIds.includes(targetProperty.id) && accessiblePropertyIds.includes(sourceProperty.id))
+  );
+}
+
+function mergePropertyState(targetPropertyId, sourcePropertyId, actor = "app") {
+  const targetProperty = properties.find((property) => property.id === targetPropertyId);
+  const sourceProperty = properties.find((property) => property.id === sourcePropertyId);
+  if (!targetProperty || !sourceProperty) {
+    const error = new Error("property not found");
+    error.statusCode = 404;
+    throw error;
+  }
+  const summary = {
+    people: 0,
+    vendors: 0,
+    workOrders: 0,
+    invoices: 0,
+    billingEvents: 0,
+    referrals: 0,
+    integrations: 0
+  };
+  const mergeNote = `Merged from ${sourceProperty.name}${sourceProperty.address ? ` at ${sourceProperty.address}` : ""} by ${actor}.`;
+  targetProperty.units = addUniqueList(targetProperty.units || [], sourceProperty.units || []);
+  targetProperty.mergedPropertyIds = addUniqueList(targetProperty.mergedPropertyIds || [], [sourceProperty.id, ...(sourceProperty.mergedPropertyIds || [])]);
+  targetProperty.mergeHistory = [
+    ...(targetProperty.mergeHistory || []),
+    {
+      sourcePropertyId: sourceProperty.id,
+      sourceName: sourceProperty.name,
+      sourceAddress: sourceProperty.address || "",
+      mergedAt: new Date().toISOString(),
+      actor
+    }
+  ];
+  if (!targetProperty.address && sourceProperty.address) targetProperty.address = sourceProperty.address;
+  if (!targetProperty.rules && sourceProperty.rules) targetProperty.rules = sourceProperty.rules;
+  if (targetProperty.rules && sourceProperty.rules && !targetProperty.rules.includes(sourceProperty.rules)) {
+    targetProperty.rules = `${targetProperty.rules}\n${mergeNote} Previous rules: ${sourceProperty.rules}`;
+  }
+  for (const key of ["adminId", "managerId", "ownerId", "billingPayerRole", "billingPayerPersonId", "billingSetupStatus", "launchNotificationStatus"]) {
+    if (!targetProperty[key] && sourceProperty[key]) targetProperty[key] = sourceProperty[key];
+  }
+  targetProperty.dispatchSettings = mergePropertyDispatchSettings(targetProperty.dispatchSettings, sourceProperty.dispatchSettings);
+
+  for (const person of people) {
+    const nextPropertyIds = replaceId(person.propertyIds || [], sourceProperty.id, targetProperty.id);
+    const nextManagesPropertyIds = replaceId(person.managesPropertyIds || [], sourceProperty.id, targetProperty.id);
+    if (nextPropertyIds.changed || nextManagesPropertyIds.changed) summary.people += 1;
+    person.propertyIds = nextPropertyIds.values;
+    person.managesPropertyIds = nextManagesPropertyIds.values;
+  }
+  for (const vendor of vendors) {
+    const nextPropertyIds = replaceId(vendor.propertyIds || [], sourceProperty.id, targetProperty.id);
+    if (nextPropertyIds.changed) summary.vendors += 1;
+    vendor.propertyIds = nextPropertyIds.values;
+    if (!vendor.accountId) vendor.accountId = targetProperty.accountId;
+  }
+  for (const order of workOrders) {
+    if (order.propertyId !== sourceProperty.id) continue;
+    order.propertyId = targetProperty.id;
+    order.timeline = [...(order.timeline || []), event("Property record merged", `${sourceProperty.name} merged into ${targetProperty.name}.`)];
+    summary.workOrders += 1;
+  }
+  for (const invoice of invoices) {
+    if (invoice.propertyId !== sourceProperty.id) continue;
+    invoice.propertyId = targetProperty.id;
+    summary.invoices += 1;
+  }
+  for (const billingEvent of billingEvents) {
+    if (billingEvent.propertyId !== sourceProperty.id) continue;
+    billingEvent.propertyId = targetProperty.id;
+    summary.billingEvents += 1;
+  }
+  for (const referral of referrals) {
+    if (referral.referredPropertyId !== sourceProperty.id) continue;
+    referral.referredPropertyId = targetProperty.id;
+    referral.referredPropertyName = targetProperty.name;
+    summary.referrals += 1;
+  }
+  for (const mapping of externalMappings) {
+    if (mapping.propertyId !== sourceProperty.id) continue;
+    mapping.propertyId = targetProperty.id;
+    summary.integrations += 1;
+  }
+  removeWhere(properties, (property) => property.id === sourceProperty.id);
+  return summary;
+}
+
+function mergePropertyDispatchSettings(targetSettings = {}, sourceSettings = {}) {
+  const merged = {
+    ...mergeDispatchSettings(sourceSettings || {}),
+    ...mergeDispatchSettings(targetSettings || {})
+  };
+  const targetPreferences = mergeDispatchSettings(targetSettings || {}).vendorPreferences || {};
+  const sourcePreferences = mergeDispatchSettings(sourceSettings || {}).vendorPreferences || {};
+  const trades = addUniqueList(Object.keys(targetPreferences), Object.keys(sourcePreferences));
+  merged.vendorPreferences = trades.reduce((preferences, trade) => ({
+    ...preferences,
+    [trade]: addUniqueList(targetPreferences[trade] || [], sourcePreferences[trade] || [])
+  }), {});
+  return merged;
+}
+
+function replaceId(values = [], fromId, toId) {
+  let changed = false;
+  const nextValues = [];
+  for (const value of values || []) {
+    const nextValue = value === fromId ? toId : value;
+    if (nextValue !== value) changed = true;
+    if (nextValue && !nextValues.includes(nextValue)) nextValues.push(nextValue);
+  }
+  return { values: nextValues, changed };
+}
+
 function deletePropertyState(propertyId) {
   const deletedWorkOrderIds = new Set(workOrders.filter((order) => order.propertyId === propertyId).map((order) => order.id));
   const deletedWorkOrders = removeWhere(workOrders, (order) => order.propertyId === propertyId);
@@ -2670,6 +2823,10 @@ function selectOnboardingPerson(phonePeople, personRole, pin) {
 
 function addUnique(values = [], value) {
   return values.includes(value) ? values : [...values, value];
+}
+
+function addUniqueList(values = [], nextValues = []) {
+  return Array.from(new Set([...(values || []), ...(nextValues || []).filter(Boolean)]));
 }
 
 function getInvoiceRecipient(property) {

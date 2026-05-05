@@ -1608,6 +1608,47 @@ function accessiblePropertyIdsForPerson(person) {
   return addUniqueValues(person?.propertyIds || [], person?.managesPropertyIds || []);
 }
 
+function normalizePropertyAddressForMatch(value = "") {
+  const streetAliases = [
+    ["avenue", "ave"],
+    ["street", "st"],
+    ["road", "rd"],
+    ["boulevard", "blvd"],
+    ["drive", "dr"],
+    ["lane", "ln"],
+    ["court", "ct"],
+    ["place", "pl"],
+    ["terrace", "ter"],
+    ["circle", "cir"]
+  ];
+  let normalized = String(value || "")
+    .toLowerCase()
+    .split(",")[0]
+    .replace(/\b(?:apartment|apt|unit|suite|ste|#)\s*[a-z0-9-]+\b/g, " ");
+  for (const [longForm, shortForm] of streetAliases) {
+    normalized = normalized.replace(new RegExp(`\\b${longForm}\\b`, "g"), shortForm);
+  }
+  return normalized
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function findPropertyAddressOverlapGroups(propertiesList = []) {
+  const groupsByKey = new Map();
+  for (const property of propertiesList) {
+    const key = normalizePropertyAddressForMatch(property.address);
+    if (!key || !/\d/.test(key)) continue;
+    const scopedKey = `${property.accountId || "unassigned"}:${key}`;
+    const group = groupsByKey.get(scopedKey) || { key, displayAddress: property.address || key, accountId: property.accountId || "", properties: [] };
+    if (!group.properties.some((item) => item.id === property.id)) group.properties.push(property);
+    groupsByKey.set(scopedKey, group);
+  }
+  return Array.from(groupsByKey.values())
+    .filter((group) => group.properties.length > 1)
+    .sort((left, right) => right.properties.length - left.properties.length || left.key.localeCompare(right.key));
+}
+
 function defaultPropertyIdForLogin(person, propertiesList = []) {
   if (!person) return propertiesList[0]?.id;
   if (person.role === "Site Admin") return propertiesList[0]?.id;
@@ -3560,6 +3601,15 @@ function App() {
   const activeOrder = visibleOrders.find((order) => order.id === activeOrderId) || visibleOrders[0];
   const visibleStaleOrders = staleWorkOrders.filter((order) => order.propertyId === activeProperty.id);
   const user = session ? buildPhoneIdentityUser(peopleData.find((person) => person.id === session.userId), peopleData) : null;
+  const userAccessiblePropertyIds = accessiblePropertyIdsForPerson(user);
+  const userAccountIds = addUniqueValues(
+    user?.accountIds || [],
+    propertiesData.filter((property) => userAccessiblePropertyIds.includes(property.id)).map((property) => property.accountId)
+  );
+  const userMergeableProperties = user && ["Manager", "Owner"].includes(user.role)
+    ? propertiesData.filter((property) => userAccessiblePropertyIds.includes(property.id) || userAccountIds.includes(property.accountId))
+    : [];
+  const propertyOverlapGroups = findPropertyAddressOverlapGroups(userMergeableProperties);
   const vendorProfile = user?.role === "Vendor" ? vendorsData.find((vendor) => vendor.personId === user.id || vendor.name === user.name || vendor.trade === user.trade) : null;
   const tenantOrders = user?.role === "Tenant" ? visibleOrders.filter((order) => isTenantVisibleWorkOrder(order, user)) : [];
   const vendorOrders = user?.role === "Vendor" ? visibleOrders.filter((order) => isVendorVisibleWorkOrder(order, vendorProfile, user)) : [];
@@ -4249,17 +4299,25 @@ function App() {
 
       {user.role !== "Site Admin" && <section className="property-switcher">
         {propertiesData
-          .filter((property) => user.propertyIds.includes(property.id))
+          .filter((property) => userAccessiblePropertyIds.includes(property.id))
           .map((property) => (
             <button
               key={property.id}
               className={property.id === activeProperty.id ? "active" : ""}
+              title={property.address || property.name}
               onClick={() => setActivePropertyId(property.id)}
             >
               {property.name}
             </button>
           ))}
       </section>}
+
+      {!!propertyOverlapGroups.length && (
+        <PropertyOverlapNotice
+          groups={propertyOverlapGroups}
+          onReview={() => setAdminSection("account")}
+        />
+      )}
 
       {["Tenant", "Vendor"].includes(user.role) && (
         <RoleSectionAction active={adminSection} setActive={setAdminSection} role={user.role} />
@@ -4480,10 +4538,13 @@ function App() {
           user={user}
           account={accountsData.find((account) => user.accountIds?.includes(account.id) || account.id === activeProperty.accountId)}
           property={activeProperty}
-          properties={propertiesData.filter((property) => user.propertyIds.includes(property.id) || user.managesPropertyIds?.includes(property.id))}
+          properties={userMergeableProperties.length
+            ? userMergeableProperties
+            : propertiesData.filter((property) => userAccessiblePropertyIds.includes(property.id))}
           authHeaders={authHeaders}
           signOut={signOut}
           reloadState={loadState}
+          setActivePropertyId={setActivePropertyId}
           initialScope={route?.page === "delete-data" ? "data" : ""}
         />
       )}
@@ -4742,13 +4803,13 @@ function LandingPageUnused({ phone, setPhone, pin, setPin, sitePassword, setSite
                       : formatPropertyNameFromAddress(place, prediction) || current.propertyName;
                     return { ...current, address, propertyName };
                   })} placeholder="11820 Pacific Ave" /></label>
-                  <label>Your name <small>optional</small><input value={signupForm.managerName} onChange={(event) => updateSignup("managerName", event.target.value)} placeholder="Jordan Lee" /></label>
+                  <label>Your name<input value={signupForm.managerName} onChange={(event) => updateSignup("managerName", event.target.value)} placeholder="Jordan Lee" /></label>
                   <label>Your role<select value={signupForm.role} onChange={(event) => updateSignup("role", event.target.value)}><option>Property manager</option><option>Owner</option><option>Owner and property manager</option></select></label>
                   <label>Phone<input required value={signupForm.managerPhone} onChange={(event) => updateSignup("managerPhone", formatPhoneInput(event.target.value))} inputMode="tel" autoComplete="tel" placeholder="(310) 555-0100" /></label>
                   <label>PIN<PinCodeInput value={signupForm.pin} onChange={(value) => updateSignup("pin", value)} /></label>
                   {showReferralCode || signupForm.referralToken ? (
                     <label className="span-2 optional-referral-field">
-                      <span>{signupForm.referralToken ? "Referral applied" : "Referral code"} <small>optional</small></span>
+                      <span>{signupForm.referralToken ? "Referral applied" : "Referral code"}</span>
                       <input value={signupForm.referralToken} onChange={(event) => updateSignup("referralToken", event.target.value.toUpperCase())} placeholder="LR-ABC12345" />
                     </label>
                   ) : (
@@ -4863,6 +4924,20 @@ function LoginForm({ phone, setPhone, pin, setPin, sitePassword, setSitePassword
       {loginVerification?.message && <p className={`form-status ${loginVerification.state}`}>{loginVerification.message}</p>}
       {loginError && <p className="login-error">{loginError}</p>}
     </form>
+  );
+}
+
+function PropertyOverlapNotice({ groups, onReview }) {
+  const propertyCount = groups.reduce((sum, group) => sum + group.properties.length, 0);
+  return (
+    <section className="property-overlap-notice" aria-label="Possible duplicate properties">
+      <MapPin size={18} />
+      <div>
+        <strong>{groups.length} possible address overlap{groups.length === 1 ? "" : "s"}</strong>
+        <p>{propertyCount} property records look like they may share an address. Signup stays open, but you can merge duplicates after logging in.</p>
+      </div>
+      <button className="secondary" type="button" onClick={onReview}>Review</button>
+    </section>
   );
 }
 
@@ -5005,7 +5080,7 @@ function LegacyLandingPage({ phone, setPhone, pin, setPin, sitePassword, setSite
           <form className="stack" onSubmit={createOnboardingProperty}>
             <label>Property name<input required value={signupForm.propertyName} onChange={(event) => setSignupForm({ ...signupForm, propertyName: event.target.value })} /></label>
             <label>Address<input value={signupForm.address} onChange={(event) => setSignupForm({ ...signupForm, address: event.target.value })} /></label>
-            <label>Manager name <small>optional</small><input value={signupForm.managerName} onChange={(event) => setSignupForm({ ...signupForm, managerName: event.target.value })} /></label>
+            <label>Manager name<input value={signupForm.managerName} onChange={(event) => setSignupForm({ ...signupForm, managerName: event.target.value })} /></label>
             <label>Manager phone<input required value={signupForm.managerPhone} onChange={(event) => setSignupForm({ ...signupForm, managerPhone: event.target.value })} /></label>
             <button className="primary wide" type="submit" disabled={signupStatus.state === "saving"}><Plus size={16} /> Setup property</button>
             {signupStatus.message && <p className={`login-error ${signupStatus.state === "ok" ? "ok" : ""}`}>{signupStatus.message}</p>}
@@ -5105,7 +5180,43 @@ function RoleSectionAction({ active, setActive, role }) {
   );
 }
 
-function AccountSettingsPanel({ user, account, property, properties, authHeaders, signOut, reloadState, initialScope = "" }) {
+function PropertyMergePanel({ groups, status, onMerge }) {
+  if (!groups.length) return null;
+  return (
+    <section className="property-merge-panel">
+      <div>
+        <span className="eyebrow">Address cleanup</span>
+        <h3>Possible duplicate properties</h3>
+        <p>These records share a very similar street address. Keep the correct record and merge the others into it when they are really the same property.</p>
+      </div>
+      <div className="property-merge-list">
+        {groups.map((group) => (
+          <article className="property-merge-group" key={`${group.accountId}-${group.key}`}>
+            <div>
+              <strong>{group.properties.length} records near {group.displayAddress}</strong>
+              <p>{group.properties.map((property) => `${property.name}${property.address ? ` (${property.address})` : ""}`).join(" · ")}</p>
+            </div>
+            <div className="property-merge-actions">
+              {group.properties.map((property) => (
+                <button
+                  className="secondary"
+                  type="button"
+                  key={property.id}
+                  onClick={() => onMerge(group, property)}
+                >
+                  <Building2 size={15} /> Keep {property.name}
+                </button>
+              ))}
+            </div>
+          </article>
+        ))}
+      </div>
+      {status?.message && <p className={`login-error ${status.state === "ok" ? "ok" : ""}`}>{status.message}</p>}
+    </section>
+  );
+}
+
+function AccountSettingsPanel({ user, account, property, properties, authHeaders, signOut, reloadState, setActivePropertyId, initialScope = "" }) {
   const canDeleteCustomerAccount = ["Manager", "Owner", "Admin"].includes(user.role) && account;
   const accountPhoneVerified = Boolean(account?.phoneVerifiedAt && samePhone(account?.verifiedPhone || user.phone, user.phone));
   const userPhoneVerified = Boolean(user.phoneVerifiedAt) || accountPhoneVerified;
@@ -5121,12 +5232,14 @@ function AccountSettingsPanel({ user, account, property, properties, authHeaders
     enabled: defaultNotify(user.role, user.notify).channels.email !== false
   }));
   const [emailStatus, setEmailStatus] = useState({ state: "idle", message: "" });
+  const [mergeStatus, setMergeStatus] = useState({ state: "idle", message: "" });
   const customerConfirmation = account?.name || "DELETE";
   const personalConfirmation = user.name || "DELETE";
   const dataConfirmation = "DELETE DATA";
   const requiredConfirmation = scope === "customer-account" ? customerConfirmation : scope === "data" ? dataConfirmation : personalConfirmation;
   const propertyCount = scope === "customer-account" ? properties.length : user.propertyIds?.length || 0;
   const canSubmit = confirmation.trim() === requiredConfirmation;
+  const propertyOverlapGroups = findPropertyAddressOverlapGroups(properties);
 
   useEffect(() => {
     setEmailForm({
@@ -5205,6 +5318,31 @@ function AccountSettingsPanel({ user, account, property, properties, authHeaders
     }
   }
 
+  async function mergePropertyGroup(group, targetProperty) {
+    const sourceProperties = group.properties.filter((item) => item.id !== targetProperty.id);
+    if (!sourceProperties.length) return;
+    const sourceNames = sourceProperties.map((item) => item.name).join(", ");
+    const confirmed = window.confirm(`Merge ${sourceNames} into ${targetProperty.name}? Work orders, invoices, people, vendors, and billing events will move to the kept property.`);
+    if (!confirmed) return;
+    setMergeStatus({ state: "saving", message: "Merging property records..." });
+    try {
+      for (const sourceProperty of sourceProperties) {
+        const response = await fetch(`/api/properties/${targetProperty.id}/merge`, {
+          method: "POST",
+          headers: authHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ sourcePropertyId: sourceProperty.id })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || "Property merge failed.");
+      }
+      setActivePropertyId?.(targetProperty.id);
+      await reloadState?.();
+      setMergeStatus({ state: "ok", message: `${sourceNames} merged into ${targetProperty.name}.` });
+    } catch (error) {
+      setMergeStatus({ state: "error", message: error.message });
+    }
+  }
+
   return (
     <section className="account-settings-panel">
       <SectionTitle icon={<UserRound />} title="Account" eyebrow="Profile and deletion" />
@@ -5216,13 +5354,18 @@ function AccountSettingsPanel({ user, account, property, properties, authHeaders
           label="Phone verification"
           value={<span className={userPhoneVerified ? "verified-person-phone" : "unverified-person-phone"}>{phoneVerifiedLabel}</span>}
         />
-        <MiniRow icon={<Mail />} label="Email" value={user.email || "Optional"} />
+        <MiniRow icon={<Mail />} label="Email" value={user.email || "Not set"} />
         <MiniRow icon={<Building2 />} label="Current property" value={property?.name || "Not assigned"} />
         <MiniRow icon={<LayoutDashboard />} label="Customer account" value={account?.name || "Not assigned"} />
       </div>
+      <PropertyMergePanel
+        groups={propertyOverlapGroups}
+        status={mergeStatus}
+        onMerge={mergePropertyGroup}
+      />
       <form className="email-settings-card" onSubmit={saveEmailSettings}>
         <div>
-          <span className="eyebrow">Optional</span>
+          <span className="eyebrow">Notifications</span>
           <h3>Email updates</h3>
           <p>Add an email address if you want LivingRelay updates by email in addition to text or app notifications.</p>
         </div>
@@ -7147,7 +7290,7 @@ function VendorTeamOnboarding({ property, account, people, vendors, properties =
   return (
     <section className="panel vendor-onboarding-panel">
       <div className="vendor-onboarding-head">
-        <SectionTitle icon={<Users />} title="Their team" eyebrow="Optional vendor onboarding" />
+        <SectionTitle icon={<Users />} title="Their team" eyebrow="Vendor onboarding" />
         <button className={wizardOpen ? "ghost" : "secondary"} type="button" onClick={() => setWizardOpen(!wizardOpen)}>
           {wizardOpen ? <><Check size={15} /> Done</> : <><Plus size={15} /> Add vendor</>}
         </button>
@@ -7155,7 +7298,7 @@ function VendorTeamOnboarding({ property, account, people, vendors, properties =
       <div className="team-summary-grid">
         <MiniRow icon={<UserRound />} label="Owner" value={owner ? `${owner.name} · ${owner.phone || "no phone"}` : "No owner assigned"} />
         <MiniRow icon={<Users />} label="Manager" value={manager ? `${manager.name} · ${manager.phone || "no phone"}` : "No manager assigned"} />
-        <MiniRow icon={<Wrench />} label="Preferred vendors" value={assignedVendorCount ? `${assignedVendorCount} assigned` : "Optional"} />
+        <MiniRow icon={<Wrench />} label="Preferred vendors" value={assignedVendorCount ? `${assignedVendorCount} assigned` : "Not assigned"} />
       </div>
       <form className="team-reuse-row" onSubmit={copyTeam}>
         <label>
@@ -7192,7 +7335,7 @@ function VendorTeamOnboarding({ property, account, people, vendors, properties =
           <form className="vendor-wizard-card" onSubmit={saveTeamPlan}>
             <h3>Main and backup order</h3>
             {vendorOnboardingTrades.map((trade) => (
-              <label key={trade}>{trade}<VendorAutocompleteInput value={form[trade] || ""} trade={trade} propertyId={property.id} onChange={(value) => setForm({ ...form, [trade]: value })} onVendorSelect={(vendor) => setForm((current) => ({ ...current, [trade]: addVendorPreference(current[trade], vendor.name) }))} placeholder={trade === "General" ? "Optional fallback" : "Main vendor, then backups"} /></label>
+              <label key={trade}>{trade}<VendorAutocompleteInput value={form[trade] || ""} trade={trade} propertyId={property.id} onChange={(value) => setForm({ ...form, [trade]: value })} onVendorSelect={(vendor) => setForm((current) => ({ ...current, [trade]: addVendorPreference(current[trade], vendor.name) }))} placeholder={trade === "General" ? "Fallback vendor" : "Main vendor, then backups"} /></label>
             ))}
             <button className="secondary wide" type="submit"><ClipboardList size={16} /> Save assignments</button>
           </form>

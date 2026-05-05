@@ -1731,12 +1731,6 @@ select:focus {
   gap: 7px;
 }
 
-.optional-referral-field small {
-  color: #8b948f;
-  font-size: 12px;
-  font-weight: 760;
-}
-
 .access-panel .optional-referral-field input {
   min-height: 38px;
   margin-top: 8px;
@@ -2229,6 +2223,35 @@ select:focus {
   transform: translateY(-1px);
 }
 
+.property-overlap-notice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #d9c99d;
+  border-radius: 8px;
+  background: #fff8e2;
+  color: #4f3b10;
+  padding: 12px;
+  margin: -4px 0 14px;
+}
+
+.property-overlap-notice svg {
+  color: #7c5b10;
+}
+
+.property-overlap-notice strong {
+  display: block;
+  font-size: 14px;
+}
+
+.property-overlap-notice p {
+  color: #6d5520;
+  font-size: 13px;
+  line-height: 1.4;
+  margin-top: 3px;
+}
+
 .admin-nav {
   display: flex;
   gap: 8px;
@@ -2332,6 +2355,59 @@ select:focus {
   border-radius: 8px;
   background: #f6fbf9;
   padding: 14px;
+}
+
+.property-merge-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #d9c99d;
+  border-radius: 8px;
+  background: #fff8e2;
+  padding: 14px;
+}
+
+.property-merge-panel h3 {
+  margin: 4px 0 6px;
+  color: #4f3b10;
+  font-size: 18px;
+}
+
+.property-merge-panel p {
+  color: #6d5520;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.property-merge-list {
+  display: grid;
+  gap: 10px;
+}
+
+.property-merge-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid rgba(124, 91, 16, 0.24);
+  border-radius: 8px;
+  background: rgba(255, 253, 249, 0.74);
+  padding: 12px;
+}
+
+.property-merge-group strong {
+  display: block;
+  color: #302611;
+  font-size: 15px;
+}
+
+.property-merge-group p {
+  margin-top: 4px;
+}
+
+.property-merge-actions {
+  display: grid;
+  gap: 7px;
+  min-width: 170px;
 }
 
 .email-settings-card h3 {
@@ -5740,6 +5816,16 @@ body:has(.login-card.admin-login-card) {
 
   .account-profile-grid {
     grid-template-columns: 1fr;
+  }
+
+  .property-overlap-notice,
+  .property-merge-group {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .property-merge-actions {
+    min-width: 0;
   }
 
   .delete-scope-toggle {

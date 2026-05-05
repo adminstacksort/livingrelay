@@ -45,6 +45,8 @@ Service provider. Receives job scope, accepts or declines work, gives ETA/quote 
 - One URL, role-aware experience: avoid separate portals for each role while keeping each party's phone number unique.
 - Human approval gates: managers and owners stay in control of spend and dispatch decisions.
 - Comfortable text: interface copy should feel calm and readable, with moderate type weights, generous line-height, and enough spacing that form work does not feel compressed.
+- Quiet optional fields: do not label optional inputs as optional; leave them skippable and reserve required validation for fields truly needed to continue.
+- Address overlap tolerant: signup may accept multiple versions of the same address; after authentication, surface likely duplicate or overlapping properties clearly and offer merge/cleanup actions instead of blocking onboarding on uncertain matches.
 - Off-platform repair payments in v1: LivingRelay tracks vendor invoices and paid status but does not pay vendors.
 - Low-friction identity: phone + PIN keeps access simple, with SMS verification and stronger checks for privileged flows.
 - Operational audit trail: every meaningful action should create a timeline, message, or audit event.
@@ -76,7 +78,7 @@ The React app renders role-specific views from `/api/state`:
 
 ### Property Onboarding And Directory
 
-Managers and site admins can create account/property records, add people, create properties, configure owners/managers, and add vendors. Google Places autocomplete is supported when a Places API key is configured.
+Managers and site admins can create account/property records, add people, create properties, configure owners/managers, and add vendors. Google Places autocomplete is supported when a Places API key is configured. Self-serve signup should not reject a property just because another record has an identical, near-identical, abbreviated, unit-specific, or differently formatted address. Once a user is authenticated, LivingRelay should make overlapping properties easy to recognize and eventually offer a merge or cleanup path that preserves work orders, people, billing, invoices, and audit history.
 
 ### SMS Intake And Command Handling
 
