@@ -29,10 +29,15 @@ import {
   createDemoVendorOutreach,
   defaultDispatchSettings,
   ensureWorkOrderDispatchFields,
+  flagVendorRecord,
   mergeDispatchSettings,
   mergeOutcomes,
+  normalizeCallOutcomeStatus,
   recordVendorCallResults,
   recordVendorCompletion,
+  recordVendorToolOutcome,
+  queueVendorCallback,
+  requestTenantFollowUp,
   selectVendorOutcome,
   upsertCallAttempt
 } from "./vendorWorkflow.js";
@@ -946,7 +951,11 @@ app.get("/api/site-admin/diagnostics", async (req, res) => {
         twilioMediaStream: process.env.TWILIO_MEDIA_STREAM_URL || `${baseUrl.replace(/^https:/, "wss:").replace(/^http:/, "ws:")}/api/media/twilio`,
         stripeWebhook: `${baseUrl}/api/stripe/webhook`,
         elevenLabsResult: `${baseUrl}/api/elevenlabs/vendor-call-result`,
-        elevenLabsTranscript: `${baseUrl}/api/elevenlabs/vendor-call-transcript`
+        elevenLabsTranscript: `${baseUrl}/api/elevenlabs/vendor-call-transcript`,
+        elevenLabsOutcomeTool: `${baseUrl}/api/elevenlabs/tools/vendor-call-outcome`,
+        elevenLabsTenantInfoTool: `${baseUrl}/api/elevenlabs/tools/request-tenant-info`,
+        elevenLabsCallbackTool: `${baseUrl}/api/elevenlabs/tools/queue-callback`,
+        elevenLabsVendorFlagTool: `${baseUrl}/api/elevenlabs/tools/flag-vendor`
       },
       attempts: {
         total: vendorAttempts.length,
@@ -3150,6 +3159,7 @@ export function parseElevenLabsWebhook(body = {}) {
       callKey: body.call_key || body.callKey || dynamicVariables.call_key || "",
       summary: body.summary || analysis.transcript_summary || analysis.call_summary || analysis.summary || failureReason,
       status: callFailure ? normalizeRetryableCallStatus(failureReason) : body.status || data.status || statusFromAnalysis(analysis),
+      structured: structuredOutcomeFromWebhook({ body, data, dynamicVariables, collected, analysis }),
       transcript: normalizeElevenLabsTranscript(data.transcript || body.transcript || [])
     }
   };
@@ -3200,6 +3210,35 @@ function valueFrom(collection, key) {
   const value = collection?.[key];
   if (value && typeof value === "object") return value.value ?? value.result ?? value.text ?? value.answer;
   return value;
+}
+
+function structuredOutcomeFromWebhook({ body = {}, data = {}, dynamicVariables = {}, collected = {}, analysis = {} } = {}) {
+  return {
+    business_identity_confirmed: body.business_identity_confirmed ?? valueFrom(collected, "business_identity_confirmed"),
+    business_status: body.business_status ?? valueFrom(collected, "business_status"),
+    call_outcome: body.call_outcome ?? valueFrom(collected, "call_outcome") ?? body.status ?? data.status,
+    can_service_trade: body.can_service_trade ?? valueFrom(collected, "can_service_trade"),
+    can_service_address: body.can_service_address ?? valueFrom(collected, "can_service_address"),
+    earliest_arrival_window: body.earliest_arrival_window ?? body.availability ?? valueFrom(collected, "earliest_arrival_window") ?? valueFrom(collected, "availability"),
+    alternate_windows: body.alternate_windows ?? valueFrom(collected, "alternate_windows"),
+    quote_or_fee: body.quote_or_fee ?? body.quote ?? valueFrom(collected, "quote_or_fee") ?? valueFrom(collected, "quote"),
+    emergency_fee: body.emergency_fee ?? valueFrom(collected, "emergency_fee"),
+    discount: body.discount ?? valueFrom(collected, "discount"),
+    warranty: body.warranty ?? valueFrom(collected, "warranty"),
+    needs_photos: body.needs_photos ?? valueFrom(collected, "needs_photos"),
+    needs_access_details: body.needs_access_details ?? valueFrom(collected, "needs_access_details"),
+    missing_access_fields: body.missing_access_fields ?? valueFrom(collected, "missing_access_fields"),
+    needs_tenant_callback: body.needs_tenant_callback ?? valueFrom(collected, "needs_tenant_callback"),
+    online_booking_required: body.online_booking_required ?? valueFrom(collected, "online_booking_required"),
+    online_booking_url: body.online_booking_url ?? valueFrom(collected, "online_booking_url"),
+    payment_required: body.payment_required ?? valueFrom(collected, "payment_required"),
+    approval_required: body.approval_required ?? valueFrom(collected, "approval_required"),
+    slot_hold_until: body.slot_hold_until ?? valueFrom(collected, "slot_hold_until"),
+    invoice_delivery_confirmed: body.invoice_delivery_confirmed ?? valueFrom(collected, "invoice_delivery_confirmed"),
+    callback_after: body.callback_after ?? valueFrom(collected, "callback_after"),
+    manager_action_required: body.manager_action_required ?? valueFrom(collected, "manager_action_required"),
+    recommended_next_step: body.recommended_next_step ?? valueFrom(collected, "recommended_next_step") ?? analysis.summary ?? dynamicVariables.recommended_next_step
+  };
 }
 
 function booleanValue(value) {
@@ -4538,6 +4577,73 @@ app.post("/api/elevenlabs/vendor-call-transcript", (req, res) => {
   const appended = appendVendorCallTranscriptLine(order, parsed);
   saveState();
   res.json({ ok: true, orderId: order.id, appended });
+});
+
+app.post("/api/elevenlabs/tools/vendor-call-outcome", async (req, res) => {
+  if (!verifyElevenLabsSignature(req)) {
+    res.status(401).json({ error: "invalid ElevenLabs signature" });
+    return;
+  }
+  const orderId = req.body.work_order_id || req.body.workOrderId;
+  const result = recordVendorToolOutcome(orderId, req.body, { actor: "ElevenLabs outcome tool" });
+  if (result.error) {
+    res.status(404).json(result);
+    return;
+  }
+  const autoBooking = await maybeAutoBookVendorOutcome(result.order, {
+    phone: result.outcome?.phone,
+    conversationId: result.outcome?.conversationId,
+    callSid: result.outcome?.callSid
+  }, { actor: "ElevenLabs outcome tool" });
+  res.json({
+    ok: true,
+    outcomeId: result.outcome?.id,
+    status: result.outcome?.status,
+    nextAction: result.outcome?.nextAction,
+    autoBooking
+  });
+});
+
+app.post("/api/elevenlabs/tools/request-tenant-info", (req, res) => {
+  if (!verifyElevenLabsSignature(req)) {
+    res.status(401).json({ error: "invalid ElevenLabs signature" });
+    return;
+  }
+  const result = requestTenantFollowUp(req.body.work_order_id || req.body.workOrderId, req.body, { actor: "ElevenLabs tenant-info tool" });
+  if (result.error) {
+    res.status(404).json(result);
+    return;
+  }
+  res.json({ ok: true, missingFields: result.missingFields });
+});
+
+app.post("/api/elevenlabs/tools/queue-callback", (req, res) => {
+  if (!verifyElevenLabsSignature(req)) {
+    res.status(401).json({ error: "invalid ElevenLabs signature" });
+    return;
+  }
+  const result = queueVendorCallback(req.body.work_order_id || req.body.workOrderId, req.body, { actor: "ElevenLabs callback tool" });
+  if (result.error) {
+    res.status(404).json(result);
+    return;
+  }
+  res.json({ ok: true, callback: result.callback });
+});
+
+app.post("/api/elevenlabs/tools/flag-vendor", (req, res) => {
+  if (!verifyElevenLabsSignature(req)) {
+    res.status(401).json({ error: "invalid ElevenLabs signature" });
+    return;
+  }
+  const result = flagVendorRecord({
+    phone: req.body.phone || req.body.vendor_phone,
+    vendorName: req.body.vendorName || req.body.vendor_name,
+    reason: req.body.reason || req.body.recommended_next_step,
+    status: normalizeCallOutcomeStatus(req.body.status || req.body.call_outcome),
+    orderId: req.body.work_order_id || req.body.workOrderId,
+    actor: "ElevenLabs vendor hygiene tool"
+  });
+  res.json({ ok: true, ...result });
 });
 
 app.post("/api/twilio/elevenlabs/outbound", async (req, res) => {

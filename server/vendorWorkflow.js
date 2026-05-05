@@ -9,6 +9,72 @@ export const vendorCallQuestions = [
   "Unless the property manager gives different instructions, can you send the invoice to the property manager, owner, and LivingRelay recordkeeping inbox?"
 ];
 
+export const vendorCallOutcomeStatuses = [
+  "initiated",
+  "ringing",
+  "answered",
+  "available",
+  "needs_manager_review",
+  "needs_tenant_info",
+  "needs_photos",
+  "online_booking_required",
+  "callback_requested",
+  "closed_now",
+  "phone_tree",
+  "voicemail_left",
+  "wrong_number",
+  "number_disconnected",
+  "out_of_business",
+  "not_available",
+  "declined",
+  "busy",
+  "no-answer",
+  "failed",
+  "hold_timeout",
+  "payment_required",
+  "tenant_timing_confirmation",
+  "booked"
+];
+
+export const vendorCallOutcomeSchemaFields = [
+  "business_identity_confirmed",
+  "business_status",
+  "call_outcome",
+  "can_service_trade",
+  "can_service_address",
+  "earliest_arrival_window",
+  "alternate_windows",
+  "quote_or_fee",
+  "emergency_fee",
+  "discount",
+  "warranty",
+  "needs_photos",
+  "needs_access_details",
+  "missing_access_fields",
+  "needs_tenant_callback",
+  "online_booking_required",
+  "online_booking_url",
+  "payment_required",
+  "approval_required",
+  "slot_hold_until",
+  "invoice_delivery_confirmed",
+  "callback_after",
+  "manager_action_required",
+  "recommended_next_step"
+];
+
+export const vendorAgentScenarioInstructions = [
+  "Confirm you reached the intended vendor or service business before sharing full property details.",
+  "If this is a wrong number, out-of-business recording, disconnected line, or unrelated business, apologize, stop sharing details, and record the outcome.",
+  "If the business is closed, ask for emergency service or callback hours; for emergencies, continue to the next vendor if no emergency dispatch is available.",
+  "If you hit a phone tree, try the repair/service/scheduling path only when obvious; stop and request manager help if account-specific information or payment is required.",
+  "If online booking is required, capture the URL and required fields; do not submit payment or tenant-sensitive details.",
+  "If photos or access details are required, capture exactly what is needed and request tenant or manager follow-up instead of booking.",
+  "Never provide payment card details or authorize deposits; request invoice/payment link delivery to the manager/owner.",
+  "Never disclose tenant phone, lockbox, gate code, or sensitive access details unless the manager policy explicitly allows it.",
+  "Do not promise a booking unless LivingRelay confirms booking gates are clear."
+];
+
 export const defaultRetryPolicy = {
   maxAttemptsPerVendor: 3,
   retryNoAnswerAfterMinutes: 10,
@@ -24,6 +90,11 @@ export function defaultDispatchSettings() {
     emergencyOutreachMode: "manager_approval",
     maxVendorsToCall: 5,
     requireTenantAvailabilityBeforeBooking: true,
+    allowVendorVoicemail: true,
+    allowDirectTenantVendorContact: false,
+    autoBookAvailableVendor: false,
+    phoneTreeMaxDepth: 2,
+    maxHoldMinutes: 5,
     productionVendorCallsEnabled: true,
     retryPolicy: defaultRetryPolicy,
     inboundInvoiceEmail: process.env.INBOUND_EMAIL_ADDRESS || "invoices@livingrelay.com",
@@ -136,6 +207,7 @@ export function prepareVendorOutreach(orderId, { mode = "AI calls", actor = "man
   const settings = mergeDispatchSettings(property?.dispatchSettings);
   const invoiceDelivery = buildInvoiceDeliveryInstructions(property, settings);
   const options = getVendorOptions(order, settings.maxVendorsToCall);
+  const agentInstructions = buildVendorAgentInstructions({ order, property, settings });
   order.vendorOutreach = {
     ...(order.vendorOutreach || {}),
     status: "Preparing",
@@ -143,11 +215,17 @@ export function prepareVendorOutreach(orderId, { mode = "AI calls", actor = "man
     provider,
     startedAt: new Date().toISOString(),
     questions: vendorCallQuestions,
+    agentInstructions,
+    outcomeSchema: vendorCallOutcomeSchemaFields,
     candidates: options.map((vendor) => ({
       name: vendor.name,
       phone: vendor.phone,
       trade: vendor.trade || order.trade,
-      source: vendor.source || (vendor.preferred ? "Preferred vendor" : "Vendor option")
+      source: vendor.source || (vendor.preferred ? "Preferred vendor" : "Vendor option"),
+      serviceArea: vendor.serviceArea || vendor.metadata?.serviceArea || "",
+      onlineBookingUrl: vendor.onlineBookingUrl || vendor.metadata?.onlineBookingUrl || "",
+      dispatchNotes: vendor.dispatchNotes || vendor.metadata?.dispatchNotes || "",
+      hygieneStatus: vendor.hygiene?.status || "active"
     })),
     outcomes: order.vendorOutreach?.outcomes || [],
     inboundInvoiceEmail: settings.inboundInvoiceEmail,
@@ -157,6 +235,36 @@ export function prepareVendorOutreach(orderId, { mode = "AI calls", actor = "man
   order.timeline.push(event("Vendor outreach prepared", `${options.length} vendor candidate(s) queued by ${actor}.`));
   saveState();
   return { order, property, settings, options };
+}
+
+export function buildVendorAgentInstructions({ order, property, settings = mergeDispatchSettings(property?.dispatchSettings) } = {}) {
+  const managerPolicy = [
+    `Work order: ${order?.id || ""}`,
+    `Trade: ${order?.trade || ""}`,
+    `Urgency: ${order?.serviceWindow || order?.severity || ""}`,
+    `Issue: ${order?.issue || ""}`,
+    `Tenant availability: ${order?.tenantAvailability?.preferredWindows?.join("; ") || order?.access || "Needs confirmation"}`,
+    `Access notes: ${order?.tenantAvailability?.accessNotes || order?.access || "Needs confirmation"}`,
+    `Voicemail allowed: ${settings.allowVendorVoicemail ? "yes" : "no"}`,
+    `Direct tenant contact allowed: ${settings.allowDirectTenantVendorContact ? "yes" : "no"}`,
+    `Automatic booking allowed: ${settings.autoBookAvailableVendor || settings.vendorOutreachMode === "automatic_after_confirmed" ? "only if LivingRelay confirms approval and tenant gates" : "no, manager recommendation required"}`,
+    `Phone tree max depth: ${settings.phoneTreeMaxDepth}`,
+    `Max hold minutes: ${settings.maxHoldMinutes}`,
+    `Invoice instructions: ${order?.vendorOutreach?.invoiceDeliveryInstructions || settings.invoiceDeliveryInstructions || "Send invoice to manager, owner, and LivingRelay records unless instructed otherwise."}`
+  ].join("\n");
+  return [
+    "You are LivingRelay's vendor dispatch coordinator for a rental repair.",
+    "Your goal is to help the tenant get the needed repair while following the property manager's instructions.",
+    "First verify business identity and service fit before sharing full property details.",
+    "Collect structured outcomes for every call and use tool calls to report blocked, failed, or bookable outcomes.",
+    ...vendorAgentScenarioInstructions,
+    "Property manager policy:",
+    managerPolicy,
+    "Required vendor questions:",
+    vendorCallQuestions.map((question, index) => `${index + 1}. ${question}`).join("\n"),
+    "Structured outcome fields:",
+    vendorCallOutcomeSchemaFields.join(", ")
+  ].join("\n\n");
 }
 
 export function buildInvoiceDeliveryInstructions(property, settings = mergeDispatchSettings(property?.dispatchSettings)) {
@@ -192,7 +300,7 @@ export function recordVendorCallResults(orderId, callResults = [], { actor = "El
   }
   order.vendorOutreach = {
     ...(order.vendorOutreach || {}),
-    status: outcomes.some((outcome) => outcome.status === "Available") ? "Vendor options returned" : "Needs manager review",
+    status: outcomes.some((outcome) => normalizeCallOutcomeStatus(outcome.status) === "available") ? "Vendor options returned" : "Needs manager review",
     completedAt: new Date().toISOString(),
     outcomes,
     questions: vendorCallQuestions
@@ -200,6 +308,35 @@ export function recordVendorCallResults(orderId, callResults = [], { actor = "El
   order.timeline.push(event("Vendor outreach results captured", `${outcomes.length} vendor outcome(s) saved from ${actor}.`));
   saveState();
   return { order, outcomes };
+}
+
+export function recordVendorToolOutcome(orderId, payload = {}, { actor = "ElevenLabs tool" } = {}) {
+  const order = ensureWorkOrderDispatchFields(workOrders.find((item) => item.id === orderId));
+  if (!order) return { error: "work order not found" };
+  const call = {
+    ...payload,
+    vendorName: payload.vendorName || payload.vendor_name || payload.vendor,
+    phone: payload.phone || payload.vendorPhone || payload.vendor_phone,
+    conversationId: payload.conversationId || payload.conversation_id,
+    callSid: payload.callSid || payload.call_sid,
+    callKey: payload.callKey || payload.call_key,
+    status: normalizeCallOutcomeStatus(payload.call_outcome || payload.status || payload.outcome),
+    quote: payload.quote || payload.quote_or_fee,
+    availability: payload.availability || payload.earliest_arrival_window,
+    needsPhotos: payload.needsPhotos ?? payload.needs_photos,
+    notes: payload.notes || payload.summary || payload.recommended_next_step,
+    structured: normalizeStructuredOutcome(payload)
+  };
+  const result = recordVendorCallResults(orderId, [call], { actor });
+  if (result.error) return result;
+  const outcome = result.outcomes.find((item) =>
+    (call.conversationId && item.conversationId === call.conversationId) ||
+    (call.callSid && item.callSid === call.callSid) ||
+    (call.phone && item.phone === call.phone)
+  ) || result.outcomes.at(-1);
+  applyOutcomeSideEffects(order, outcome, call.structured, { actor });
+  saveState();
+  return { order, outcome, structured: call.structured };
 }
 
 export function createCallAttempt(order, vendor, details = {}) {
@@ -251,6 +388,81 @@ export function upsertCallAttempt(order, vendorOrCall, patch = {}) {
   const retry = retryDecision(order, attempt);
   attempt.retry = retry;
   return attempt;
+}
+
+export function normalizeCallOutcomeStatus(value = "") {
+  const text = String(value || "").toLowerCase().trim().replace(/\s+/g, "_").replace(/-/g, "_");
+  if (!text) return "needs_manager_review";
+  if (["available", "accepted", "can_dispatch", "confirmed", "scheduled"].includes(text)) return "available";
+  if (["no_answer", "noanswer"].includes(text)) return "no-answer";
+  if (["disconnected", "invalid_number", "number_not_in_service"].includes(text)) return "number_disconnected";
+  if (["wrong", "wrong_phone", "wrong_business"].includes(text)) return "wrong_number";
+  if (["closed", "closed_now", "after_hours"].includes(text)) return "closed_now";
+  if (["callback", "call_back", "call_later"].includes(text)) return "callback_requested";
+  if (["photos", "needs_photo", "photo_required"].includes(text)) return "needs_photos";
+  if (["access", "needs_access", "tenant_info"].includes(text)) return "needs_tenant_info";
+  if (["online", "online_booking", "website_booking"].includes(text)) return "online_booking_required";
+  if (["payment", "deposit", "card_required"].includes(text)) return "payment_required";
+  if (vendorCallOutcomeStatuses.includes(text)) return text;
+  return "needs_manager_review";
+}
+
+export function flagVendorRecord({ phone = "", vendorName = "", reason = "", status = "needs_review", orderId = "", actor = "ElevenLabs" } = {}) {
+  const vendor = vendors.find((item) => (phone && item.phone === phone) || (vendorName && item.name === vendorName));
+  if (!vendor) return { flagged: false, reason: "vendor_not_found" };
+  vendor.hygiene = {
+    ...(vendor.hygiene || {}),
+    status,
+    reason,
+    orderId,
+    updatedAt: new Date().toISOString()
+  };
+  recordAudit(actor, "Flagged vendor record", `${vendor.name}: ${status}${reason ? ` (${reason})` : ""}.`);
+  saveState();
+  return { flagged: true, vendor };
+}
+
+export function queueVendorCallback(orderId, payload = {}, { actor = "ElevenLabs" } = {}) {
+  const order = ensureWorkOrderDispatchFields(workOrders.find((item) => item.id === orderId));
+  if (!order) return { error: "work order not found" };
+  const callback = {
+    id: `callback-${order.id}-${Date.now()}`,
+    vendorName: payload.vendorName || payload.vendor_name || payload.vendor || "Vendor",
+    phone: payload.phone || payload.vendorPhone || payload.vendor_phone || "",
+    callbackAfter: payload.callbackAfter || payload.callback_after || "",
+    reason: payload.reason || payload.summary || "Vendor requested callback.",
+    status: "Queued",
+    createdAt: new Date().toISOString()
+  };
+  order.vendorOutreach.callbacks = [callback, ...(order.vendorOutreach.callbacks || [])];
+  order.vendorOutreach.status = "Callback queued";
+  order.timeline.push(event("Vendor callback queued", `${callback.vendorName}: ${callback.callbackAfter || callback.reason}.`));
+  recordAudit(actor, "Queued vendor callback", `${order.id}: ${callback.vendorName}.`);
+  saveState();
+  return { order, callback };
+}
+
+export function requestTenantFollowUp(orderId, payload = {}, { actor = "ElevenLabs" } = {}) {
+  const order = ensureWorkOrderDispatchFields(workOrders.find((item) => item.id === orderId));
+  if (!order) return { error: "work order not found" };
+  const missing = payload.missingFields || payload.missing_access_fields || payload.request || "More access details";
+  order.tenantAvailability = {
+    ...(order.tenantAvailability || buildTenantAvailability(order)),
+    needsFollowUp: true,
+    missingFields: Array.isArray(missing) ? missing : [String(missing)],
+    updatedAt: new Date().toISOString()
+  };
+  order.dispatchStage = "tenant_timing_confirmation";
+  order.vendorOutreach.status = "Needs tenant info";
+  order.messages = order.messages || [];
+  order.messages.push({
+    from: "relay",
+    body: `Vendor needs more info for ${order.id}: ${Array.isArray(missing) ? missing.join(", ") : missing}.`,
+    stamp: new Date().toISOString()
+  });
+  order.timeline.push(event("Tenant info requested", `${actor} requested: ${Array.isArray(missing) ? missing.join(", ") : missing}.`));
+  saveState();
+  return { order, missingFields: order.tenantAvailability.missingFields };
 }
 
 export function retryDecision(order, attempt) {
@@ -353,7 +565,10 @@ function getVendorOptions(order, limit = 5) {
   const options = order.vendorOptions?.length
     ? order.vendorOptions
     : vendors.filter((vendor) => vendor.trade === order.trade);
-  return prioritizeVendors(options, settings.vendorPreferences?.[order.trade] || []).slice(0, limit || 5);
+  return prioritizeVendors(
+    options.filter((vendor) => !["wrong_number", "number_disconnected", "out_of_business"].includes(vendor.hygiene?.status)),
+    settings.vendorPreferences?.[order.trade] || []
+  ).slice(0, limit || 5);
 }
 
 export function prioritizeVendors(options = [], preferredNamesOrPhones = []) {
@@ -392,7 +607,8 @@ function scoreVendor(vendor, preferences) {
 }
 
 function normalizeVendorOutcome(order, call, index) {
-  const status = call.status || call.outcome || (call.success ? "Available" : "Failed");
+  const status = normalizeCallOutcomeStatus(call.status || call.outcome || (call.success ? "available" : "failed"));
+  const structured = normalizeStructuredOutcome(call.structured || call);
   return {
     id: call.id || `outcome-${order.id}-${index + 1}`,
     vendorName: call.vendorName || call.vendor || `Vendor ${index + 1}`,
@@ -405,6 +621,8 @@ function normalizeVendorOutcome(order, call, index) {
     invoiceEmail: call.invoiceEmail || call.invoiceDeliveryInstructions || call.inboundInvoiceEmail || process.env.INBOUND_EMAIL_ADDRESS || "invoices@livingrelay.com",
     invoiceRecipients: call.invoiceRecipients || [],
     needsPhotos: Boolean(call.needsPhotos || /photo/i.test(call.summary || call.error || "")),
+    structured,
+    nextAction: nextActionForStructuredOutcome(structured),
     notes: call.notes || call.summary || call.error || "",
     selected: false,
     source: call.conversation_id || call.conversationId ? "ElevenLabs" : "Manual/demo",
@@ -412,6 +630,56 @@ function normalizeVendorOutcome(order, call, index) {
     callSid: call.callSid || call.call_sid || null,
     transcript: normalizeTranscript(call.transcript || [])
   };
+}
+
+function normalizeStructuredOutcome(payload = {}) {
+  const structured = {};
+  for (const field of vendorCallOutcomeSchemaFields) {
+    const camel = field.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+    const value = payload[field] ?? payload[camel];
+    if (value !== undefined && value !== null && value !== "") structured[field] = value;
+  }
+  structured.call_outcome = normalizeCallOutcomeStatus(structured.call_outcome || payload.status || payload.outcome);
+  return structured;
+}
+
+function nextActionForStructuredOutcome(structured = {}) {
+  const status = normalizeCallOutcomeStatus(structured.call_outcome);
+  if (["wrong_number", "number_disconnected", "out_of_business", "declined", "not_available"].includes(status)) return "try_next_vendor";
+  if (status === "callback_requested" || status === "closed_now") return "queue_callback_or_try_next";
+  if (status === "online_booking_required") return "manager_online_booking";
+  if (status === "needs_photos") return "request_tenant_photos";
+  if (status === "needs_tenant_info") return "request_tenant_info";
+  if (status === "payment_required") return "manager_review_payment";
+  if (status === "available") return structured.approval_required ? "owner_or_manager_approval" : "recommend_booking";
+  return "manager_review";
+}
+
+function applyOutcomeSideEffects(order, outcome, structured = {}, { actor = "ElevenLabs" } = {}) {
+  const status = normalizeCallOutcomeStatus(structured.call_outcome || outcome?.status);
+  if (["wrong_number", "number_disconnected", "out_of_business"].includes(status)) {
+    flagVendorRecord({
+      phone: outcome?.phone,
+      vendorName: outcome?.vendorName,
+      status,
+      reason: structured.recommended_next_step || status,
+      orderId: order.id,
+      actor
+    });
+  }
+  if (status === "callback_requested" || status === "closed_now") {
+    queueVendorCallback(order.id, {
+      vendorName: outcome?.vendorName,
+      phone: outcome?.phone,
+      callbackAfter: structured.callback_after,
+      reason: structured.recommended_next_step
+    }, { actor });
+  }
+  if (status === "needs_tenant_info" || structured.needs_access_details) {
+    requestTenantFollowUp(order.id, {
+      missingFields: structured.missing_access_fields || structured.recommended_next_step || "Access details"
+    }, { actor });
+  }
 }
 
 function findAttempt(order, vendorOrCall) {

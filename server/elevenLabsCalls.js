@@ -1,7 +1,7 @@
 import { accounts, people, platformSettings, properties, workOrders } from "./data.js";
 import { attachOutboundCallSessions } from "./liveCallControl.js";
 import { createMediaRelayToken } from "./mediaRelay.js";
-import { prepareVendorOutreach, recordVendorCallResults, upsertCallAttempt, vendorCallQuestions } from "./vendorWorkflow.js";
+import { buildVendorAgentInstructions, prepareVendorOutreach, recordVendorCallResults, upsertCallAttempt, vendorCallOutcomeSchemaFields, vendorCallQuestions } from "./vendorWorkflow.js";
 import { startVoiceCall } from "./twilioClient.js";
 
 export async function startVendorQuoteCalls(orderId, { actor = "manager", demoFallback = true, testVendorPhone = "", testOnly = false, onlyVendorPhone = "" } = {}) {
@@ -136,7 +136,9 @@ async function startOutboundCall({ vendor, property, tenant, order }) {
             call_key: callKey,
             inbound_invoice_email: process.env.INBOUND_EMAIL_ADDRESS || "invoices@livingrelay.com",
             invoice_delivery_instructions: order.vendorOutreach?.invoiceDeliveryInstructions || `Send invoice to the property manager, owner, and ${process.env.INBOUND_EMAIL_ADDRESS || "invoices@livingrelay.com"} unless told otherwise.`,
-            vendor_questions: vendorCallQuestions.join(" | ")
+            vendor_questions: vendorCallQuestions.join(" | "),
+            vendor_agent_instructions: order.vendorOutreach?.agentInstructions || buildVendorAgentInstructions({ order, property }),
+            vendor_outcome_schema: vendorCallOutcomeSchemaFields.join(" | ")
           }
         }
       })
@@ -214,7 +216,9 @@ export async function registerTwilioCallWithElevenLabs({ fromNumber, toNumber, o
           manager_join_policy: "If a property manager joins or is introduced, acknowledge them as the lead maintenance coordinator, defer decisions to them, and continue helping with vendor information capture.",
           inbound_invoice_email: process.env.INBOUND_EMAIL_ADDRESS || "invoices@livingrelay.com",
           invoice_delivery_instructions: order?.vendorOutreach?.invoiceDeliveryInstructions || `Send invoice to the property manager, owner, and ${process.env.INBOUND_EMAIL_ADDRESS || "invoices@livingrelay.com"} unless told otherwise.`,
-          vendor_questions: vendorCallQuestions.join(" | ")
+          vendor_questions: vendorCallQuestions.join(" | "),
+          vendor_agent_instructions: order?.vendorOutreach?.agentInstructions || buildVendorAgentInstructions({ order, property }),
+          vendor_outcome_schema: vendorCallOutcomeSchemaFields.join(" | ")
         }
       }
     })
