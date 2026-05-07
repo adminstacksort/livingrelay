@@ -5,7 +5,7 @@ export const vendorCallQuestions = [
   "What callout, diagnostic, emergency, after-hours, or minimum labor fee applies?",
   "Can you offer any property-manager, repeat-customer, or multi-unit discount?",
   "What warranty do you provide on labor and parts?",
-  "Do you need tenant photos, access instructions, parking, gate code, or shutoff details before dispatch?",
+  "Do you need the full street address, ZIP code, cross street, unit location, tenant photos, parking, gate code, shutoff details, or other access instructions before quoting or dispatch?",
   "Unless the property manager gives different instructions, can you send the invoice to the property manager, owner, and LivingRelay recordkeeping inbox?"
 ];
 
@@ -51,6 +51,7 @@ export const vendorCallOutcomeSchemaFields = [
   "needs_photos",
   "needs_access_details",
   "missing_access_fields",
+  "scope_sufficiency",
   "needs_tenant_callback",
   "online_booking_required",
   "online_booking_url",
@@ -112,7 +113,53 @@ export function defaultDispatchSettings() {
 }
 
 export function mergeDispatchSettings(settings = {}) {
-  return { ...defaultDispatchSettings(), ...settings };
+  const defaults = defaultDispatchSettings();
+  return {
+    ...defaults,
+    ...settings,
+    vendorPreferences: normalizeVendorPreferences({
+      ...defaults.vendorPreferences,
+      ...(settings?.vendorPreferences || {})
+    })
+  };
+}
+
+export function normalizeVendorPreferenceEntry(entry = {}) {
+  if (typeof entry === "string") {
+    return { name: entry.trim() };
+  }
+  return {
+    name: String(entry.name || entry.businessName || "").trim(),
+    phone: String(entry.phone || "").trim(),
+    trade: String(entry.trade || "").trim(),
+    address: String(entry.address || entry.formattedAddress || "").trim(),
+    websiteUri: String(entry.websiteUri || entry.website || "").trim(),
+    placeId: String(entry.placeId || entry.place_id || "").trim(),
+    source: String(entry.source || "").trim()
+  };
+}
+
+export function normalizeVendorPreferences(preferences = {}) {
+  const defaults = defaultDispatchSettings().vendorPreferences;
+  return Object.keys({ ...defaults, ...(preferences || {}) }).reduce((normalized, trade) => {
+    const entries = Array.isArray(preferences?.[trade]) ? preferences[trade] : [];
+    const seen = new Set();
+    normalized[trade] = entries
+      .map((entry) => normalizeVendorPreferenceEntry(entry))
+      .filter((entry) => entry.name)
+      .filter((entry) => {
+        const key = `${entry.name}:${entry.phone}`.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    return normalized;
+  }, {});
+}
+
+export function vendorPreferenceLabel(entry = {}) {
+  const preference = normalizeVendorPreferenceEntry(entry);
+  return preference.name || preference.phone || "";
 }
 
 export function classifyServiceWindow({ severity = "Normal", issue = "", access = "" }) {
@@ -238,11 +285,17 @@ export function prepareVendorOutreach(orderId, { mode = "AI calls", actor = "man
 }
 
 export function buildVendorAgentInstructions({ order, property, settings = mergeDispatchSettings(property?.dispatchSettings) } = {}) {
+  const scope = buildVendorScopeDetails({ order, property });
   const managerPolicy = [
     `Work order: ${order?.id || ""}`,
     `Trade: ${order?.trade || ""}`,
     `Urgency: ${order?.serviceWindow || order?.severity || ""}`,
+    `Vendor-ready scope: ${scope}`,
     `Issue: ${order?.issue || ""}`,
+    `Property: ${property?.name || ""}`,
+    `Address: ${property?.address || "Ask manager before sharing address"}`,
+    `ZIP/postal code: ${extractPostalCode(property?.address) || "Unknown"}`,
+    `Unit or area: ${order?.unit || "Unknown"}`,
     `Tenant availability: ${order?.tenantAvailability?.preferredWindows?.join("; ") || order?.access || "Needs confirmation"}`,
     `Access notes: ${order?.tenantAvailability?.accessNotes || order?.access || "Needs confirmation"}`,
     `Voicemail allowed: ${settings.allowVendorVoicemail ? "yes" : "no"}`,
@@ -256,6 +309,9 @@ export function buildVendorAgentInstructions({ order, property, settings = merge
     "You are LivingRelay's vendor dispatch coordinator for a rental repair.",
     "Your goal is to help the tenant get the needed repair while following the property manager's instructions.",
     "First verify business identity and service fit before sharing full property details.",
+    "Give the vendor the complete scope packet before asking for a quote: property city/ZIP or full address when appropriate, unit/area, observable issue details, urgency, tenant availability, access notes, media summary, and invoice instructions.",
+    "If the vendor asks for missing details such as address, ZIP code, photos, shutoff status, model number, parking, gate code, or tenant availability, capture the exact missing fields and call the request-tenant-info tool instead of guessing.",
+    "Before ending the call, summarize quote/fee, earliest timing, assumptions, what is not included, and what manager or tenant action is needed.",
     "Collect structured outcomes for every call and use tool calls to report blocked, failed, or bookable outcomes.",
     ...vendorAgentScenarioInstructions,
     "Property manager policy:",
@@ -265,6 +321,43 @@ export function buildVendorAgentInstructions({ order, property, settings = merge
     "Structured outcome fields:",
     vendorCallOutcomeSchemaFields.join(", ")
   ].join("\n\n");
+}
+
+export function buildVendorScopeDetails({ order, property } = {}) {
+  const missing = missingVendorScopeFields({ order, property });
+  const mediaSummary = order?.mediaReview?.insights?.vendorPrep
+    || order?.mediaReview?.insights?.summary
+    || (order?.media?.length ? `${order.media.length} tenant media attachment(s) available` : "No tenant media attached");
+  const parts = [
+    property?.name ? `Property ${property.name}` : "",
+    property?.address ? `Address ${property.address}` : "",
+    extractPostalCode(property?.address) ? `ZIP ${extractPostalCode(property.address)}` : "",
+    order?.unit ? `Unit/area ${order.unit}` : "",
+    order?.trade ? `Trade ${order.trade}` : "",
+    order?.serviceWindow || order?.severity ? `Timing ${order.serviceWindow || order.severity}` : "",
+    order?.issue ? `Issue ${order.issue}` : "",
+    order?.tenantAvailability?.accessNotes || order?.access ? `Access ${order.tenantAvailability?.accessNotes || order.access}` : "Access needs confirmation",
+    order?.tenantAvailability?.preferredWindows?.length ? `Tenant windows ${order.tenantAvailability.preferredWindows.join("; ")}` : "",
+    mediaSummary ? `Media ${mediaSummary}` : "",
+    order?.estimate ? `Manager estimate signal $${order.estimate}` : "",
+    missing.length ? `Missing details to confirm ${missing.join(", ")}` : ""
+  ].filter(Boolean);
+  return parts.join(" | ");
+}
+
+export function missingVendorScopeFields({ order, property } = {}) {
+  const missing = [];
+  if (!property?.address) missing.push("property address or ZIP");
+  if (!order?.unit) missing.push("unit or exact area");
+  if (!order?.issue || String(order.issue).trim().split(/\s+/).length < 4) missing.push("more issue detail");
+  if (!order?.access && !order?.tenantAvailability?.accessNotes && !order?.tenantAvailability?.preferredWindows?.length) missing.push("tenant availability/access");
+  if (tenantPresenceLikelyRelevant(order) && order?.tenantAvailability?.needsFollowUp) missing.push("entry permission or access window");
+  return [...new Set(missing)];
+}
+
+export function extractPostalCode(address = "") {
+  const match = String(address || "").match(/\b\d{5}(?:-\d{4})?\b/);
+  return match?.[0] || "";
 }
 
 export function buildInvoiceDeliveryInstructions(property, settings = mergeDispatchSettings(property?.dispatchSettings)) {
@@ -352,6 +445,7 @@ export function createCallAttempt(order, vendor, details = {}) {
     callSid: details.callSid || null,
     conversationId: details.conversationId || null,
     callKey: details.callKey || null,
+    recordingUrl: details.recordingUrl || null,
     startedAt: details.startedAt || new Date().toISOString(),
     answeredAt: details.answeredAt || null,
     completedAt: details.completedAt || null,
@@ -572,7 +666,11 @@ function getVendorOptions(order, limit = 5) {
 }
 
 export function prioritizeVendors(options = [], preferredNamesOrPhones = []) {
-  const preferences = preferredNamesOrPhones.map((item) => String(item).toLowerCase().trim()).filter(Boolean);
+  const preferences = preferredNamesOrPhones
+    .map((item) => normalizeVendorPreferenceEntry(item))
+    .flatMap((item) => [item.name, item.phone].filter(Boolean))
+    .map((item) => String(item).toLowerCase().trim())
+    .filter(Boolean);
   return [...options].sort((left, right) => scoreVendor(right, preferences) - scoreVendor(left, preferences));
 }
 
@@ -623,13 +721,24 @@ function normalizeVendorOutcome(order, call, index) {
     needsPhotos: Boolean(call.needsPhotos || /photo/i.test(call.summary || call.error || "")),
     structured,
     nextAction: nextActionForStructuredOutcome(structured),
+    missingFields: normalizeMissingFields(call.missingFields || structured.missing_access_fields),
+    managerActionRequired: call.managerActionRequired || structured.manager_action_required || "",
+    recommendedNextStep: call.recommendedNextStep || structured.recommended_next_step || "",
+    scopeSufficiency: call.scopeSufficiency || structured.scope_sufficiency || "",
     notes: call.notes || call.summary || call.error || "",
     selected: false,
     source: call.conversation_id || call.conversationId ? "ElevenLabs" : "Manual/demo",
     conversationId: call.conversation_id || call.conversationId || null,
     callSid: call.callSid || call.call_sid || null,
+    recordingUrl: call.recordingUrl || call.recording_url || call.audioUrl || call.audio_url || null,
     transcript: normalizeTranscript(call.transcript || [])
   };
+}
+
+function normalizeMissingFields(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  return String(value).split(/[,;|]/).map((item) => item.trim()).filter(Boolean);
 }
 
 function normalizeStructuredOutcome(payload = {}) {

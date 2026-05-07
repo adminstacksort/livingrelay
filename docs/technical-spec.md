@@ -260,9 +260,9 @@ ElevenLabs powers vendor quote/availability calls. Calls are disabled unless `EN
 
 Post-call webhooks are verified with `ELEVENLABS_WEBHOOK_SECRET` in production and stored as outcomes/attempts.
 
-### Anthropic
+### Vendor Discovery
 
-When `ANTHROPIC_API_KEY` is configured, the app can research local vendor options for a property and issue. Without the key, it falls back to configured/demo vendors.
+When a work order needs vendor options, the backend searches in priority order: Anthropic with web search, OpenAI Responses API with web search, Google AI/Gemini, Google Business Profile/Places, an optional generic open web search endpoint, then configured vendors. Results are normalized into vendor name, trade, phone, estimate range, availability note, reason, and source. Without a discovery provider, fallback results are marked as configured but not web-verified.
 
 ### Stripe
 

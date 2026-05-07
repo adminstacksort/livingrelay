@@ -77,7 +77,10 @@ export async function getReadiness() {
       voiceOtp
     },
     ai: {
-      anthropicConfigured: Boolean(process.env.ANTHROPIC_API_KEY)
+      anthropicConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
+      openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
+      googleAiConfigured: Boolean(process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY),
+      openWebSearchConfigured: Boolean(process.env.OPEN_WEB_SEARCH_API_URL || process.env.WEB_SEARCH_API_URL)
     },
     places: {
       googleConfigured: googlePlacesConfigured

@@ -148,9 +148,16 @@ The default should be:
 
 Tenant report notifications are informational unless the message is an explicit approval request.
 
-### Anthropic Vendor Research
+### AI Vendor Research
 
-When a tenant reports an issue, LivingRelay can call Anthropic with web search enabled to find five local vendor options.
+When a tenant reports an issue, LivingRelay ranks real local vendor options through a provider chain:
+
+1. Anthropic with web search enabled.
+2. OpenAI Responses API with web search when `OPENAI_API_KEY` is configured.
+3. Google AI/Gemini when `GOOGLE_AI_API_KEY` or `GEMINI_API_KEY` is configured.
+4. Google Business Profile/Places search when `GOOGLE_PLACES_API_KEY` is configured.
+5. A generic open web search JSON endpoint when `OPEN_WEB_SEARCH_API_URL` is configured.
+6. Configured vendors only, clearly marked as not web-verified.
 
 Required env:
 
@@ -159,7 +166,22 @@ ANTHROPIC_API_KEY
 ANTHROPIC_MODEL=claude-sonnet-4-20250514
 ```
 
-If no Anthropic key is present, the app falls back to configured/demo vendors so local development still works.
+Optional env:
+
+```text
+ANTHROPIC_VENDOR_SEARCH_MODEL
+OPENAI_API_KEY
+OPENAI_VENDOR_SEARCH_MODEL=gpt-5.2
+GOOGLE_AI_API_KEY
+GEMINI_API_KEY
+GOOGLE_VENDOR_SEARCH_MODEL=gemini-2.5-flash
+GOOGLE_PLACES_API_KEY
+OPEN_WEB_SEARCH_API_URL
+OPEN_WEB_SEARCH_API_KEY
+OPEN_WEB_SEARCH_QUERY_PARAM=q
+```
+
+If no discovery provider is configured, the app falls back to configured vendors so local development still works without inventing businesses.
 
 The manager SMS includes:
 

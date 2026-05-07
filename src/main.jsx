@@ -7478,6 +7478,9 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
   const manager = people.find((person) => person.id === property.managerId || person.id === property.adminId);
   const owner = people.find((person) => person.id === property.ownerId);
   const vendorTeam = preferredVendorTeam(property, vendors);
+  const selectedOutcome = (activeOrder.vendorOutreach?.outcomes || []).find((item) => item.selected || item.id === activeOrder.vendorOutreach?.selectedOutcomeId);
+  const vendorScope = vendorScopeSummary(activeOrder, property);
+  const vendorNextStep = vendorActionSummary(activeOrder);
   return (
     <section className="split-view">
       <div className="panel">
@@ -7495,6 +7498,7 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
           <MiniRow icon={<UserRound />} label="Owner" value={`${owner?.name || "Owner"} · ${owner?.phone || ""}`} />
           <MiniRow icon={<Wrench />} label="Rules" value={property.rules} />
           <MiniRow icon={<ClipboardList />} label="Their team" value={vendorTeam.length ? vendorTeam.map((item) => `${item.trade}: ${item.names.join(", ")}`).join(" · ") : "No preferred vendors assigned yet"} />
+          <MiniRow icon={<AlertTriangle />} label="Vendor records" value={vendorRecordSummary(vendors.filter((item) => item.propertyIds?.includes(property.id) || item.preferred || item.trade === activeOrder.trade))} />
         </div>
         <AdminTools property={property} people={people} vendors={vendors} auditLog={auditLog} reloadState={reloadState} />
         <StaleNudgePanel
@@ -7534,9 +7538,11 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
           <p>{activeOrder.issue}</p>
           <div className="decision-grid">
             <MiniRow icon={<Bot />} label="AI summary" value={`${activeOrder.trade}, ${formatMoney(activeOrder.estimate)}, suggested ${vendor?.name}`} />
+            <MiniRow icon={<MapPin />} label="Scope packet" value={vendorScope} />
             <MiniRow icon={<Phone />} label="Tenant access" value={activeOrder.access} />
             <MiniRow icon={<AlertTriangle />} label="Service timing" value={`${activeOrder.tenantAvailability?.serviceWindow || activeOrder.serviceWindow || activeOrder.severity} · ${(activeOrder.tenantAvailability?.preferredWindows || []).join(", ") || "Needs tenant confirmation"}`} />
-            <MiniRow icon={<Wrench />} label="Vendor SMS" value={`Send scope to ${vendor?.phone}: ${activeOrder.issue}`} />
+            <MiniRow icon={<Wrench />} label="Vendor outreach" value={selectedOutcome ? `${selectedOutcome.vendorName}: ${selectedOutcome.availability}; ${selectedOutcome.quote}` : `Send scope to ${vendor?.phone || "vendor"}${vendorRealityLabel(vendor) ? ` (${vendorRealityLabel(vendor)})` : ""}: ${vendorScope}`} />
+            <MiniRow icon={<ClipboardList />} label="Next action" value={vendorNextStep} />
             <MiniRow icon={<ReceiptText />} label="Invoice request" value={activeOrder.vendorOutreach?.invoiceDeliveryInstructions || "Ask vendor to send invoice to the property manager, owner, and LivingRelay records unless instructed otherwise."} />
           </div>
           <div className="button-grid">
@@ -7644,6 +7650,9 @@ function DispatchFlowPanel({ order, bookVendor, selectVendorOutcome, recordCompl
                 <div><dt>Availability</dt><dd>{outcome.availability}</dd></div>
                 <div><dt>Discount</dt><dd>{outcome.discount}</dd></div>
                 <div><dt>Warranty</dt><dd>{outcome.warranty}</dd></div>
+                {outcome.scopeSufficiency && <div><dt>Scope</dt><dd>{outcome.scopeSufficiency}</dd></div>}
+                {!!outcome.missingFields?.length && <div><dt>Needs</dt><dd>{outcome.missingFields.join(", ")}</dd></div>}
+                {(outcome.recommendedNextStep || outcome.managerActionRequired || outcome.nextAction) && <div><dt>Next</dt><dd>{outcome.recommendedNextStep || outcome.managerActionRequired || formatNextAction(outcome.nextAction)}</dd></div>}
                 <div><dt>Invoice</dt><dd>{outcome.invoiceEmail}</dd></div>
                 {!!outcome.invoiceRecipients?.length && <div><dt>Recipients</dt><dd>{formatInvoiceRecipients(outcome.invoiceRecipients)}</dd></div>}
               </dl>
@@ -8114,11 +8123,12 @@ function MediaReviewItem({ label, value }) {
 function LiveCallPanel({ order, updateLiveCall }) {
   const calls = order.vendorCalls || [];
   const [audioState, setAudioState] = useState({});
+  const liveCount = calls.filter(isLiveVendorCall).length;
   if (!calls.length) {
     return (
       <div className="live-call-panel empty">
         <strong>Live vendor calls</strong>
-        <span>Started vendor calls will appear here so you can listen in or join when needed.</span>
+        <span>Vendor calls will appear here with live controls while active and results after completion.</span>
       </div>
     );
   }
@@ -8128,52 +8138,113 @@ function LiveCallPanel({ order, updateLiveCall }) {
       <div className="live-call-head">
         <div>
           <span className="eyebrow">Live vendor calls</span>
-          <h3>Listen or take over</h3>
+          <h3>{liveCount ? "Listen or take over" : "Vendor call results"}</h3>
         </div>
-        <span className="pill">{calls.filter((call) => call.status === "Live").length} live</span>
+        <span className="pill">{liveCount} live</span>
       </div>
       <div className="call-grid">
         {calls.map((call) => (
-          <article className="call-card" key={call.id}>
-            <div className="call-card-top">
-              <div>
-                <span>{call.status} · {call.mode}</span>
-                <strong>{call.vendorName}</strong>
-              </div>
-              <Radio size={18} />
-            </div>
-            <p>{call.summary}</p>
-            <div className="call-actions">
-              <button className="secondary" onClick={() => updateLiveCall(order.id, call.id, "listen")}>
-                <Phone size={15} /> Listen
-              </button>
-              <button className="secondary" onClick={() => startBrowserListen(call, setAudioState)}>
-                <Radio size={15} /> Audio
-              </button>
-              <button className="secondary" onClick={() => updateLiveCall(order.id, call.id, "join")}>
-                <Smartphone size={15} /> Join
-              </button>
-              <button className="ghost" onClick={() => updateLiveCall(order.id, call.id, "takeover")}>
-                <UserRound size={15} /> Take over
-              </button>
-            </div>
-            {call.monitorUrl && <span className="monitor-url">Call monitor ready</span>}
-            {call.listenInAvailable && <span className="monitor-url">Listen-in ready</span>}
-            {audioState[call.id] && <span className="monitor-url">{audioState[call.id]}</span>}
-            {call.listener && <span className="monitor-url">{call.listener.name} listening</span>}
-            {call.takeover && <span className="monitor-url">Takeover: {call.takeover.name}</span>}
-            <div className="call-transcript">
-              {(call.transcript || []).slice(-4).map((line, index) => (
-                <div key={`${call.id}-line-${index}`}>
-                  <strong>{line.speaker}</strong>
-                  <span>{line.text}</span>
-                </div>
-              ))}
-            </div>
-          </article>
+          <LiveCallCard
+            audioMessage={audioState[call.id]}
+            call={call}
+            key={call.id}
+            order={order}
+            setAudioState={setAudioState}
+            updateLiveCall={updateLiveCall}
+          />
         ))}
       </div>
     </div>
+  );
+}
+
+function LiveCallCard({ audioMessage, call, order, setAudioState, updateLiveCall }) {
+  const outcome = findOutcomeForCall(order, call);
+  const isLive = isLiveVendorCall(call);
+  const recordingUrl = call.recordingUrl || call.audioUrl || call.recording_url || outcome?.recordingUrl || outcome?.audioUrl || outcome?.recording_url;
+  const transcript = call.transcript?.length ? call.transcript : outcome?.transcript || [];
+  return (
+    <article className="call-card" key={call.id}>
+      <div className="call-card-top">
+        <div>
+          <span>{call.status} · {call.mode}</span>
+          <strong>{call.vendorName}</strong>
+        </div>
+        <Radio size={18} />
+      </div>
+      <p>{outcome?.notes || call.summary || "Call details are being saved."}</p>
+      {isLive ? (
+        <div className="call-actions">
+          <button className="secondary" onClick={() => updateLiveCall(order.id, call.id, "listen")}>
+            <Phone size={15} /> Listen
+          </button>
+          <button className="secondary" onClick={() => startBrowserListen(call, setAudioState)}>
+            <Radio size={15} /> Audio
+          </button>
+          <button className="secondary" onClick={() => updateLiveCall(order.id, call.id, "join")}>
+            <Smartphone size={15} /> Join
+          </button>
+          <button className="ghost" onClick={() => updateLiveCall(order.id, call.id, "takeover")}>
+            <UserRound size={15} /> Take over
+          </button>
+        </div>
+      ) : (
+        <CompletedCallResult outcome={outcome} recordingUrl={recordingUrl} />
+      )}
+      {isLive && call.monitorUrl && <span className="monitor-url">Call monitor ready</span>}
+      {isLive && call.listenInAvailable && <span className="monitor-url">Listen-in ready</span>}
+      {isLive && audioMessage && <span className="monitor-url">{audioMessage}</span>}
+      {isLive && call.listener && <span className="monitor-url">{call.listener.name} listening</span>}
+      {isLive && call.takeover && <span className="monitor-url">Takeover: {call.takeover.name}</span>}
+      {!!transcript.length && (
+        <div className="call-transcript">
+          {transcript.slice(-6).map((line, index) => (
+            <div key={`${call.id}-line-${index}`}>
+              <strong>{line.speaker}</strong>
+              <span>{line.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {!isLive && !transcript.length && <span className="monitor-url">Transcript will appear after the provider sends post-call analysis.</span>}
+    </article>
+  );
+}
+
+function CompletedCallResult({ outcome, recordingUrl }) {
+  const status = outcome?.status || "Completed";
+  return (
+    <div className="completed-call-result">
+      <dl>
+        <div><dt>Outcome</dt><dd>{status}</dd></div>
+        {outcome?.availability && <div><dt>Availability</dt><dd>{outcome.availability}</dd></div>}
+        {outcome?.quote && <div><dt>Quote</dt><dd>{outcome.quote}</dd></div>}
+        {(outcome?.recommendedNextStep || outcome?.managerActionRequired || outcome?.nextAction) && (
+          <div><dt>Next</dt><dd>{outcome.recommendedNextStep || outcome.managerActionRequired || formatNextAction(outcome.nextAction)}</dd></div>
+        )}
+      </dl>
+      {recordingUrl ? (
+        <div className="call-recording">
+          <audio controls src={recordingUrl} />
+          <a href={recordingUrl} target="_blank" rel="noreferrer">Open recording</a>
+        </div>
+      ) : (
+        <span className="monitor-url">Recording will appear after Twilio or ElevenLabs sends it.</span>
+      )}
+    </div>
+  );
+}
+
+function isLiveVendorCall(call = {}) {
+  return String(call.status || "").toLowerCase() === "live";
+}
+
+function findOutcomeForCall(order, call = {}) {
+  return (order.vendorOutreach?.outcomes || []).find((outcome) =>
+    (call.conversationId && outcome.conversationId === call.conversationId) ||
+    (call.callSid && outcome.callSid === call.callSid) ||
+    (call.phone && outcome.phone === call.phone) ||
+    (call.vendorName && namesMatch(outcome.vendorName, call.vendorName))
   );
 }
 
@@ -9002,6 +9073,68 @@ function formatInvoiceRecipients(recipients = []) {
   return recipients
     .map((recipient) => `${recipient.role || "Recipient"}: ${recipient.email || recipient.phone || recipient.name}`)
     .join("; ");
+}
+
+function vendorScopeSummary(order = {}, property = {}) {
+  const media = order.mediaReview?.insights?.vendorPrep || order.mediaReview?.insights?.summary || (order.media?.length ? `${order.media.length} attachment(s)` : "No photos yet");
+  const windows = (order.tenantAvailability?.preferredWindows || []).join(", ");
+  return [
+    property.address ? `${property.address}` : property.name,
+    order.unit ? `Unit/area: ${order.unit}` : "",
+    order.issue ? `Issue: ${order.issue}` : "",
+    `Timing: ${order.tenantAvailability?.serviceWindow || order.serviceWindow || order.severity || "Needs confirmation"}`,
+    `Access: ${order.tenantAvailability?.accessNotes || order.access || windows || "Needs confirmation"}`,
+    `Media: ${media}`
+  ].filter(Boolean).join(" · ");
+}
+
+function vendorActionSummary(order = {}) {
+  const outreach = order.vendorOutreach || {};
+  const selected = (outreach.outcomes || []).find((item) => item.selected || item.id === outreach.selectedOutcomeId);
+  const scopeMissing = missingVendorScopeFieldsForUi(order);
+  if (scopeMissing.length && !(outreach.attempts || []).length && !(outreach.outcomes || []).length) {
+    return `Before quoting, collect ${scopeMissing.join(", ")}.`;
+  }
+  const needsInfo = order.tenantAvailability?.missingFields?.length
+    ? `Ask tenant/manager for ${order.tenantAvailability.missingFields.join(", ")}.`
+    : "";
+  if (needsInfo) return needsInfo;
+  if (selected) return `Confirm ${selected.availability} with tenant, then final-book ${selected.vendorName}.`;
+  const actionable = (outreach.outcomes || []).find((item) => item.recommendedNextStep || item.managerActionRequired || item.nextAction);
+  if (actionable) return actionable.recommendedNextStep || actionable.managerActionRequired || formatNextAction(actionable.nextAction);
+  if ((outreach.attempts || []).length) return "Review latest call attempt and wait for a structured vendor outcome.";
+  if (outreach.status && outreach.status !== "Not started") return outreach.status;
+  return "Start AI calls or send the vendor-ready scope.";
+}
+
+function missingVendorScopeFieldsForUi(order = {}) {
+  const missing = [];
+  if (!order.unit) missing.push("unit/exact area");
+  if (!order.issue || String(order.issue).trim().split(/\s+/).length < 4) missing.push("more issue detail");
+  if (!order.access && !order.tenantAvailability?.accessNotes && !order.tenantAvailability?.preferredWindows?.length) missing.push("tenant access");
+  if (order.tenantAvailability?.needsFollowUp) missing.push("entry window or permission");
+  return [...new Set(missing)];
+}
+
+function formatNextAction(action = "") {
+  return String(action || "manager_review").replace(/_/g, " ");
+}
+
+function vendorRealityLabel(vendor = {}) {
+  const phone = String(vendor.phone || "");
+  if (vendor.testMode || vendor.source === "Demo fallback list" || vendor.metadata?.source === "Demo fallback list") return "test/demo";
+  if (/55501\d{2}/.test(phone.replace(/\D/g, "")) || /555-01\d{2}/.test(phone)) return "sample phone";
+  if (vendor.source === "Configured vendor list") return "configured";
+  return "";
+}
+
+function vendorRecordSummary(vendorList = []) {
+  if (!vendorList.length) return "No vendors configured for this property or trade yet.";
+  const sampleCount = vendorList.filter((vendor) => vendorRealityLabel(vendor) === "sample phone").length;
+  const liveCount = vendorList.length - sampleCount;
+  if (sampleCount && !liveCount) return `${sampleCount} sample vendor record(s). Add real vendors or enable live vendor search before production outreach.`;
+  if (sampleCount) return `${liveCount} configured vendor(s), ${sampleCount} sample record(s). Sample records route safely for testing.`;
+  return `${liveCount} configured vendor record(s).`;
 }
 
 function BillingEventRow({ event }) {

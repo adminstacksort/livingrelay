@@ -5348,6 +5348,54 @@ body:has(.login-card.admin-login-card) {
   margin: 10px 0;
 }
 
+.completed-call-result {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.completed-call-result dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.completed-call-result div {
+  min-width: 0;
+}
+
+.completed-call-result dt {
+  color: #8a5f53;
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.completed-call-result dd {
+  color: #26312f;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.35;
+  margin: 2px 0 0;
+}
+
+.call-recording {
+  display: grid;
+  gap: 7px;
+}
+
+.call-recording audio {
+  width: 100%;
+}
+
+.call-recording a {
+  color: #1c675b;
+  font-size: 12px;
+  font-weight: 850;
+  text-decoration: none;
+}
+
 .monitor-url {
   display: block;
   margin: 7px 0;
@@ -5442,6 +5490,8 @@ body:has(.login-card.admin-login-card) {
 .quote-card dd {
   text-align: right;
   font-weight: 850;
+  overflow-wrap: anywhere;
+  max-width: 62%;
 }
 
 .full-flow {
@@ -5768,6 +5818,10 @@ body:has(.login-card.admin-login-card) {
   }
 
   .call-transcript div {
+    grid-template-columns: 1fr;
+  }
+
+  .completed-call-result dl {
     grid-template-columns: 1fr;
   }
 

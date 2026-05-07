@@ -1,7 +1,7 @@
 import { accounts, people, platformSettings, properties, workOrders } from "./data.js";
 import { attachOutboundCallSessions } from "./liveCallControl.js";
 import { createMediaRelayToken } from "./mediaRelay.js";
-import { buildVendorAgentInstructions, prepareVendorOutreach, recordVendorCallResults, upsertCallAttempt, vendorCallOutcomeSchemaFields, vendorCallQuestions } from "./vendorWorkflow.js";
+import { buildVendorAgentInstructions, buildVendorScopeDetails, extractPostalCode, missingVendorScopeFields, prepareVendorOutreach, recordVendorCallResults, upsertCallAttempt, vendorCallOutcomeSchemaFields, vendorCallQuestions } from "./vendorWorkflow.js";
 import { startVoiceCall } from "./twilioClient.js";
 
 const defaultOtpVoiceId = "21m00Tcm4TlvDq8ikWAM";
@@ -202,9 +202,12 @@ async function startOutboundCall({ vendor, property, tenant, order }) {
             test_mode: vendor.testMode ? "true" : "false",
             property_name: property.name,
             property_address: property.address,
+            property_zip: extractPostalCode(property.address),
             tenant_name: tenant?.name || "tenant",
             unit: order.unit,
             issue: order.issue,
+            vendor_scope_details: buildVendorScopeDetails({ order, property }),
+            missing_scope_fields: missingVendorScopeFields({ order, property }).join(", "),
             trade: order.trade,
             urgency: order.severity,
             service_window: order.serviceWindow || order.tenantAvailability?.serviceWindow || order.severity,
@@ -281,9 +284,12 @@ export async function registerTwilioCallWithElevenLabs({ fromNumber, toNumber, o
           vendor_phone: toNumber || "",
           property_name: property?.name || "the property",
           property_address: property?.address || "",
+          property_zip: extractPostalCode(property?.address || ""),
           tenant_name: tenant?.name || "tenant",
           unit: order?.unit || "",
           issue: order?.issue || "",
+          vendor_scope_details: buildVendorScopeDetails({ order, property }),
+          missing_scope_fields: missingVendorScopeFields({ order, property }).join(", "),
           trade: order?.trade || "",
           urgency: order?.severity || "",
           service_window: order?.serviceWindow || order?.tenantAvailability?.serviceWindow || order?.severity || "",

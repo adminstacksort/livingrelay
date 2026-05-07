@@ -34,6 +34,7 @@ import {
   mergeDispatchSettings,
   mergeOutcomes,
   normalizeCallOutcomeStatus,
+  normalizeVendorPreferences,
   recordVendorCallResults,
   recordVendorCompletion,
   recordVendorToolOutcome,
@@ -1639,6 +1640,11 @@ app.patch("/api/admin/properties/:id", (req, res) => {
   for (const key of allowed) {
     if (req.body[key] !== undefined) property[key] = req.body[key];
   }
+  if (req.body.dispatchSettings !== undefined) {
+    property.dispatchSettings = mergeDispatchSettings(req.body.dispatchSettings);
+    upsertPreferredVendorsForProperty(property);
+    property.rules = buildOperatingRules(property.rules, property.dispatchSettings.vendorPreferences);
+  }
   if (req.body.units !== undefined) {
     property.units = Array.isArray(req.body.units)
       ? req.body.units
@@ -1685,24 +1691,13 @@ app.post("/api/properties/:id/vendor-team/copy", (req, res) => {
     res.status(400).json({ error: "vendor teams can only be reused within the same customer account" });
     return;
   }
-  const sourceSettings = {
-    ...defaultDispatchSettings(),
-    ...(sourceProperty.dispatchSettings || {}),
-    vendorPreferences: {
-      ...defaultDispatchSettings().vendorPreferences,
-      ...(sourceProperty.dispatchSettings?.vendorPreferences || {})
-    }
-  };
-  const nextSettings = {
-    ...defaultDispatchSettings(),
+  const sourceSettings = mergeDispatchSettings(sourceProperty.dispatchSettings);
+  const nextSettings = mergeDispatchSettings({
     ...(property.dispatchSettings || {}),
-    vendorPreferences: {
-      ...defaultDispatchSettings().vendorPreferences,
-      ...sourceSettings.vendorPreferences
-    }
-  };
+    vendorPreferences: sourceSettings.vendorPreferences
+  });
   property.dispatchSettings = nextSettings;
-  const preferredNames = Object.values(nextSettings.vendorPreferences).flat().map((name) => String(name).toLowerCase());
+  const preferredNames = Object.values(nextSettings.vendorPreferences).flat().map((entry) => String(entry.name || entry).toLowerCase());
   for (const vendor of vendors) {
     if (preferredNames.includes(String(vendor.name || "").toLowerCase()) && !vendor.propertyIds?.includes(property.id)) {
       vendor.propertyIds = [...(vendor.propertyIds || []), property.id];
@@ -1720,15 +1715,12 @@ app.patch("/api/properties/:id/vendor-team", (req, res) => {
     res.status(404).json({ error: "property not found" });
     return;
   }
-  const settings = {
-    ...defaultDispatchSettings(),
+  const settings = mergeDispatchSettings({
     ...(property.dispatchSettings || {}),
-    vendorPreferences: {
-      ...defaultDispatchSettings().vendorPreferences,
-      ...(req.body.vendorPreferences || {})
-    }
-  };
+    vendorPreferences: req.body.vendorPreferences || {}
+  });
   property.dispatchSettings = settings;
+  upsertPreferredVendorsForProperty(property);
   property.rules = buildOperatingRules(property.rules, settings.vendorPreferences);
   saveState();
   recordAudit(req.user?.name || "app", "Updated vendor team", `${property.name} vendor team updated.`);
@@ -1766,17 +1758,19 @@ app.post("/api/properties/:id/vendors", (req, res) => {
   if (!vendor.propertyIds?.includes(property.id)) vendor.propertyIds = [...(vendor.propertyIds || []), property.id];
   vendor.accountId = vendor.accountId || property.accountId;
   if (phone && !vendor.phone) vendor.phone = normalizePhone(phone);
-  const settings = {
-    ...defaultDispatchSettings(),
-    ...(property.dispatchSettings || {}),
-    vendorPreferences: {
-      ...defaultDispatchSettings().vendorPreferences,
-      ...(property.dispatchSettings?.vendorPreferences || {})
-    }
-  };
+  const settings = mergeDispatchSettings(property.dispatchSettings);
   const existing = settings.vendorPreferences[trade] || [];
-  const withoutName = existing.filter((item) => String(item).toLowerCase() !== String(name).toLowerCase());
-  settings.vendorPreferences[trade] = placement === "backup" ? [...withoutName, name] : [name, ...withoutName];
+  const preference = {
+    name,
+    trade,
+    phone: vendor.phone || phone || "",
+    address: vendor.address || "",
+    websiteUri: vendor.websiteUri || "",
+    placeId: vendor.placeId || "",
+    source: vendor.source || "Saved vendor"
+  };
+  const withoutName = existing.filter((item) => String(item.name || item).toLowerCase() !== String(name).toLowerCase());
+  settings.vendorPreferences[trade] = placement === "backup" ? [...withoutName, preference] : [preference, ...withoutName];
   property.dispatchSettings = settings;
   property.rules = buildOperatingRules(property.rules, settings.vendorPreferences);
   saveState();
@@ -3318,16 +3312,21 @@ export function parseElevenLabsWebhook(body = {}) {
       vendor,
       phone,
       success: !callFailure && body.success !== false,
-      quote: body.quote || valueFrom(collected, "quote") || valueFrom(collected, "callout_fee"),
-      availability: body.availability || valueFrom(collected, "availability") || valueFrom(collected, "earliest_availability"),
+      quote: body.quote || body.quote_or_fee || valueFrom(collected, "quote_or_fee") || valueFrom(collected, "quote") || valueFrom(collected, "callout_fee"),
+      availability: body.availability || body.earliest_arrival_window || valueFrom(collected, "earliest_arrival_window") || valueFrom(collected, "availability") || valueFrom(collected, "earliest_availability"),
       discount: body.discount || valueFrom(collected, "discount"),
       warranty: body.warranty || valueFrom(collected, "warranty"),
+      missingFields: body.missing_access_fields || body.missingFields || valueFrom(collected, "missing_access_fields"),
+      managerActionRequired: body.manager_action_required || body.managerActionRequired || valueFrom(collected, "manager_action_required"),
+      recommendedNextStep: body.recommended_next_step || body.recommendedNextStep || valueFrom(collected, "recommended_next_step"),
+      scopeSufficiency: body.scope_sufficiency || body.scopeSufficiency || valueFrom(collected, "scope_sufficiency"),
       needsPhotos: booleanValue(body.needs_photos ?? valueFrom(collected, "needs_photos")) || /photo/i.test(String(analysis.transcript_summary || analysis.call_summary || "")),
       invoiceEmail: body.invoice_delivery_instructions || body.invoice_email || valueFrom(collected, "invoice_delivery_instructions") || valueFrom(collected, "invoice_email") || dynamicVariables.invoice_delivery_instructions || dynamicVariables.inbound_invoice_email,
       invoiceRecipients: body.invoice_recipients || [],
       conversationId: body.conversation_id || data.conversation_id,
       callSid,
       callKey: body.call_key || body.callKey || dynamicVariables.call_key || "",
+      recordingUrl: body.recording_url || body.recordingUrl || body.audio_url || body.audioUrl || data.recording_url || data.recordingUrl || data.audio_url || data.audioUrl || metadata.recording_url || metadata.recordingUrl || providerBody.RecordingUrl || providerBody.recording_url || "",
       summary: body.summary || analysis.transcript_summary || analysis.call_summary || analysis.summary || failureReason,
       status: callFailure ? normalizeRetryableCallStatus(failureReason) : body.status || data.status || statusFromAnalysis(analysis),
       structured: structuredOutcomeFromWebhook({ body, data, dynamicVariables, collected, analysis }),
@@ -3444,6 +3443,7 @@ function updateVendorCallSessionFromCall(order, call = {}) {
   session.mode = "AI completed";
   session.conversationId = call.conversationId || session.conversationId || null;
   session.callSid = call.callSid || session.callSid || null;
+  session.recordingUrl = call.recordingUrl || session.recordingUrl || null;
   session.summary = call.summary || session.summary;
   session.transcript = call.transcript?.length ? call.transcript : session.transcript;
   session.lastTranscriptAt = new Date().toISOString();
@@ -4721,6 +4721,7 @@ app.post("/api/elevenlabs/vendor-call-result", async (req, res) => {
     conversationId: parsed.call.conversationId,
     callSid: parsed.call.callSid,
     callKey: parsed.call.callKey,
+    recordingUrl: parsed.call.recordingUrl,
     completedAt: new Date().toISOString()
   });
   updateVendorCallSessionFromCall(order, parsed.call);
