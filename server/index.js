@@ -4849,15 +4849,12 @@ app.post("/api/twilio/elevenlabs/outbound", async (req, res) => {
 
 app.post("/api/twilio/otp-verification", (req, res) => {
   try {
-    getVoiceOtpPrompt({ challengeId: req.query.challengeId, token: req.query.token });
-    const baseUrl = process.env.APP_PUBLIC_URL || "http://127.0.0.1:8787";
-    const audioUrl = `${baseUrl}/api/elevenlabs/otp-audio?challengeId=${encodeURIComponent(req.query.challengeId || "")}&token=${encodeURIComponent(req.query.token || "")}`;
+    const prompt = getVoiceOtpPrompt({ challengeId: req.query.challengeId, token: req.query.token });
     res.type("text/xml").send(`
       <Response>
         <Pause length="1" />
-        <Play>${escapeXml(audioUrl)}</Play>
+        <Say voice="alice" language="en-US">${escapeXml(prompt)}</Say>
         <Pause length="1" />
-        <Play>${escapeXml(audioUrl)}</Play>
         <Hangup />
       </Response>
     `);
