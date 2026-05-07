@@ -154,7 +154,7 @@ When a tenant reports an issue, LivingRelay ranks real local vendor options thro
 
 1. Anthropic with web search enabled.
 2. OpenAI Responses API with web search when `OPENAI_API_KEY` is configured.
-3. Google AI/Gemini when `GOOGLE_AI_API_KEY` or `GEMINI_API_KEY` is configured.
+3. Google AI/Gemini when `GOOGLE_AI_STUDIO_API_KEY`, `GOOGLE_GEMINI_API_KEY`, `GOOGLE_AI_API_KEY`, or `GEMINI_API_KEY` is configured.
 4. Google Business Profile/Places search when `GOOGLE_PLACES_API_KEY` is configured.
 5. A generic open web search JSON endpoint when `OPEN_WEB_SEARCH_API_URL` is configured.
 6. Configured vendors only, clearly marked as not web-verified.
@@ -174,6 +174,8 @@ OPENAI_API_KEY
 OPENAI_VENDOR_SEARCH_MODEL=gpt-5.2
 GOOGLE_AI_API_KEY
 GEMINI_API_KEY
+GOOGLE_AI_STUDIO_API_KEY
+GOOGLE_GEMINI_API_KEY
 GOOGLE_VENDOR_SEARCH_MODEL=gemini-2.5-flash
 GOOGLE_PLACES_API_KEY
 OPEN_WEB_SEARCH_API_URL
