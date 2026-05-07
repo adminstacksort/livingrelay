@@ -84,9 +84,8 @@ Required production env:
 - `APP_PUBLIC_URL`
 - `DATABASE_URL`
 - `SESSION_SECRET`
-- `TWILIO_ACCOUNT_SID`
-- `TWILIO_AUTH_TOKEN`
-- `TWILIO_MESSAGING_NUMBER`
+- `PHONE_VERIFICATION_PROVIDER=voice`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VOICE_NUMBER`, `APP_PUBLIC_URL`, and `ELEVENLABS_API_KEY` for phone-call OTP verification while text delivery is unavailable.
+- `SMS_PROVIDER=twilio`, `SMS_FALLBACK_PROVIDER=aws_sns`, `TWILIO_MESSAGING_NUMBER`, `TWILIO_VERIFY_SERVICE_SID`, and `AWS_SMS_REGION` for SMS delivery with AWS SNS fallback once text delivery is ready.
 - `ANTHROPIC_API_KEY`
 - `VITE_GA_MEASUREMENT_ID` for Google Analytics 4 web traffic tracking
 - `EMAIL_PROVIDER=ses`, `AWS_SES_REGION`, `AWS_SES_FROM_EMAIL`, `SES_SNS_WEBHOOK_SECRET`, and ECS task-role AWS credentials for SES email notifications. Resend and SendGrid env vars remain supported as fallback providers.

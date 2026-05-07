@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { checkPhoneVerificationSms, getSmsMessageStatus, startPhoneVerificationSms, sendSms } from "./twilioClient.js";
+import { startOtpVerificationCall } from "./elevenLabsCalls.js";
+import { sendSms, sendSmsWithProvider, hasAwsSmsFallback } from "./smsClient.js";
+import { checkPhoneVerificationSms, getSmsMessageStatus, startPhoneVerificationSms } from "./twilioClient.js";
 
 const challengeTtlMs = 10 * 60 * 1000;
 const tokenTtlMs = 30 * 60 * 1000;
@@ -30,6 +32,11 @@ export async function createPhoneChallenge({ phone, purpose, subjectId = "" }) {
     error.statusCode = 400;
     throw error;
   }
+  if (requiresProductionSmsProvider()) {
+    const error = new Error("Could not send verification code: configure Twilio Verify or AWS SNS SMS fallback for production OTP delivery.");
+    error.statusCode = 502;
+    throw error;
+  }
 
   pruneExpired();
   const code = String(Math.floor(100000 + Math.random() * 900000));
@@ -39,8 +46,9 @@ export async function createPhoneChallenge({ phone, purpose, subjectId = "" }) {
     phone: normalizedPhone,
     purpose,
     subjectId,
-    provider: useTwilioVerify() ? "twilio_verify" : "livingrelay_sms",
+    provider: verificationProvider(),
     code,
+    voiceToken: randomToken(18),
     attempts: 0,
     expiresAt: Date.now() + challengeTtlMs
   };
@@ -48,9 +56,7 @@ export async function createPhoneChallenge({ phone, purpose, subjectId = "" }) {
 
   let sms;
   try {
-    sms = challenge.provider === "twilio_verify"
-      ? await startPhoneVerificationSms({ to: normalizedPhone })
-      : await startLivingRelaySmsVerification({ to: normalizedPhone, code });
+    sms = await startVerificationSms({ challenge, to: normalizedPhone, code });
   } catch (error) {
     challenges.delete(challengeId);
     const wrapped = new Error(error.message ? `Could not send verification code: ${error.message}` : "Could not send verification code. Try again later.");
@@ -63,7 +69,7 @@ export async function createPhoneChallenge({ phone, purpose, subjectId = "" }) {
     error.statusCode = 502;
     throw error;
   }
-  if (challenge.provider === "livingrelay_sms" && sms.sent && sms.sid) {
+  if (challenge.provider === "livingrelay_sms" && sms.provider === "twilio" && sms.sent && sms.sid) {
     const delivery = await waitForVerificationSmsStatus(sms.sid);
     sms.deliveryStatus = delivery.status;
     sms.errorCode = delivery.errorCode || sms.errorCode;
@@ -185,8 +191,60 @@ async function startLivingRelaySmsVerification({ to, code }) {
   });
 }
 
+async function startVerificationSms({ challenge, to, code }) {
+  if (challenge.provider === "elevenlabs_voice_otp") {
+    return startOtpVerificationCall({
+      to,
+      challengeId: challenge.id,
+      voiceToken: challenge.voiceToken
+    });
+  }
+  if (challenge.provider !== "twilio_verify") return startLivingRelaySmsVerification({ to, code });
+  try {
+    return await startPhoneVerificationSms({ to });
+  } catch (error) {
+    if (!hasAwsSmsFallback()) throw error;
+    challenge.provider = "livingrelay_sms";
+    const sms = await sendSmsWithProvider("aws_sns", {
+      to,
+      body: `Your LivingRelay verification code is ${code}. It expires in 10 minutes.`
+    });
+    return {
+      ...sms,
+      fallbackFrom: "twilio_verify",
+      primaryError: error.message || "Twilio Verify failed"
+    };
+  }
+}
+
 function useTwilioVerify() {
   return Boolean(process.env.TWILIO_VERIFY_SERVICE_SID);
+}
+
+function requiresProductionSmsProvider() {
+  return process.env.NODE_ENV === "production"
+    && process.env.PHONE_VERIFICATION_PROVIDER !== "voice"
+    && !process.env.TWILIO_VERIFY_SERVICE_SID
+    && !hasAwsSmsFallback();
+}
+
+function verificationProvider() {
+  if (process.env.PHONE_VERIFICATION_PROVIDER === "sms") return useTwilioVerify() ? "twilio_verify" : "livingrelay_sms";
+  if (process.env.PHONE_VERIFICATION_PROVIDER === "twilio_verify") return "twilio_verify";
+  if (process.env.PHONE_VERIFICATION_PROVIDER === "voice" || process.env.NODE_ENV === "production") return "elevenlabs_voice_otp";
+  return useTwilioVerify() ? "twilio_verify" : "livingrelay_sms";
+}
+
+export function getVoiceOtpPrompt({ challengeId, token }) {
+  pruneExpired();
+  const challenge = challenges.get(challengeId);
+  if (!challenge || challenge.voiceToken !== token || challenge.provider !== "elevenlabs_voice_otp") {
+    const error = new Error("Verification call expired. Request a new code.");
+    error.statusCode = 404;
+    throw error;
+  }
+  const spacedCode = challenge.code.split("").join(", ");
+  return `This is LivingRelay calling with your one time password. Your verification code is ${spacedCode}. Again, your LivingRelay verification code is ${spacedCode}. This code expires in ten minutes.`;
 }
 
 async function waitForVerificationSmsStatus(messageSid) {

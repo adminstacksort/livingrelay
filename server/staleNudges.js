@@ -1,5 +1,5 @@
 import { event, message, people, properties, recordAudit, saveState, vendors, workOrders } from "./data.js";
-import { sendSms } from "./twilioClient.js";
+import { sendSms } from "./smsClient.js";
 
 const CLOSED_STATUSES = new Set(["Closed", "Demo completed", "Owner denied"]);
 const DEFAULT_STALE_HOURS = 12;

@@ -18,6 +18,7 @@
     "readiness": "node -e \"fetch('http://127.0.0.1:'+(process.env.SERVER_PORT||8787)+'/api/readiness').then(async r=>{console.log(await r.text()); process.exit(r.ok?0:1)}).catch(e=>{console.error(e); process.exit(1)})\""
   },
   "dependencies": {
+    "@aws-sdk/client-sns": "^3.1044.0",
     "@vitejs/plugin-react": "latest",
     "concurrently": "^9.2.1",
     "dotenv": "^17.4.2",

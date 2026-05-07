@@ -2007,6 +2007,86 @@ function tenantSelfSolveGuidance(issue = "", property) {
   const propertyNote = propertyRules
     ? `Property note: ${propertyRules}`
     : maintenanceNotesForProperty(property)[0];
+  const includesAny = (words) => words.some((word) => body.includes(word));
+
+  const specificGuidance = [
+    {
+      matches: ["rail", "railing", "handrail", "banister", "stair", "step", "deck", "balcony"],
+      title: "Document the loose or unsafe rail",
+      steps: [
+        "Avoid leaning on it or using that stair/deck edge until it is checked.",
+        "Take one wide photo showing the full rail and one close photo of the loose bracket, post, fasteners, or cracked area.",
+        "Write whether it wiggles, is detached, sharp, rusted, or blocking a normal entry path."
+      ]
+    },
+    {
+      matches: ["door", "lock", "latch", "handle", "knob", "deadbolt", "key", "window", "screen", "gate"],
+      title: "Capture how the door, lock, or window fails",
+      steps: [
+        "Do not force the handle, lock, window, or latch if it feels stuck.",
+        "Send a close photo of the hardware and a wider photo showing which door, window, gate, or entry it is.",
+        "Write whether it will not open, will not close, will not latch, feels loose, or affects exterior security."
+      ]
+    },
+    {
+      matches: ["fridge", "refrigerator", "freezer", "dishwasher", "washer", "dryer", "oven", "stove", "range", "microwave", "appliance"],
+      title: "Capture the appliance symptom and model",
+      steps: [
+        "Write whether it has no power, is leaking, making noise, showing an error, or not heating/cooling.",
+        "Send a photo of the appliance front plus the model/serial label if you can find it safely.",
+        "Try one normal power or cycle reset only if there is no smell, smoke, leak, or heat concern."
+      ]
+    },
+    {
+      matches: ["garage", "opener", "remote", "keypad", "parking gate"],
+      title: "Check the access device without forcing it",
+      steps: [
+        "Try a second remote/keypad code only if you already have one.",
+        "Send a photo of the door/gate position and any blinking light or error on the opener.",
+        "Write whether the motor runs, clicks, is silent, reverses, or the door/gate is physically stuck."
+      ]
+    },
+    {
+      matches: ["cabinet", "drawer", "closet", "shelf", "hinge", "track", "sliding"],
+      title: "Show where the hardware is failing",
+      steps: [
+        "Avoid forcing the drawer, cabinet, closet, or sliding panel if it is binding.",
+        "Take a wide photo of the fixture and a close photo of the hinge, track, roller, screw, or cracked piece.",
+        "Write whether it is loose, detached, scraping, off track, or unable to close."
+      ]
+    },
+    {
+      matches: ["ceiling", "wall", "drywall", "paint", "stain", "mold", "mildew", "moisture", "soft spot"],
+      title: "Track the stain, moisture, or surface change",
+      steps: [
+        "Do not touch soft drywall, peeling paint, or suspected mold.",
+        "Take a wide photo for room location and a close photo with a common object nearby for scale.",
+        "Write whether it is wet now, spreading, musty, after rain, near plumbing, or below another unit."
+      ]
+    },
+    {
+      matches: ["smoke detector", "carbon monoxide", "co detector", "alarm", "chirp", "beeping"],
+      title: "Record the alarm behavior",
+      steps: [
+        "If there is smoke, fire, gas smell, or carbon monoxide concern, leave and call emergency services first.",
+        "Write whether it is a single chirp, repeated alarm, low-battery alert, or no power.",
+        "Send a photo of the detector location and brand/model if reachable without climbing unsafely."
+      ]
+    },
+    {
+      matches: ["pest", "bug", "bugs", "ant", "ants", "roach", "roaches", "mouse", "mice", "rat", "rats"],
+      title: "Document the pest location and pattern",
+      steps: [
+        "Take a photo only if you can do it safely and without disturbing nests or droppings.",
+        "Write the room, where you saw activity, and whether it is a one-time sighting or recurring.",
+        "Note any entry points, food/water source nearby, or neighboring unit/common-area pattern."
+      ]
+    }
+  ].find((item) => includesAny(item.matches));
+
+  if (specificGuidance) {
+    return { ...specificGuidance, propertyNote };
+  }
 
   if (triage.trade === "Plumbing") {
     return {
@@ -2048,17 +2128,24 @@ function tenantPresenceLikelyRelevant(issue = "", trade = "") {
     "door",
     "drain",
     "faucet",
+    "gate",
     "garage",
     "heat",
+    "hinge",
     "inside",
+    "knob",
     "leak",
+    "latch",
     "lock",
     "outlet",
     "pipe",
+    "rail",
+    "railing",
     "repair person",
     "service person",
     "sink",
     "shower",
+    "stair",
     "technician",
     "thermostat",
     "toilet",
@@ -3811,7 +3898,7 @@ function App() {
       return;
     }
     if (!loginVerification.challengeId) {
-      setLoginVerification({ challengeId: "", code: "", state: "sending", message: "Sending verification code..." });
+      setLoginVerification({ challengeId: "", code: "", state: "sending", message: "Starting verification..." });
       const response = await encryptedJsonFetch("/api/auth/login/start", {
         payload: { phone, pin },
         fields: ["phone", "pin"]
@@ -3830,13 +3917,13 @@ function App() {
         challengeId: data.challengeId,
         code: "",
         state: "sent",
-        message: data.devCode ? `Verification code: ${data.devCode}` : "We sent a verification code to that phone."
+        message: data.devCode ? `Verification code: ${data.devCode}` : data.message || (data.delivery === "phone_call" ? "You will receive a phone call with your verification code." : "We sent a verification code to that phone.")
       });
       return;
     }
     const verificationCode = formatVerificationCodeInput(loginVerification.code);
     if (verificationCode.length !== 6) {
-      setLoginVerification((current) => ({ ...current, code: verificationCode, state: "sent", message: "Enter the 6-digit verification code from the text message." }));
+      setLoginVerification((current) => ({ ...current, code: verificationCode, state: "sent", message: "Enter the 6-digit verification code from the phone call." }));
       return;
     }
     setLoginVerification((current) => ({ ...current, state: "checking", message: "Checking verification code..." }));
@@ -3862,7 +3949,7 @@ function App() {
       setSignupStatus({ state: "error", message: "Use a 4-digit PIN, or leave it blank to auto-generate one." });
       return;
     }
-    setSignupStatus({ state: "saving", message: signupVerification.token ? "Creating your property..." : "Sending phone verification code..." });
+    setSignupStatus({ state: "saving", message: signupVerification.token ? "Creating your property..." : "Starting phone verification..." });
     try {
       let phoneVerificationToken = signupVerification.token;
       if (!phoneVerificationToken && !signupVerification.challengeId) {
@@ -3880,7 +3967,7 @@ function App() {
           code: "",
           token: "",
           state: "sent",
-          message: data.devCode ? `Verification code: ${data.devCode}` : "We sent a verification code to your phone."
+          message: data.devCode ? `Verification code: ${data.devCode}` : data.sms?.delivery === "phone_call" ? "You will receive a phone call with your verification code." : "We sent a verification code to your phone."
         });
         setSignupStatus({ state: "idle", message: "Enter the verification code to finish creating the property." });
         return;
@@ -3888,7 +3975,7 @@ function App() {
       if (!phoneVerificationToken) {
         const verificationCode = formatVerificationCodeInput(signupVerification.code);
         if (verificationCode.length !== 6) {
-          setSignupVerification((current) => ({ ...current, code: verificationCode, state: "sent", message: "Enter the 6-digit verification code from the text message." }));
+          setSignupVerification((current) => ({ ...current, code: verificationCode, state: "sent", message: "Enter the 6-digit verification code from the phone call." }));
           setSignupStatus({ state: "idle", message: "Enter the verification code to finish creating the property." });
           return;
         }

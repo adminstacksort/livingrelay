@@ -4,6 +4,8 @@ import { createMediaRelayToken } from "./mediaRelay.js";
 import { buildVendorAgentInstructions, prepareVendorOutreach, recordVendorCallResults, upsertCallAttempt, vendorCallOutcomeSchemaFields, vendorCallQuestions } from "./vendorWorkflow.js";
 import { startVoiceCall } from "./twilioClient.js";
 
+const defaultOtpVoiceId = "21m00Tcm4TlvDq8ikWAM";
+
 export async function startVendorQuoteCalls(orderId, { actor = "manager", demoFallback = true, testVendorPhone = "", testOnly = false, onlyVendorPhone = "" } = {}) {
   const prepared = prepareVendorOutreach(orderId, { actor, mode: "ElevenLabs calls", provider: "ElevenLabs" });
   if (prepared.error) return { started: false, calls: [], reason: prepared.error };
@@ -98,6 +100,83 @@ export async function startVendorQuoteCalls(orderId, { actor = "manager", demoFa
   order.vendorOutreach.startedAt = order.vendorOutreach.startedAt || new Date().toISOString();
   attachOutboundCallSessions(order, calls);
   return { started: true, calls, testMode: isTestMode({ testVendorPhone, testOnly }) };
+}
+
+export async function startOtpVerificationCall({ to, challengeId, voiceToken }) {
+  const status = getOtpVoiceStatus();
+  if (!status.configured) {
+    return { sent: false, provider: "elevenlabs_voice_otp", error: `Missing voice OTP env: ${status.missing.join(", ")}` };
+  }
+  if (status.dryRun) {
+    return {
+      sent: true,
+      provider: "elevenlabs_voice_otp",
+      status: "dry_run",
+      sid: "voice-otp-dry-run",
+      to,
+      delivery: "phone_call"
+    };
+  }
+  try {
+    const baseUrl = process.env.APP_PUBLIC_URL || "http://127.0.0.1:8787";
+    const url = `${baseUrl}/api/twilio/otp-verification?challengeId=${encodeURIComponent(challengeId)}&token=${encodeURIComponent(voiceToken)}`;
+    const statusCallback = `${baseUrl}/api/twilio/voice-status?challengeId=${encodeURIComponent(challengeId)}&purpose=otp`;
+    const call = await startVoiceCall({ to, url, statusCallback, machineDetection: "Enable" });
+    return {
+      sent: true,
+      provider: "elevenlabs_voice_otp",
+      status: call.status,
+      sid: call.sid,
+      to,
+      delivery: "phone_call"
+    };
+  } catch (error) {
+    return { sent: false, provider: "elevenlabs_voice_otp", error: error.message, to, delivery: "phone_call" };
+  }
+}
+
+export function getOtpVoiceStatus() {
+  const missing = [];
+  if (!process.env.ELEVENLABS_API_KEY) missing.push("ELEVENLABS_API_KEY");
+  if (!process.env.TWILIO_ACCOUNT_SID) missing.push("TWILIO_ACCOUNT_SID");
+  if (!process.env.TWILIO_AUTH_TOKEN) missing.push("TWILIO_AUTH_TOKEN");
+  if (!process.env.TWILIO_VOICE_NUMBER && !process.env.TWILIO_MESSAGING_NUMBER) missing.push("TWILIO_VOICE_NUMBER or TWILIO_MESSAGING_NUMBER");
+  if (!process.env.APP_PUBLIC_URL) missing.push("APP_PUBLIC_URL");
+  return {
+    configured: missing.length === 0,
+    missing,
+    provider: "elevenlabs_voice_otp",
+    voiceId: process.env.ELEVENLABS_OTP_VOICE_ID || defaultOtpVoiceId,
+    dryRun: process.env.PHONE_VERIFICATION_VOICE_DRY_RUN === "true"
+  };
+}
+
+export async function fetchOtpVerificationAudio(prompt) {
+  const status = getOtpVoiceStatus();
+  if (!process.env.ELEVENLABS_API_KEY) throw new Error("Missing ElevenLabs env: ELEVENLABS_API_KEY");
+  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(status.voiceId)}`, {
+    method: "POST",
+    headers: {
+      "xi-api-key": process.env.ELEVENLABS_API_KEY,
+      "content-type": "application/json",
+      accept: "audio/mpeg"
+    },
+    body: JSON.stringify({
+      text: prompt,
+      model_id: process.env.ELEVENLABS_OTP_MODEL_ID || "eleven_multilingual_v2",
+      voice_settings: {
+        stability: 0.55,
+        similarity_boost: 0.75,
+        style: 0,
+        use_speaker_boost: true
+      }
+    })
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `ElevenLabs OTP audio failed: ${response.status}`);
+  }
+  return Buffer.from(await response.arrayBuffer());
 }
 
 async function startOutboundCall({ vendor, property, tenant, order }) {

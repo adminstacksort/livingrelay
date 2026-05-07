@@ -5,10 +5,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { accessRequests, accounts, auditLog, billingEvents, event, externalMappings, integrationConnections, integrationEvents, invoices, message, notifications, people, platformSettings, properties, prospectingLeads, qaRuns, recordAudit, referrals, saveState, vendors, waitForStatePersistence, workOrders } from "./data.js";
 import { composeActionMessage, handleInboundCommand, normalizePhone } from "./smsLogic.js";
-import { getSmsMessageStatus, getTwilioStatus, sendSms } from "./twilioClient.js";
+import { sendSms } from "./smsClient.js";
+import { getSmsMessageStatus, getTwilioStatus } from "./twilioClient.js";
 import { getEmailStatus, recordSesNotification, sendEmail } from "./emailClient.js";
 import { generateProspectingLeadBatches, generateProspectingLeads } from "./prospectingResearch.js";
-import { registerTwilioCallWithElevenLabs, startVendorQuoteCalls } from "./elevenLabsCalls.js";
+import { fetchOtpVerificationAudio, registerTwilioCallWithElevenLabs, startVendorQuoteCalls } from "./elevenLabsCalls.js";
 import { runFullFlowDemo, selectDemoQuote, simulateVendorOutreach } from "./demoOutreach.js";
 import { createDemoScenario, listDemoScenarios } from "./demoScenarios.js";
 import { getStaleWorkOrders, nudgeStaleWorkOrders, nudgeWorkOrder } from "./staleNudges.js";
@@ -18,7 +19,7 @@ import { getGooglePlacesApiKey, getReadiness } from "./config.js";
 import { getRuntimeEnvironment, getStateId } from "./postgresState.js";
 import { chargeStripeDispatchFee, createStripeOwnerSubscriptionSession, createStripePortalSession, createStripeSetupSession, dispatchFeeCents, ownerSubscriptionCents, retrieveStripeCheckoutSession, retrieveStripeSetupIntent, setCustomerDefaultPaymentMethod, stripeBillingStatus } from "./stripeBilling.js";
 import { attachMediaRelay, getMediaRelayRoom } from "./mediaRelay.js";
-import { consumeVerifiedPhoneToken, createPhoneChallenge, verifyPhoneChallenge } from "./phoneVerification.js";
+import { consumeVerifiedPhoneToken, createPhoneChallenge, getVoiceOtpPrompt, verifyPhoneChallenge } from "./phoneVerification.js";
 import { defaultNotifyForRole, dispatchNotification, getPushStatus, mergeNotifySettings, notificationCatalog, registerPushDevice } from "./notifications.js";
 import { decryptTransitFields, getTransitPublicKey } from "./transitEncryption.js";
 import { createIntegrationConnection, deleteIntegrationConnection, dryRunIntegrationSync, importDirectoryCsv, listIntegrationSummary, pmsProviders, previewWorkOrderExport, updateIntegrationConnection } from "./pmsIntegrations.js";
@@ -483,7 +484,12 @@ app.post("/api/phone-verifications/start", async (req, res) => {
       purpose: req.body.purpose || "phone_verification",
       subjectId: req.body.subjectId || ""
     });
-    res.json(result);
+    const delivery = result.sms?.delivery === "phone_call" ? "phone_call" : "sms";
+    res.json({
+      ...result,
+      delivery,
+      message: delivery === "phone_call" ? "You will receive a phone call with your verification code." : "We sent a verification code to that phone."
+    });
   } catch (error) {
     res.status(error.statusCode || 400).json({ error: error.message });
   }
@@ -531,8 +537,16 @@ app.post("/api/auth/login/start", async (req, res) => {
       purpose: "login",
       subjectId: person.id
     });
-    recordAudit(person.name, "Started phone login verification", `Verification sent to ${maskPhone(person.phone)}.`);
-    res.json({ challengeId: result.challengeId, expiresAt: result.expiresAt, devCode: result.devCode, sms: result.sms?.sent ? { sent: true } : result.sms });
+    const delivery = result.sms?.delivery === "phone_call" ? "phone_call" : "sms";
+    recordAudit(person.name, "Started phone login verification", `Verification ${delivery === "phone_call" ? "call placed" : "sent"} to ${maskPhone(person.phone)}.`);
+    res.json({
+      challengeId: result.challengeId,
+      expiresAt: result.expiresAt,
+      devCode: result.devCode,
+      delivery,
+      message: delivery === "phone_call" ? "You will receive a phone call with your verification code." : "We sent a verification code to that phone.",
+      sms: result.sms?.sent ? { sent: true, provider: result.sms.provider, delivery: result.sms.delivery } : result.sms
+    });
   } catch (error) {
     res.status(error.statusCode || 400).json({ error: error.message });
   }
@@ -4830,6 +4844,42 @@ app.post("/api/twilio/elevenlabs/outbound", async (req, res) => {
         <Hangup />
       </Response>
     `.trim());
+  }
+});
+
+app.post("/api/twilio/otp-verification", (req, res) => {
+  try {
+    getVoiceOtpPrompt({ challengeId: req.query.challengeId, token: req.query.token });
+    const baseUrl = process.env.APP_PUBLIC_URL || "http://127.0.0.1:8787";
+    const audioUrl = `${baseUrl}/api/elevenlabs/otp-audio?challengeId=${encodeURIComponent(req.query.challengeId || "")}&token=${encodeURIComponent(req.query.token || "")}`;
+    res.type("text/xml").send(`
+      <Response>
+        <Pause length="1" />
+        <Play>${escapeXml(audioUrl)}</Play>
+        <Pause length="1" />
+        <Play>${escapeXml(audioUrl)}</Play>
+        <Hangup />
+      </Response>
+    `);
+  } catch (error) {
+    res.type("text/xml").status(200).send(`
+      <Response>
+        <Say>Your LivingRelay verification call expired. Please request a new code.</Say>
+        <Hangup />
+      </Response>
+    `);
+  }
+});
+
+app.get("/api/elevenlabs/otp-audio", async (req, res) => {
+  try {
+    const prompt = getVoiceOtpPrompt({ challengeId: req.query.challengeId, token: req.query.token });
+    const audio = await fetchOtpVerificationAudio(prompt);
+    res.header("cache-control", "no-store");
+    res.type("audio/mpeg").send(audio);
+  } catch (error) {
+    console.error(`[ElevenLabs OTP audio failed] ${error.message}`);
+    res.status(error.statusCode || 502).json({ error: error.message });
   }
 });
 

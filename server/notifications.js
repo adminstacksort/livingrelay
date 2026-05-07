@@ -2,7 +2,7 @@ import http2 from "node:http2";
 import { createSign, randomUUID } from "node:crypto";
 import { notifications, people, properties, recordAudit, saveState, vendors, workOrders } from "./data.js";
 import { sendEmail } from "./emailClient.js";
-import { sendSms } from "./twilioClient.js";
+import { sendSms } from "./smsClient.js";
 
 const notificationEvents = {
   tenant_report: {

@@ -62,11 +62,20 @@ Use SecureString parameters, one path per environment:
 /livingrelay/dev/APP_PUBLIC_URL
 /livingrelay/dev/SESSION_SECRET
 /livingrelay/dev/DATABASE_URL
+/livingrelay/dev/SMS_PROVIDER
+/livingrelay/dev/SMS_FALLBACK_PROVIDER
+/livingrelay/dev/PHONE_VERIFICATION_PROVIDER
 /livingrelay/dev/TWILIO_ACCOUNT_SID
 /livingrelay/dev/TWILIO_AUTH_TOKEN
 /livingrelay/dev/TWILIO_MESSAGING_NUMBER
 /livingrelay/dev/TWILIO_MESSAGING_SERVICE_SID
+/livingrelay/dev/TWILIO_VERIFY_SERVICE_SID
 /livingrelay/dev/TWILIO_VOICE_NUMBER
+/livingrelay/dev/AWS_SMS_REGION
+/livingrelay/dev/AWS_SNS_SMS_TYPE
+/livingrelay/dev/AWS_SMS_SENDER_ID
+/livingrelay/dev/ELEVENLABS_API_KEY
+/livingrelay/dev/ELEVENLABS_OTP_VOICE_ID
 /livingrelay/dev/AWS_SES_FROM_EMAIL
 /livingrelay/dev/SES_SNS_WEBHOOK_SECRET
 /livingrelay/dev/ANTHROPIC_API_KEY
@@ -105,7 +114,7 @@ Important values:
 
 - Container name: `livingrelay`
 - Container port: `8787`
-- Task role: `livingrelay-ecs-task-role` with `ses:SendEmail` and `ses:SendRawEmail` scoped to the `livingrelay.com` SES identity.
+- Task role: `livingrelay-ecs-task-role` with `ses:SendEmail` and `ses:SendRawEmail` scoped to the `livingrelay.com` SES identity, plus `sns:Publish` for SMS fallback.
 - Image initially: `365609840635.dkr.ecr.us-east-1.amazonaws.com/livingrelay:dev`
 - Use the matching environment SSM parameter path for secrets.
 - Log group examples:
@@ -122,6 +131,28 @@ https://<environment-host>/api/ses/notifications?token=<SES_SNS_WEBHOOK_SECRET>
 LivingRelay records SES bounces and complaints in its email suppression list before future sends. Set `SES_SNS_AUTO_CONFIRM=true` in deployed environments so SNS subscription confirmations are accepted after the token and SNS signature checks pass.
 
 Keep `SES_MAX_SEND_RATE_PER_SECOND` at or below the account send-rate quota. The initial approved SES rate is 14 messages per second. SNS message signature verification is enabled by default; only set `SES_SNS_VERIFY_SIGNATURE=false` for local testing.
+
+SMS defaults to Twilio first with AWS SNS fallback:
+
+```text
+SMS_PROVIDER=twilio
+SMS_FALLBACK_PROVIDER=aws_sns
+AWS_SMS_REGION=us-east-1
+AWS_SNS_SMS_TYPE=Transactional
+```
+
+Use this while Twilio A2P 10DLC campaign approval is pending. Normal app SMS sends try Twilio first and fall back to SNS if Twilio returns an error. Phone verification uses Twilio Verify when `TWILIO_VERIFY_SERVICE_SID` is set; if Verify fails and `SMS_FALLBACK_PROVIDER=aws_sns`, LivingRelay sends its own six-digit code through SNS. Make sure the AWS SMS sandbox is lifted, production SMS spend limits are set, and any required US origination identity/registration is ready in AWS End User Messaging SMS.
+
+Until text delivery is ready, phone verification is configured as a voice OTP call:
+
+```text
+PHONE_VERIFICATION_PROVIDER=voice
+TWILIO_VOICE_NUMBER=<working Twilio voice number>
+ELEVENLABS_API_KEY=<ElevenLabs API key>
+ELEVENLABS_OTP_VOICE_ID=<optional voice id>
+```
+
+Twilio places the call to `/api/twilio/otp-verification`, and Twilio plays ElevenLabs-generated audio from `/api/elevenlabs/otp-audio`. `APP_PUBLIC_URL` must be the public HTTPS hostname Twilio can reach.
 
 ## 5. Create ECS Services
 

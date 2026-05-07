@@ -1,6 +1,8 @@
 import { getPostgresStatus, getRuntimeEnvironment, getStateId } from "./postgresState.js";
+import { getSmsStatus } from "./smsClient.js";
 import { getTwilioStatus } from "./twilioClient.js";
 import { getEmailStatus } from "./emailClient.js";
+import { getOtpVoiceStatus } from "./elevenLabsCalls.js";
 import { getPushStatus } from "./notifications.js";
 import { platformSettings } from "./data.js";
 
@@ -34,7 +36,16 @@ export async function getReadiness() {
   if (!googlePlacesConfigured) missing.push("GOOGLE_PLACES_API_KEY");
   const database = await getPostgresStatus();
   const twilio = getTwilioStatus();
-  if (!twilio.configured) missing.push(...twilio.missing.filter((key) => !missing.includes(key)));
+  const sms = getSmsStatus();
+  if (!sms.configured) {
+    const smsMissing = sms.provider === "aws_sns" ? sms.aws.missing : sms.twilio.missing;
+    missing.push(...smsMissing.filter((key) => !missing.includes(key)));
+  }
+  const phoneVerificationProvider = process.env.PHONE_VERIFICATION_PROVIDER || (process.env.NODE_ENV === "production" ? "voice" : "sms");
+  const voiceOtp = getOtpVoiceStatus();
+  if (strictReadiness && phoneVerificationProvider === "voice" && !voiceOtp.configured) {
+    missing.push(...voiceOtp.missing.filter((key) => !missing.includes(key)));
+  }
   const email = getEmailStatus();
   if (strictReadiness && !email.configured) missing.push(...email.missing.filter((key) => !missing.includes(key)));
   const push = getPushStatus();
@@ -49,7 +60,8 @@ export async function getReadiness() {
   return {
     ok: missing.length === 0
       && (strictReadiness ? database.ok : true)
-      && twilio.configured
+      && sms.configured
+      && (strictReadiness && phoneVerificationProvider === "voice" ? voiceOtp.configured : true)
       && (strictReadiness ? email.configured : true)
       && elevenLabsMissing.length === 0,
     environment,
@@ -59,6 +71,11 @@ export async function getReadiness() {
     missing,
     database,
     twilio,
+    sms,
+    phoneVerification: {
+      provider: phoneVerificationProvider,
+      voiceOtp
+    },
     ai: {
       anthropicConfigured: Boolean(process.env.ANTHROPIC_API_KEY)
     },

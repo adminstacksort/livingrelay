@@ -22,7 +22,7 @@ export function getTwilioStatus() {
   };
 }
 
-export async function sendSms({ to, body }) {
+export async function sendTwilioSms({ to, body }) {
   const status = getTwilioStatus();
   if (!status.configured) {
     return { sent: false, error: `Missing Twilio env: ${status.missing.join(", ")}` };
@@ -46,6 +46,7 @@ export async function sendSms({ to, body }) {
 
     return {
       sent: true,
+      provider: "twilio",
       sid: result.sid,
       status: result.status,
       to,
@@ -56,6 +57,7 @@ export async function sendSms({ to, body }) {
   } catch (error) {
     return {
       sent: false,
+      provider: "twilio",
       error: error.message,
       errorCode: error.code,
       status: error.status,
@@ -65,6 +67,8 @@ export async function sendSms({ to, body }) {
     };
   }
 }
+
+export const sendSms = sendTwilioSms;
 
 export async function getSmsMessageStatus(messageSid) {
   const client = getTwilioClient();
@@ -79,7 +83,7 @@ export async function getSmsMessageStatus(messageSid) {
 }
 
 export async function startPhoneVerificationSms({ to }) {
-  const client = getTwilioClient();
+  const client = getTwilioVerifyClient();
   const serviceSid = getTwilioVerifyServiceSid();
   const verification = await client.verify.v2.services(serviceSid).verifications.create({
     to,
@@ -96,7 +100,7 @@ export async function startPhoneVerificationSms({ to }) {
 }
 
 export async function checkPhoneVerificationSms({ to, code }) {
-  const client = getTwilioClient();
+  const client = getTwilioVerifyClient();
   const serviceSid = getTwilioVerifyServiceSid();
   const check = await client.verify.v2.services(serviceSid).verificationChecks.create({
     to,
@@ -115,6 +119,15 @@ export function getTwilioClient() {
   const status = getTwilioStatus();
   if (!status.configured) {
     throw new Error(`Missing Twilio env: ${status.missing.join(", ")}`);
+  }
+  return twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+}
+
+function getTwilioVerifyClient() {
+  const missing = required.filter((key) => !process.env[key]);
+  if (!process.env.TWILIO_VERIFY_SERVICE_SID) missing.push("TWILIO_VERIFY_SERVICE_SID");
+  if (missing.length > 0) {
+    throw new Error(`Missing Twilio Verify env: ${missing.join(", ")}`);
   }
   return twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 }
