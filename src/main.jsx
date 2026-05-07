@@ -7927,40 +7927,62 @@ function StaleNudgePanel({ staleOrders, setActiveOrderId, nudgeOrder, nudgeStale
 
 function DispatchSettingsEditor({ property, vendors, reloadState }) {
   const settings = property.dispatchSettings || {};
+  const initialPreferences = normalizeVendorPreferences(settings.vendorPreferences);
   const [form, setForm] = useState({
     vendorOutreachMode: settings.vendorOutreachMode || "manager_approval",
     emergencyOutreachMode: settings.emergencyOutreachMode || "manager_approval",
     productionVendorCallsEnabled: settings.productionVendorCallsEnabled !== false,
     maxVendorsToCall: settings.maxVendorsToCall || 5,
     inboundInvoiceEmail: settings.inboundInvoiceEmail || "invoices@livingrelay.com",
-    Plumbing: (settings.vendorPreferences?.Plumbing || []).join(", "),
-    HVAC: (settings.vendorPreferences?.HVAC || []).join(", "),
-    Electrical: (settings.vendorPreferences?.Electrical || []).join(", "),
-    Painting: (settings.vendorPreferences?.Painting || []).join(", "),
-    General: (settings.vendorPreferences?.General || []).join(", ")
+    vendorPreferences: initialPreferences
   });
+  const [vendorDrafts, setVendorDrafts] = useState({ Plumbing: "", HVAC: "", Electrical: "", Painting: "", General: "" });
 
   useEffect(() => {
+    const nextSettings = property.dispatchSettings || {};
     setForm({
-      vendorOutreachMode: settings.vendorOutreachMode || "manager_approval",
-      emergencyOutreachMode: settings.emergencyOutreachMode || "manager_approval",
-      productionVendorCallsEnabled: settings.productionVendorCallsEnabled !== false,
-      maxVendorsToCall: settings.maxVendorsToCall || 5,
-      inboundInvoiceEmail: settings.inboundInvoiceEmail || "invoices@livingrelay.com",
-      Plumbing: (settings.vendorPreferences?.Plumbing || []).join(", "),
-      HVAC: (settings.vendorPreferences?.HVAC || []).join(", "),
-      Electrical: (settings.vendorPreferences?.Electrical || []).join(", "),
-      Painting: (settings.vendorPreferences?.Painting || []).join(", "),
-      General: (settings.vendorPreferences?.General || []).join(", ")
+      vendorOutreachMode: nextSettings.vendorOutreachMode || "manager_approval",
+      emergencyOutreachMode: nextSettings.emergencyOutreachMode || "manager_approval",
+      productionVendorCallsEnabled: nextSettings.productionVendorCallsEnabled !== false,
+      maxVendorsToCall: nextSettings.maxVendorsToCall || 5,
+      inboundInvoiceEmail: nextSettings.inboundInvoiceEmail || "invoices@livingrelay.com",
+      vendorPreferences: normalizeVendorPreferences(nextSettings.vendorPreferences)
     });
-  }, [property.id]);
+    setVendorDrafts({ Plumbing: "", HVAC: "", Electrical: "", Painting: "", General: "" });
+  }, [property.id, property.dispatchSettings]);
+
+  function updatePreferences(trade, updater) {
+    setForm((current) => ({
+      ...current,
+      vendorPreferences: {
+        ...current.vendorPreferences,
+        [trade]: updater(current.vendorPreferences?.[trade] || [])
+      }
+    }));
+  }
+
+  function addVendorPreference(trade, vendor) {
+    const normalized = normalizeVendorPreference(vendor, trade);
+    if (!normalized.name) return;
+    updatePreferences(trade, (existing) => {
+      const withoutDuplicate = existing.filter((item) => `${item.name}:${item.phone}`.toLowerCase() !== `${normalized.name}:${normalized.phone}`.toLowerCase());
+      return [...withoutDuplicate, normalized];
+    });
+    setVendorDrafts((current) => ({ ...current, [trade]: "" }));
+  }
+
+  function moveVendorPreference(trade, index, direction) {
+    updatePreferences(trade, (existing) => {
+      const next = [...existing];
+      const target = index + direction;
+      if (target < 0 || target >= next.length) return next;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
 
   async function saveSettings(event) {
     event.preventDefault();
-    const vendorPreferences = {};
-    ["Plumbing", "HVAC", "Electrical", "Painting", "General"].forEach((trade) => {
-      vendorPreferences[trade] = String(form[trade] || "").split(",").map((item) => item.trim()).filter(Boolean);
-    });
     await fetch(`/api/admin/properties/${property.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -7973,7 +7995,7 @@ function DispatchSettingsEditor({ property, vendors, reloadState }) {
           productionVendorCallsEnabled: form.productionVendorCallsEnabled,
           maxVendorsToCall: Number(form.maxVendorsToCall || 5),
           inboundInvoiceEmail: form.inboundInvoiceEmail,
-          vendorPreferences
+          vendorPreferences: normalizeVendorPreferences(form.vendorPreferences)
         }
       })
     });
@@ -7989,7 +8011,36 @@ function DispatchSettingsEditor({ property, vendors, reloadState }) {
       <label>Vendors to call<input type="number" min="1" max="5" value={form.maxVendorsToCall} onChange={(event) => setForm({ ...form, maxVendorsToCall: event.target.value })} /></label>
       <label>Inbound invoice email<input value={form.inboundInvoiceEmail} onChange={(event) => setForm({ ...form, inboundInvoiceEmail: event.target.value })} /></label>
       {["Plumbing", "HVAC", "Electrical", "Painting", "General"].map((trade) => (
-        <label className="span-2" key={trade}>{trade} priority<input list={`vendors-${trade}`} value={form[trade]} onChange={(event) => setForm({ ...form, [trade]: event.target.value })} placeholder="Vendor names or phone numbers, in priority order" /><datalist id={`vendors-${trade}`}>{vendors.filter((vendor) => vendor.trade === trade || trade === "General").map((vendor) => <option value={vendor.name} key={vendor.id} />)}</datalist></label>
+        <div className="vendor-priority-editor span-2" key={trade}>
+          <div className="vendor-priority-head">
+            <span>{trade} priority</span>
+            <small>{(form.vendorPreferences?.[trade] || []).length || 0} saved</small>
+          </div>
+          <VendorAutocompleteInput
+            value={vendorDrafts[trade] || ""}
+            onChange={(value) => setVendorDrafts((current) => ({ ...current, [trade]: value }))}
+            onVendorSelect={(vendor) => addVendorPreference(trade, vendor)}
+            trade={trade}
+            propertyId={property.id}
+            placeholder="Search saved vendors or Google business profiles"
+          />
+          {vendorDrafts[trade]?.trim() && (
+            <button className="ghost compact" type="button" onClick={() => addVendorPreference(trade, { name: vendorDrafts[trade], trade, source: "Manual entry" })}><Plus size={14} /> Add typed vendor</button>
+          )}
+          <div className="vendor-priority-list">
+            {(form.vendorPreferences?.[trade] || []).map((vendor, index) => (
+              <div className="vendor-priority-item" key={`${vendor.name}-${vendor.phone}-${index}`}>
+                <strong>{index + 1}. {vendor.name}</strong>
+                <span>{vendorPreferenceSummary(vendor) || "No phone or address saved yet"}</span>
+                <div className="vendor-priority-actions">
+                  <button type="button" className="icon-btn" onClick={() => moveVendorPreference(trade, index, -1)} disabled={index === 0} aria-label={`Move ${vendor.name} up`}>↑</button>
+                  <button type="button" className="icon-btn" onClick={() => moveVendorPreference(trade, index, 1)} disabled={index === (form.vendorPreferences?.[trade] || []).length - 1} aria-label={`Move ${vendor.name} down`}>↓</button>
+                  <button type="button" className="icon-btn danger" onClick={() => updatePreferences(trade, (existing) => existing.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove ${vendor.name}`}><Trash2 size={14} /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       ))}
       <button className="secondary wide" type="submit"><Settings2 size={15} /> Save dispatch preferences</button>
     </form>
