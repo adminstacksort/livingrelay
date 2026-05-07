@@ -76,6 +76,9 @@ export function needsImmediateManagerNotice(order) {
 
 function guidanceForOrder(order) {
   const body = order.issue.toLowerCase();
+  const specificGuidance = guidanceForSpecificIssue(body);
+  if (specificGuidance) return specificGuidance;
+
   if (order.trade === "Plumbing") {
     if (body.includes("shower") || body.includes("tub")) {
       return {
@@ -134,6 +137,91 @@ function guidanceForOrder(order) {
     ],
     safety: "If it feels unsafe or is getting worse, reply STILL."
   };
+}
+
+function guidanceForSpecificIssue(body) {
+  const includesAny = (words) => words.some((word) => body.includes(word));
+  if (includesAny(["rail", "railing", "handrail", "banister", "stair", "step", "deck", "balcony"])) {
+    return {
+      steps: [
+        "1. Avoid leaning on it or using that stair/deck edge until it is checked.",
+        "2. Send one wide photo showing the full rail and one close photo of the loose bracket, post, fasteners, or cracked area.",
+        "3. Tell me whether it wiggles, is detached, sharp, rusted, or blocking a normal entry path."
+      ],
+      safety: "If it affects safe entry, stairs, a balcony, or a fall risk, reply STILL."
+    };
+  }
+  if (includesAny(["door", "lock", "latch", "handle", "knob", "deadbolt", "key", "window", "screen", "gate"])) {
+    return {
+      steps: [
+        "1. Do not force the handle, lock, window, or latch if it feels stuck.",
+        "2. Send a close photo of the hardware and a wider photo showing which door, window, gate, or entry it is.",
+        "3. Tell me whether it will not open, will not close, will not latch, feels loose, or affects exterior security."
+      ],
+      safety: "If an exterior door, gate, or window cannot secure, reply STILL."
+    };
+  }
+  if (includesAny(["fridge", "refrigerator", "freezer", "dishwasher", "washer", "dryer", "oven", "stove", "range", "microwave", "appliance"])) {
+    return {
+      steps: [
+        "1. Tell me whether it has no power, is leaking, making noise, showing an error, or not heating/cooling.",
+        "2. Send a photo of the appliance front plus the model/serial label if you can find it safely.",
+        "3. Try one normal power or cycle reset only if there is no smell, smoke, leak, or heat concern."
+      ],
+      safety: "If there is smoke, burning smell, gas smell, or active leaking, reply STILL."
+    };
+  }
+  if (includesAny(["garage", "opener", "remote", "keypad", "parking gate"])) {
+    return {
+      steps: [
+        "1. Try a second remote/keypad code only if you already have one.",
+        "2. Send a photo of the door/gate position and any blinking light or error on the opener.",
+        "3. Tell me whether the motor runs, clicks, is silent, reverses, or the door/gate is physically stuck."
+      ],
+      safety: "If your vehicle or home access is blocked, reply STILL."
+    };
+  }
+  if (includesAny(["cabinet", "drawer", "closet", "shelf", "hinge", "track", "sliding"])) {
+    return {
+      steps: [
+        "1. Avoid forcing the drawer, cabinet, closet, or sliding panel if it is binding.",
+        "2. Send a wide photo of the fixture and a close photo of the hinge, track, roller, screw, or cracked piece.",
+        "3. Tell me whether it is loose, detached, scraping, off track, or unable to close."
+      ],
+      safety: "If anything is falling, sharp, or blocking access, reply STILL."
+    };
+  }
+  if (includesAny(["ceiling", "wall", "drywall", "paint", "stain", "mold", "mildew", "moisture", "soft spot"])) {
+    return {
+      steps: [
+        "1. Do not touch soft drywall, peeling paint, or suspected mold.",
+        "2. Send a wide photo for room location and a close photo with a common object nearby for scale.",
+        "3. Tell me whether it is wet now, spreading, musty, after rain, near plumbing, or below another unit."
+      ],
+      safety: "If water is active, the ceiling is sagging, or the area feels unsafe, reply STILL."
+    };
+  }
+  if (includesAny(["smoke detector", "carbon monoxide", "co detector", "alarm", "chirp", "beeping"])) {
+    return {
+      steps: [
+        "1. If there is smoke, fire, gas smell, or carbon monoxide concern, leave and call emergency services first.",
+        "2. Tell me whether it is a single chirp, repeated alarm, low-battery alert, or no power.",
+        "3. Send a photo of the detector location and brand/model if reachable without climbing unsafely."
+      ],
+      safety: "If this is an active alarm or you are unsure, reply STILL after getting to a safe place."
+    };
+  }
+  if (includesAny(["pest", "bug", "bugs", "ant", "ants", "roach", "roaches", "mouse", "mice", "rat", "rats"])) {
+    return {
+      steps: [
+        "1. Take a photo only if you can do it safely and without disturbing nests or droppings.",
+        "2. Tell me the room, where you saw activity, and whether it is a one-time sighting or recurring.",
+        "3. Note any entry points, food/water source nearby, or neighboring unit/common-area pattern."
+      ],
+      safety: "If there is a bite, aggressive activity, or contamination concern, reply STILL."
+    };
+  }
+  return null;
 }
 
 function nextGuidanceForOrder(order, body, mediaItems) {
