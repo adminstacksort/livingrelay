@@ -1955,6 +1955,41 @@ function inferTradeFromGoogleTypes(types = [], fallback = "General") {
   return fallback || "General";
 }
 
+function normalizeVendorPreference(entry, trade = "General") {
+  if (typeof entry === "string") {
+    return { name: entry.trim(), trade };
+  }
+  return {
+    name: String(entry?.name || entry?.businessName || "").trim(),
+    trade: String(entry?.trade || trade || "General").trim(),
+    phone: String(entry?.phone || "").trim(),
+    address: String(entry?.address || entry?.formattedAddress || "").trim(),
+    websiteUri: String(entry?.websiteUri || entry?.website || "").trim(),
+    placeId: String(entry?.placeId || entry?.place_id || "").trim(),
+    source: String(entry?.source || "").trim()
+  };
+}
+
+function normalizeVendorPreferences(preferences = {}) {
+  return ["Plumbing", "HVAC", "Electrical", "Painting", "General"].reduce((normalized, trade) => {
+    const seen = new Set();
+    normalized[trade] = (Array.isArray(preferences?.[trade]) ? preferences[trade] : [])
+      .map((entry) => normalizeVendorPreference(entry, trade))
+      .filter((entry) => entry.name)
+      .filter((entry) => {
+        const key = `${entry.name}:${entry.phone}`.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    return normalized;
+  }, {});
+}
+
+function vendorPreferenceSummary(vendor) {
+  return [vendor.phone, vendor.address, vendor.source === "google" ? "Google Business Profile" : vendor.source].filter(Boolean).join(" · ");
+}
+
 function isTenantVisibleWorkOrder(order, user) {
   if (!order || !user) return false;
   if (!isLiveDashboardWorkOrder(order)) return false;

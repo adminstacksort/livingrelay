@@ -3151,9 +3151,54 @@ function buildOperatingRules(existingRules = "", vendorPreferences = {}) {
   const baseRules = String(existingRules || "").replace(/\s*Owner vendor operating system:.*$/i, "").trim();
   const teamRules = Object.entries(vendorPreferences)
     .filter(([, names]) => names?.length)
-    .map(([trade, names]) => `${trade}: use ${names.join(", ")} in that order.`)
+    .map(([trade, names]) => `${trade}: use ${names.map(vendorPreferenceName).filter(Boolean).join(", ")} in that order.`)
     .join(" ");
   return [baseRules, teamRules ? `Owner vendor operating system: ${teamRules}` : ""].filter(Boolean).join(" ");
+}
+
+function vendorPreferenceName(entry = {}) {
+  return typeof entry === "string" ? entry : entry.name || entry.phone || "";
+}
+
+function upsertPreferredVendorsForProperty(property) {
+  const preferences = normalizeVendorPreferences(property.dispatchSettings?.vendorPreferences || {});
+  property.dispatchSettings = {
+    ...mergeDispatchSettings(property.dispatchSettings),
+    vendorPreferences: preferences
+  };
+  for (const [trade, entries] of Object.entries(preferences)) {
+    for (const entry of entries) {
+      const name = vendorPreferenceName(entry);
+      if (!name) continue;
+      const existingVendor = vendors.find((vendor) =>
+        String(vendor.name || "").toLowerCase() === name.toLowerCase()
+        && (!vendor.accountId || vendor.accountId === property.accountId)
+      ) || (entry.phone ? vendors.find((vendor) => normalizePhone(vendor.phone || "") === normalizePhone(entry.phone)) : null);
+      const vendor = existingVendor || {
+        id: `v-${vendors.length + 1}`,
+        name,
+        trade: entry.trade || trade,
+        phone: entry.phone ? normalizePhone(entry.phone) : "",
+        preferred: true,
+        propertyIds: [property.id],
+        accountId: property.accountId,
+        address: entry.address || "",
+        websiteUri: entry.websiteUri || "",
+        placeId: entry.placeId || "",
+        source: entry.source || "Dispatch preferences"
+      };
+      if (!existingVendor) vendors.push(vendor);
+      if (!vendor.propertyIds?.includes(property.id)) vendor.propertyIds = [...(vendor.propertyIds || []), property.id];
+      vendor.accountId = vendor.accountId || property.accountId;
+      vendor.preferred = true;
+      if (!vendor.trade || vendor.trade === "General") vendor.trade = entry.trade || trade;
+      if (entry.phone && !vendor.phone) vendor.phone = normalizePhone(entry.phone);
+      if (entry.address && !vendor.address) vendor.address = entry.address;
+      if (entry.websiteUri && !vendor.websiteUri) vendor.websiteUri = entry.websiteUri;
+      if (entry.placeId && !vendor.placeId) vendor.placeId = entry.placeId;
+      if (entry.source && !vendor.source) vendor.source = entry.source;
+    }
+  }
 }
 
 function dedupeBy(items, keyFn) {
