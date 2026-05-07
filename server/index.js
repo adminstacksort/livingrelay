@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { accessRequests, accounts, auditLog, billingEvents, event, externalMappings, integrationConnections, integrationEvents, invoices, message, notifications, people, platformSettings, properties, prospectingLeads, qaRuns, recordAudit, referrals, saveState, vendors, waitForStatePersistence, workOrders } from "./data.js";
 import { composeActionMessage, handleInboundCommand, normalizePhone } from "./smsLogic.js";
+import { findVendorOptions } from "./anthropicVendorSearch.js";
 import { sendSms } from "./smsClient.js";
 import { getSmsMessageStatus, getTwilioStatus } from "./twilioClient.js";
 import { getEmailStatus, recordSesNotification, sendEmail } from "./emailClient.js";
@@ -13,7 +14,7 @@ import { fetchOtpVerificationAudio, registerTwilioCallWithElevenLabs, startVendo
 import { runFullFlowDemo, selectDemoQuote, simulateVendorOutreach } from "./demoOutreach.js";
 import { createDemoScenario, listDemoScenarios } from "./demoScenarios.js";
 import { getStaleWorkOrders, nudgeStaleWorkOrders, nudgeWorkOrder } from "./staleNudges.js";
-import { dialManagerIntoCall, getLiveCalls, listenToCall, takeOverCall } from "./liveCallControl.js";
+import { applyTwilioVoiceStatusToCall, dialManagerIntoCall, getLiveCalls, isTerminalTwilioCallStatus, listenToCall, takeOverCall } from "./liveCallControl.js";
 import { buildTaxCsv, buildTaxSummary, canExportOwnerTaxPacket, recordTaxBundleAudit } from "./taxExports.js";
 import { getGooglePlacesApiKey, getReadiness } from "./config.js";
 import { getRuntimeEnvironment, getStateId } from "./postgresState.js";
@@ -35,6 +36,7 @@ import {
   mergeOutcomes,
   normalizeCallOutcomeStatus,
   normalizeVendorPreferences,
+  recordVendorHangup,
   recordVendorCallResults,
   recordVendorCompletion,
   recordVendorToolOutcome,
@@ -1918,6 +1920,9 @@ app.post("/api/admin/work-orders", async (req, res) => {
   if (requestVendorOutreach) {
     order.timeline.push(event("Tenant requested vendor outreach", `${order.tenantAvailability.preferredWindows.join("; ") || order.access || "Availability needs confirmation"} shared for vendor calls.`));
   }
+  const property = properties.find((item) => item.id === propertyId);
+  order.vendorOptions = await findVendorOptions({ property, order, configuredVendors: vendors });
+  order.timeline.push(event("AI prepared vendor options", `${order.vendorOptions.length} vendor candidate(s) ready for manager review.`));
   workOrders.unshift(order);
   saveState();
   recordAudit(actorName, "Created work order", `${order.id} created by ${actorRole}.`);
@@ -3487,7 +3492,7 @@ function updateVendorCallSessionFromCall(order, call = {}) {
     (call.phone && normalizePhone(item.phone) === normalizePhone(call.phone))
   );
   if (!session) return;
-  session.status = ["Available", "done", "completed"].includes(call.status) ? "Completed" : call.status || session.status;
+  session.status = displayVendorCallSessionStatus(call.status || (call.success ? "completed" : "failed"));
   session.mode = "AI completed";
   session.conversationId = call.conversationId || session.conversationId || null;
   session.callSid = call.callSid || session.callSid || null;
@@ -3496,6 +3501,15 @@ function updateVendorCallSessionFromCall(order, call = {}) {
   session.transcript = call.transcript?.length ? call.transcript : session.transcript;
   session.lastTranscriptAt = new Date().toISOString();
   session.completedAt = new Date().toISOString();
+}
+
+function displayVendorCallSessionStatus(status = "") {
+  const normalized = normalizeCallOutcomeStatus(status);
+  if (normalized === "busy") return "Busy";
+  if (normalized === "no-answer") return "No answer";
+  if (normalized === "vendor_hung_up") return "Hung up";
+  if (normalized === "failed" || normalized === "hold_timeout") return "Failed";
+  return "Completed";
 }
 
 function appendVendorCallTranscriptLine(order, call = {}) {
@@ -5002,11 +5016,16 @@ app.post("/api/twilio/voice-status", (req, res) => {
   if (order) {
     const call = order.vendorCalls?.find((item) => item.callSid === req.body.CallSid || item.id === req.query.callId || `${order.id}:${item.phone}` === req.query.callKey);
     if (call) {
-      call.twilioStatus = req.body.CallStatus || call.twilioStatus;
-      call.lastTwilioStatusAt = new Date().toISOString();
-      if (req.body.CallStatus === "completed") call.status = "Completed";
+      const now = new Date().toISOString();
+      if (req.query.manager === "1") {
+        call.managerTwilioStatus = req.body.CallStatus || call.managerTwilioStatus;
+        call.managerLastTwilioStatusAt = now;
+      } else {
+        applyTwilioVoiceStatusToCall(call, req.body.CallStatus, { now });
+      }
     }
     if (req.query.manager !== "1") {
+      const terminalAt = new Date().toISOString();
       const attempt = upsertCallAttempt(order, {
         callSid: req.body.CallSid,
         callKey: req.query.callKey,
@@ -5014,8 +5033,18 @@ app.post("/api/twilio/voice-status", (req, res) => {
       }, {
         status: req.body.CallStatus || "status_update",
         callSid: req.body.CallSid,
-        completedAt: req.body.CallStatus === "completed" ? new Date().toISOString() : undefined
+        completedAt: isTerminalTwilioCallStatus(req.body.CallStatus) ? terminalAt : undefined
       });
+      if (call?.status === "Hung up") {
+        recordVendorHangup(order.id, {
+          vendorName: call.vendorName,
+          phone: call.phone || req.body.To,
+          callSid: req.body.CallSid,
+          callKey: req.query.callKey,
+          conversationId: call.conversationId,
+          summary: "Vendor ended the call before LivingRelay captured pricing, availability, or a bookable outcome."
+        }, { actor: "Twilio voice status" });
+      }
       if (attempt.retry?.needed) {
         order.timeline.push({
           label: "Vendor call retry queued",

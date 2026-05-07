@@ -5,11 +5,56 @@ import { upsertCallAttempt } from "./vendorWorkflow.js";
 import { WebSocket } from "ws";
 
 const transcriptMonitors = new Map();
+const TWILIO_TERMINAL_STATUSES = new Set(["completed", "busy", "failed", "no-answer", "canceled", "cancelled"]);
 
 export function getLiveCalls(orderId) {
   const order = workOrders.find((item) => item.id === orderId);
   if (!order) return { error: "work order not found" };
   return { orderId, calls: order.vendorCalls || [] };
+}
+
+export function isTerminalTwilioCallStatus(status = "") {
+  return TWILIO_TERMINAL_STATUSES.has(String(status || "").toLowerCase());
+}
+
+export function displayStatusForTwilioCallStatus(status = "") {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized === "completed") return "Completed";
+  if (normalized === "busy") return "Busy";
+  if (normalized === "no-answer") return "No answer";
+  if (normalized === "canceled" || normalized === "cancelled") return "Canceled";
+  if (normalized === "failed") return "Failed";
+  return status || "Completed";
+}
+
+export function callNeedsHangupOutcome(call = {}) {
+  if (!call) return false;
+  const terminal = isTerminalTwilioCallStatus(call.twilioStatus);
+  if (!terminal || String(call.twilioStatus || "").toLowerCase() !== "completed") return false;
+  if (call.outcomeCaptured || call.selectedOutcomeId) return false;
+  const vendorText = (call.transcript || [])
+    .filter((line) => !/ai agent|livingrelay/i.test(line.speaker || ""))
+    .map((line) => line.text || "")
+    .join(" ");
+  const summary = `${call.summary || ""} ${vendorText}`.toLowerCase();
+  return !/(quote|charge|fee|\$|available|availability|arrival|tomorrow|today|schedule|book|dispatch|come out|diagnostic)/.test(summary);
+}
+
+export function applyTwilioVoiceStatusToCall(call, status = "", { now = new Date().toISOString() } = {}) {
+  if (!call) return call;
+  call.twilioStatus = status || call.twilioStatus;
+  call.lastTwilioStatusAt = now;
+  if (isTerminalTwilioCallStatus(status)) {
+    call.status = displayStatusForTwilioCallStatus(status);
+    call.mode = call.takeover ? "Call ended after takeover" : "AI completed";
+    call.completedAt = call.completedAt || now;
+    if (callNeedsHangupOutcome(call)) {
+      call.status = "Hung up";
+      call.mode = "Needs next vendor";
+      call.summary = "Vendor ended the call before pricing or arrival timing was captured.";
+    }
+  }
+  return call;
 }
 
 export function createVendorCallSessions(order, outcomes = []) {
@@ -336,9 +381,8 @@ function buildCallSummary(order, outcome) {
 function buildDemoTranscript(order, property, call) {
   const vendorName = call.vendorName || call.vendor || "Vendor";
   return [
-    { speaker: "AI agent", text: `Hi, this is LivingRelay calling about ${order.trade.toLowerCase()} work order ${order.id} at ${property?.name || "the property"}.`, stamp: new Date().toISOString() },
-    { speaker: vendorName, text: "I can help. What is the issue and access window?", stamp: new Date().toISOString() },
-    { speaker: "AI agent", text: `${order.issue} Access notes: ${order.access || "needs confirmation"}.`, stamp: new Date().toISOString() },
-    { speaker: vendorName, text: call.quote ? `Likely ${call.quote}; ${call.availability}.` : "Let me check availability and pricing.", stamp: new Date().toISOString() }
+    { speaker: "AI agent", text: `Hi, we have ${order.issue || `${order.trade.toLowerCase()} issue`} at ${property?.address || "the property"}. Is this something you all can fix, and if so, how much do you charge and when could you come and help?`, stamp: new Date().toISOString() },
+    { speaker: vendorName, text: call.quote ? `Likely ${call.quote}; ${call.availability}.` : "Let me check availability and pricing.", stamp: new Date().toISOString() },
+    { speaker: "AI agent", text: "Thanks. We are comparing options and will call back if the manager wants to schedule.", stamp: new Date().toISOString() }
   ];
 }

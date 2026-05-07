@@ -27,6 +27,7 @@ export const vendorCallOutcomeStatuses = [
   "out_of_business",
   "not_available",
   "declined",
+  "vendor_hung_up",
   "busy",
   "no-answer",
   "failed",
@@ -286,6 +287,8 @@ export function prepareVendorOutreach(orderId, { mode = "AI calls", actor = "man
 
 export function buildVendorAgentInstructions({ order, property, settings = mergeDispatchSettings(property?.dispatchSettings) } = {}) {
   const scope = buildVendorScopeDetails({ order, property });
+  const verifiedIssue = String(order?.issue || "").trim();
+  const openingScript = buildVendorCallOpeningScript({ order, property });
   const managerPolicy = [
     `Work order: ${order?.id || ""}`,
     `Trade: ${order?.trade || ""}`,
@@ -308,6 +311,12 @@ export function buildVendorAgentInstructions({ order, property, settings = merge
   return [
     "You are LivingRelay's vendor dispatch coordinator for a rental repair.",
     "Your goal is to help the tenant get the needed repair while following the property manager's instructions.",
+    `Use only this verified repair scope: "${verifiedIssue || scope}".`,
+    "Do not introduce or infer unrelated repair details, parts, systems, or examples. If the verified scope is a toilet leak, never mention garage doors, springs, openers, HVAC, appliances, or any other unrelated issue unless the manager or tenant explicitly included it.",
+    "If any default agent memory, prior conversation, or vendor assumption conflicts with the verified repair scope, ignore it and restate only the verified scope.",
+    `Open the call with this short script, adapted only for natural speech: "${openingScript}"`,
+    "Keep the call concise. Ask for service fit, rough price/fees, and earliest arrival first; do not read a long checklist unless the vendor needs more detail.",
+    "Do not schedule on the first call. After collecting price and timing, say you are comparing options and will call back if the manager wants to move forward.",
     "First verify business identity and service fit before sharing full property details.",
     "Give the vendor the complete scope packet before asking for a quote: property city/ZIP or full address when appropriate, unit/area, observable issue details, urgency, tenant availability, access notes, media summary, and invoice instructions.",
     "If the vendor asks for missing details such as address, ZIP code, photos, shutoff status, model number, parking, gate code, or tenant availability, capture the exact missing fields and call the request-tenant-info tool instead of guessing.",
@@ -321,6 +330,12 @@ export function buildVendorAgentInstructions({ order, property, settings = merge
     "Structured outcome fields:",
     vendorCallOutcomeSchemaFields.join(", ")
   ].join("\n\n");
+}
+
+export function buildVendorCallOpeningScript({ order, property } = {}) {
+  const issue = shortIssueLabel(order?.issue || order?.trade || "repair issue");
+  const address = property?.address || "the property";
+  return `Hi, we have ${withArticle(issue)} at ${address}. Is this something you all can fix, and if so, how much do you charge and when could you come and help?`;
 }
 
 export function buildVendorScopeDetails({ order, property } = {}) {
@@ -390,6 +405,7 @@ export function recordVendorCallResults(orderId, callResults = [], { actor = "El
       callSid: call.callSid || call.call_sid,
       completedAt: new Date().toISOString()
     });
+    markVendorCallSessionCompleted(order, call);
   }
   order.vendorOutreach = {
     ...(order.vendorOutreach || {}),
@@ -401,6 +417,39 @@ export function recordVendorCallResults(orderId, callResults = [], { actor = "El
   order.timeline.push(event("Vendor outreach results captured", `${outcomes.length} vendor outcome(s) saved from ${actor}.`));
   saveState();
   return { order, outcomes };
+}
+
+function markVendorCallSessionCompleted(order, call = {}) {
+  const session = order.vendorCalls?.find((item) =>
+    (call.callSid && item.callSid === call.callSid) ||
+    (call.call_sid && item.callSid === call.call_sid) ||
+    (call.conversationId && item.conversationId === call.conversationId) ||
+    (call.conversation_id && item.conversationId === call.conversation_id) ||
+    (call.callKey && item.callKey === call.callKey) ||
+    (call.call_key && item.callKey === call.call_key) ||
+    (call.phone && item.phone === call.phone)
+  );
+  if (!session) return;
+  const now = new Date().toISOString();
+  session.status = displayVendorCallSessionStatus(call.status || call.outcome || (call.success ? "completed" : "failed"));
+  session.mode = "AI completed";
+  session.conversationId = call.conversation_id || call.conversationId || session.conversationId || null;
+  session.callSid = call.callSid || call.call_sid || session.callSid || null;
+  session.recordingUrl = call.recordingUrl || call.recording_url || call.audioUrl || call.audio_url || session.recordingUrl || null;
+  session.summary = call.summary || call.notes || call.error || session.summary;
+  session.transcript = call.transcript?.length ? normalizeTranscript(call.transcript) : session.transcript;
+  session.lastTranscriptAt = now;
+  session.completedAt = session.completedAt || now;
+}
+
+function displayVendorCallSessionStatus(status = "") {
+  const normalized = normalizeCallOutcomeStatus(status);
+  if (["available", "needs_manager_review", "needs_tenant_info", "needs_photos", "online_booking_required", "callback_requested", "closed_now", "phone_tree", "voicemail_left", "wrong_number", "number_disconnected", "out_of_business", "not_available", "declined", "payment_required", "tenant_timing_confirmation", "booked"].includes(normalized)) return "Completed";
+  if (normalized === "busy") return "Busy";
+  if (normalized === "no-answer") return "No answer";
+  if (normalized === "vendor_hung_up") return "Hung up";
+  if (normalized === "failed" || normalized === "hold_timeout") return "Failed";
+  return "Completed";
 }
 
 export function recordVendorToolOutcome(orderId, payload = {}, { actor = "ElevenLabs tool" } = {}) {
@@ -430,6 +479,49 @@ export function recordVendorToolOutcome(orderId, payload = {}, { actor = "Eleven
   applyOutcomeSideEffects(order, outcome, call.structured, { actor });
   saveState();
   return { order, outcome, structured: call.structured };
+}
+
+export function recordVendorHangup(orderId, payload = {}, { actor = "Twilio voice status" } = {}) {
+  const order = ensureWorkOrderDispatchFields(workOrders.find((item) => item.id === orderId));
+  if (!order) return { error: "work order not found" };
+  const attempt = findAttempt(order, payload) || upsertCallAttempt(order, payload, {});
+  const existingOutcome = order.vendorOutreach?.outcomes?.find((outcome) =>
+    (attempt.conversationId && outcome.conversationId === attempt.conversationId) ||
+    (attempt.callSid && outcome.callSid === attempt.callSid) ||
+    (attempt.phone && outcome.phone === attempt.phone)
+  );
+  const alreadyCaptured = existingOutcome && !["vendor_hung_up", "failed", "busy", "no-answer"].includes(existingOutcome.status);
+  if (existingOutcome?.status === "vendor_hung_up") return { order, attempt, outcome: existingOutcome, skipped: true };
+  if (alreadyCaptured) return { order, attempt, skipped: true };
+  const vendorName = payload.vendorName || payload.vendor_name || attempt.vendorName || "Vendor";
+  const phone = payload.phone || payload.vendorPhone || payload.vendor_phone || attempt.phone || "";
+  const summary = payload.summary || "Vendor ended the call before LivingRelay captured pricing, availability, or a bookable outcome.";
+  attempt.status = "vendor_hung_up";
+  attempt.completedAt = attempt.completedAt || new Date().toISOString();
+  attempt.outcome = summary;
+  attempt.retry = retryDecision(order, attempt);
+  const result = recordVendorCallResults(order.id, [{
+    vendorName,
+    phone,
+    callSid: payload.callSid || payload.call_sid || attempt.callSid,
+    conversationId: payload.conversationId || payload.conversation_id || attempt.conversationId,
+    callKey: payload.callKey || payload.call_key || attempt.callKey,
+    status: "vendor_hung_up",
+    success: false,
+    quote: "Not captured",
+    availability: "Not captured",
+    summary,
+    recommendedNextStep: "Try the next vendor or have a manager call back manually if this vendor is preferred.",
+    structured: {
+      call_outcome: "vendor_hung_up",
+      manager_action_required: "Review transcript if available; otherwise try the next vendor.",
+      recommended_next_step: "Try the next vendor or have a manager call back manually if this vendor is preferred."
+    },
+    transcript: attempt.transcript || []
+  }], { actor });
+  order.timeline.push(event("Vendor hung up", `${vendorName}: no quote or arrival window captured.`));
+  saveState();
+  return { order: result.order, attempt, outcome: result.outcomes.at(-1) };
 }
 
 export function createCallAttempt(order, vendor, details = {}) {
@@ -497,6 +589,7 @@ export function normalizeCallOutcomeStatus(value = "") {
   if (["access", "needs_access", "tenant_info"].includes(text)) return "needs_tenant_info";
   if (["online", "online_booking", "website_booking"].includes(text)) return "online_booking_required";
   if (["payment", "deposit", "card_required"].includes(text)) return "payment_required";
+  if (["hangup", "hung_up", "vendor_hangup", "vendor_hung_up", "caller_hung_up", "ended_early", "premature_disconnect"].includes(text)) return "vendor_hung_up";
   if (vendorCallOutcomeStatuses.includes(text)) return text;
   return "needs_manager_review";
 }
@@ -754,7 +847,7 @@ function normalizeStructuredOutcome(payload = {}) {
 
 function nextActionForStructuredOutcome(structured = {}) {
   const status = normalizeCallOutcomeStatus(structured.call_outcome);
-  if (["wrong_number", "number_disconnected", "out_of_business", "declined", "not_available"].includes(status)) return "try_next_vendor";
+  if (["wrong_number", "number_disconnected", "out_of_business", "declined", "not_available", "vendor_hung_up"].includes(status)) return "try_next_vendor";
   if (status === "callback_requested" || status === "closed_now") return "queue_callback_or_try_next";
   if (status === "online_booking_required") return "manager_online_booking";
   if (status === "needs_photos") return "request_tenant_photos";
@@ -825,6 +918,33 @@ function detectHold({ transcript = [], summary = "", status = "" }) {
     timeoutMinutes: defaultRetryPolicy.holdTimeoutMinutes,
     detectedAt: phrase ? new Date().toISOString() : null
   };
+}
+
+function shortIssueLabel(issue = "") {
+  const text = String(issue || "").trim().replace(/\s+/g, " ");
+  if (!text) return "repair issue";
+  const lower = text.toLowerCase();
+  const patterns = [
+    [/toilet.*leak|leak.*toilet/, "a leaking toilet"],
+    [/sink.*leak|leak.*sink/, "a leaking sink"],
+    [/faucet.*leak|leak.*faucet/, "a leaking faucet"],
+    [/pipe.*leak|leak.*pipe/, "a leaking pipe"],
+    [/water.*heater/, "a water heater issue"],
+    [/no heat|heat.*not working|heater.*not working/, "a no-heat issue"],
+    [/ac.*not working|a\/c.*not working|no air conditioning/, "an AC issue"],
+    [/drain.*clog|clog.*drain/, "a clogged drain"],
+    [/outlet|breaker|electrical/, "an electrical issue"]
+  ];
+  const match = patterns.find(([pattern]) => pattern.test(lower));
+  if (match) return match[1];
+  return text.length > 70 ? `${text.slice(0, 67).trim()}...` : text;
+}
+
+function withArticle(label = "") {
+  const trimmed = String(label || "").trim();
+  if (!trimmed) return "a repair issue";
+  if (/^(a|an|the|some)\s/i.test(trimmed)) return trimmed;
+  return /^[aeiou]/i.test(trimmed) ? `an ${trimmed}` : `a ${trimmed}`;
 }
 
 function invoiceRecipientContacts(property, settings) {

@@ -1,7 +1,7 @@
 import { accounts, people, platformSettings, properties, workOrders } from "./data.js";
 import { attachOutboundCallSessions } from "./liveCallControl.js";
 import { createMediaRelayToken } from "./mediaRelay.js";
-import { buildVendorAgentInstructions, buildVendorScopeDetails, extractPostalCode, missingVendorScopeFields, prepareVendorOutreach, recordVendorCallResults, upsertCallAttempt, vendorCallOutcomeSchemaFields, vendorCallQuestions } from "./vendorWorkflow.js";
+import { buildVendorAgentInstructions, buildVendorCallOpeningScript, buildVendorScopeDetails, extractPostalCode, missingVendorScopeFields, prepareVendorOutreach, recordVendorCallResults, upsertCallAttempt, vendorCallOutcomeSchemaFields, vendorCallQuestions } from "./vendorWorkflow.js";
 import { startVoiceCall } from "./twilioClient.js";
 
 const defaultOtpVoiceId = "21m00Tcm4TlvDq8ikWAM";
@@ -206,7 +206,11 @@ async function startOutboundCall({ vendor, property, tenant, order }) {
             tenant_name: tenant?.name || "tenant",
             unit: order.unit,
             issue: order.issue,
+            vendor_call_opening_script: buildVendorCallOpeningScript({ order, property }),
+            vendor_call_wrap_up_policy: "Do not book on this first call. Once price and timing are captured, say LivingRelay is comparing options and will call back if the manager wants to schedule.",
             vendor_scope_details: buildVendorScopeDetails({ order, property }),
+            verified_repair_scope: order.issue,
+            scope_guardrail: "Use only the verified repair scope. Do not mention unrelated systems or parts such as garage doors, garage springs, HVAC, appliances, or electrical work unless they are explicitly present in the issue.",
             missing_scope_fields: missingVendorScopeFields({ order, property }).join(", "),
             trade: order.trade,
             urgency: order.severity,
@@ -288,7 +292,11 @@ export async function registerTwilioCallWithElevenLabs({ fromNumber, toNumber, o
           tenant_name: tenant?.name || "tenant",
           unit: order?.unit || "",
           issue: order?.issue || "",
+          vendor_call_opening_script: buildVendorCallOpeningScript({ order, property }),
+          vendor_call_wrap_up_policy: "Do not book on this first call. Once price and timing are captured, say LivingRelay is comparing options and will call back if the manager wants to schedule.",
           vendor_scope_details: buildVendorScopeDetails({ order, property }),
+          verified_repair_scope: order?.issue || "",
+          scope_guardrail: "Use only the verified repair scope. Do not mention unrelated systems or parts such as garage doors, garage springs, HVAC, appliances, or electrical work unless they are explicitly present in the issue.",
           missing_scope_fields: missingVendorScopeFields({ order, property }).join(", "),
           trade: order?.trade || "",
           urgency: order?.severity || "",
@@ -395,6 +403,6 @@ function demoCallResult(vendor, order, index) {
     invoiceRecipients: order.vendorOutreach?.invoiceRecipients || [],
     needsPhotos: index > 1,
     status: index > 1 ? "Needs photos" : "Available",
-    summary: `Demo outcome generated because live ElevenLabs calls are disabled. Tenant availability shared: ${tenantWindows.join("; ") || order.access || "Needs confirmation"}.`
+    summary: `Demo outcome generated because live ElevenLabs calls are disabled. AI asked for fit, pricing, and timing, then said LivingRelay would compare options and call back. Tenant availability shared: ${tenantWindows.join("; ") || order.access || "Needs confirmation"}.`
   };
 }

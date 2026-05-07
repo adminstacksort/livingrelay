@@ -7516,6 +7516,7 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
   const owner = people.find((person) => person.id === property.ownerId);
   const vendorTeam = preferredVendorTeam(property, vendors);
   const selectedOutcome = (activeOrder.vendorOutreach?.outcomes || []).find((item) => item.selected || item.id === activeOrder.vendorOutreach?.selectedOutcomeId);
+  const vendorCandidates = candidateVendorsForOrder(activeOrder, vendor);
   const vendorScope = vendorScopeSummary(activeOrder, property);
   const vendorNextStep = vendorActionSummary(activeOrder);
   return (
@@ -7576,6 +7577,7 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
           <div className="decision-grid">
             <MiniRow icon={<Bot />} label="AI summary" value={`${activeOrder.trade}, ${formatMoney(activeOrder.estimate)}, suggested ${vendor?.name}`} />
             <MiniRow icon={<MapPin />} label="Scope packet" value={vendorScope} />
+            <MiniRow icon={<Users />} label="Vendors to contact" value={vendorCandidates.length ? vendorCandidates.map(formatVendorCandidate).join(" · ") : "No vendor candidates prepared yet"} />
             <MiniRow icon={<Phone />} label="Tenant access" value={activeOrder.access} />
             <MiniRow icon={<AlertTriangle />} label="Service timing" value={`${activeOrder.tenantAvailability?.serviceWindow || activeOrder.serviceWindow || activeOrder.severity} · ${(activeOrder.tenantAvailability?.preferredWindows || []).join(", ") || "Needs tenant confirmation"}`} />
             <MiniRow icon={<Wrench />} label="Vendor outreach" value={selectedOutcome ? `${selectedOutcome.vendorName}: ${selectedOutcome.availability}; ${selectedOutcome.quote}` : `Send scope to ${vendor?.phone || "vendor"}${vendorRealityLabel(vendor) ? ` (${vendorRealityLabel(vendor)})` : ""}: ${vendorScope}`} />
@@ -7583,23 +7585,23 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
             <MiniRow icon={<ReceiptText />} label="Invoice request" value={activeOrder.vendorOutreach?.invoiceDeliveryInstructions || "Ask vendor to send invoice to the property manager, owner, and LivingRelay records unless instructed otherwise."} />
           </div>
           <div className="button-grid">
-            <button className="primary" onClick={() => patchOrder({ managerApproved: true, status: "Owner approval" }, "Manager approved", "Owner approval requested by SMS.")}>
+            <button className="primary" onClick={() => startVendorOutreach(activeOrder.id)}>
+              <Phone size={16} /> Start AI Vendor Outreach
+            </button>
+            <button className="ghost" onClick={() => startVendorOutreach(activeOrder.id, "test")}>
+              <Smartphone size={16} /> Call me first
+            </button>
+            <button className="ghost" onClick={() => patchOrder({ managerApproved: true, status: "Owner approval" }, "Manager approved", "Owner approval requested by SMS.")}>
               <Check size={16} /> Approve
             </button>
-            <button className="secondary" onClick={() => patchOrder({ ownerApproved: true, status: "Vendor scheduled" }, "Owner approved", "Vendor coordination can begin.")}>
+            <button className="ghost" onClick={() => patchOrder({ ownerApproved: true, status: "Vendor scheduled" }, "Owner approved", "Vendor coordination can begin.")}>
               <ShieldCheck size={16} /> Owner approved
             </button>
-            <button className="secondary" onClick={() => {
+            <button className="ghost" onClick={() => {
               bookVendor(activeOrder);
               sendSms?.(vendor?.phone, `${activeOrder.id}: ${activeOrder.trade} job at ${property.name}. Issue: ${activeOrder.issue}. Reply ACCEPT or DECLINE.`);
             }}>
               <Send size={16} /> Book vendor
-            </button>
-            <button className="secondary" onClick={() => startVendorOutreach(activeOrder.id)}>
-              <Phone size={16} /> Start AI calls
-            </button>
-            <button className="secondary" onClick={() => startVendorOutreach(activeOrder.id, "test")}>
-              <Smartphone size={16} /> Call me first
             </button>
             <button className="ghost" onClick={() => addInvoice(activeOrder)}>
               <ReceiptText size={16} /> Create invoice
@@ -9192,7 +9194,40 @@ function vendorActionSummary(order = {}) {
   if (actionable) return actionable.recommendedNextStep || actionable.managerActionRequired || formatNextAction(actionable.nextAction);
   if ((outreach.attempts || []).length) return "Review latest call attempt and wait for a structured vendor outcome.";
   if (outreach.status && outreach.status !== "Not started") return outreach.status;
-  return "Start AI calls or send the vendor-ready scope.";
+  return "Start AI Vendor Outreach or send the vendor-ready scope.";
+}
+
+function candidateVendorsForOrder(order = {}, selectedVendor = null) {
+  const candidates = order.vendorOutreach?.candidates?.length
+    ? order.vendorOutreach.candidates
+    : order.vendorOptions?.length
+      ? order.vendorOptions
+      : selectedVendor
+        ? [selectedVendor]
+        : [];
+  const seen = new Set();
+  return candidates
+    .map((candidate) => ({
+      name: candidate.name || candidate.vendorName || "Vendor",
+      phone: candidate.phone || candidate.vendorPhone || "",
+      source: candidate.source || (candidate.preferred ? "Preferred vendor" : ""),
+      availability: candidate.availability || "",
+      estimate: candidate.estimate || candidate.quote || ""
+    }))
+    .filter((candidate) => {
+      const key = `${candidate.name}:${candidate.phone}`.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return candidate.name || candidate.phone;
+    })
+    .slice(0, 5);
+}
+
+function formatVendorCandidate(candidate = {}) {
+  const meta = [candidate.phone, candidate.estimate, candidate.availability, candidate.source]
+    .filter(Boolean)
+    .join(", ");
+  return meta ? `${candidate.name} (${meta})` : candidate.name;
 }
 
 function missingVendorScopeFieldsForUi(order = {}) {
