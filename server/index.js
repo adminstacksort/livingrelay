@@ -394,7 +394,9 @@ app.get("/api/vendors/autocomplete", async (req, res) => {
       name: vendor.name,
       trade: vendor.trade || trade || "General",
       phone: vendor.phone || "",
-      description: [vendor.trade, vendor.phone].filter(Boolean).join(" · "),
+      description: [vendor.trade, vendor.phone, vendor.address].filter(Boolean).join(" · "),
+      address: vendor.address || "",
+      websiteUri: vendor.websiteUri || "",
       placeId: ""
     }));
 
@@ -1697,6 +1699,7 @@ app.post("/api/properties/:id/vendor-team/copy", (req, res) => {
     vendorPreferences: sourceSettings.vendorPreferences
   });
   property.dispatchSettings = nextSettings;
+  upsertPreferredVendorsForProperty(property);
   const preferredNames = Object.values(nextSettings.vendorPreferences).flat().map((entry) => String(entry.name || entry).toLowerCase());
   for (const vendor of vendors) {
     if (preferredNames.includes(String(vendor.name || "").toLowerCase()) && !vendor.propertyIds?.includes(property.id)) {

@@ -1887,7 +1887,9 @@ function VendorAutocompleteInput({ value, onChange, onVendorSelect, trade = "", 
       trade: prediction.trade || trade || "General",
       phone: prediction.phone || "",
       source: prediction.source,
-      placeId: prediction.placeId || ""
+      placeId: prediction.placeId || "",
+      address: prediction.address || prediction.description || "",
+      websiteUri: prediction.websiteUri || ""
     };
     onChange(vendor.name);
     setPredictions([]);
@@ -8033,8 +8035,8 @@ function DispatchSettingsEditor({ property, vendors, reloadState }) {
                 <strong>{index + 1}. {vendor.name}</strong>
                 <span>{vendorPreferenceSummary(vendor) || "No phone or address saved yet"}</span>
                 <div className="vendor-priority-actions">
-                  <button type="button" className="icon-btn" onClick={() => moveVendorPreference(trade, index, -1)} disabled={index === 0} aria-label={`Move ${vendor.name} up`}>↑</button>
-                  <button type="button" className="icon-btn" onClick={() => moveVendorPreference(trade, index, 1)} disabled={index === (form.vendorPreferences?.[trade] || []).length - 1} aria-label={`Move ${vendor.name} down`}>↓</button>
+                  <button type="button" className="icon-btn text" onClick={() => moveVendorPreference(trade, index, -1)} disabled={index === 0} aria-label={`Move ${vendor.name} up`}>Up</button>
+                  <button type="button" className="icon-btn text" onClick={() => moveVendorPreference(trade, index, 1)} disabled={index === (form.vendorPreferences?.[trade] || []).length - 1} aria-label={`Move ${vendor.name} down`}>Down</button>
                   <button type="button" className="icon-btn danger" onClick={() => updatePreferences(trade, (existing) => existing.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove ${vendor.name}`}><Trash2 size={14} /></button>
                 </div>
               </div>
