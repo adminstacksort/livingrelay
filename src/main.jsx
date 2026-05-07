@@ -4358,6 +4358,22 @@ function App() {
     patchOrder({ invoiceId: id }, "Vendor invoice logged", "Invoice was routed to the property manager for direct vendor payment tracking.");
   }
 
+  async function deleteWorkOrder(order) {
+    const confirmed = window.confirm(`Remove ${order.id}? This deletes the work order and linked invoices, billing events, QA runs, and integration records.`);
+    if (!confirmed) return false;
+    const nextOrder = visibleOrders.find((item) => item.id !== order.id);
+    if (appData) {
+      await apiRequest(`/api/work-orders/${order.id}`, { method: "DELETE" });
+      setActiveOrderId(nextOrder?.id || "");
+      await loadState();
+      return true;
+    }
+    setOrders((current) => current.filter((item) => item.id !== order.id));
+    setInvoices((current) => current.filter((invoice) => invoice.orderId !== order.id && invoice.workOrderId !== order.id));
+    setActiveOrderId(nextOrder?.id || "");
+    return true;
+  }
+
   const metrics = useMemo(() => {
     const scopedOrders = user?.role === "Tenant" ? tenantOrders : user?.role === "Vendor" ? vendorOrders : visibleOrders;
     const metricOrders = scopedOrders.filter(isLiveDashboardWorkOrder);
@@ -4539,6 +4555,7 @@ function App() {
           setActivePropertyId={setActivePropertyId}
           setActiveOrderId={setActiveOrderId}
           setAdminSection={setAdminSection}
+          deleteWorkOrder={deleteWorkOrder}
         />
       )}
 
@@ -4599,6 +4616,7 @@ function App() {
             recordCompletionPackage={recordCompletionPackage}
             bookVendor={bookVendor}
             setAdminSection={setAdminSection}
+            deleteWorkOrder={deleteWorkOrder}
           />
         </div>
       )}
@@ -5564,7 +5582,7 @@ function AccountSettingsPanel({ user, account, property, properties, authHeaders
   );
 }
 
-function AdminConsole({ active, accounts, people, properties, vendors, orders, invoices, billingEvents, referrals = [], prospectingLeads = [], accessRequests = [], integrationConnections = [], integrationEvents = [], pmsProviders = [], auditLog, platformSettings, reloadState, siteAdminToken, onSiteAdminAuthExpired, setActivePropertyId, setActiveOrderId, setAdminSection }) {
+function AdminConsole({ active, accounts, people, properties, vendors, orders, invoices, billingEvents, referrals = [], prospectingLeads = [], accessRequests = [], integrationConnections = [], integrationEvents = [], pmsProviders = [], auditLog, platformSettings, reloadState, siteAdminToken, onSiteAdminAuthExpired, setActivePropertyId, setActiveOrderId, setAdminSection, deleteWorkOrder }) {
   const activeProperties = properties.length;
   const pendingInvoices = invoices.filter((invoice) => !String(invoice.status).toLowerCase().includes("paid")).length;
   const openOrders = orders.filter((order) => order.status !== "Closed").length;
@@ -5590,7 +5608,7 @@ function AdminConsole({ active, accounts, people, properties, vendors, orders, i
       {active === "accessRequests" && <AdminAccessRequests accessRequests={accessRequests} referrals={referrals} reloadState={reloadState} siteAdminToken={siteAdminToken} />}
       {active === "directory" && <AdminDirectory people={people} properties={properties} accounts={accounts} reloadState={reloadState} />}
       {active === "properties" && <AdminProperties properties={properties} people={people} accounts={accounts} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setAdminSection={setAdminSection} />}
-      {active === "workOrders" && <AdminWorkOrders orders={orders} properties={properties} people={people} vendors={vendors} accounts={accounts} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setActiveOrderId={setActiveOrderId} setAdminSection={setAdminSection} />}
+      {active === "workOrders" && <AdminWorkOrders orders={orders} properties={properties} people={people} vendors={vendors} accounts={accounts} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setActiveOrderId={setActiveOrderId} setAdminSection={setAdminSection} deleteWorkOrder={deleteWorkOrder} />}
       {active === "qa" && <AdminQaPanel siteAdminToken={siteAdminToken} onSiteAdminAuthExpired={onSiteAdminAuthExpired} reloadState={reloadState} setActivePropertyId={setActivePropertyId} setActiveOrderId={setActiveOrderId} setAdminSection={setAdminSection} />}
       {active === "billing" && <AdminBilling accounts={accounts} properties={properties} invoices={invoices} billingEvents={billingEvents} activeProperties={activeProperties} pendingInvoices={pendingInvoices} reloadState={reloadState} />}
       {active === "integrations" && <AdminIntegrations accounts={accounts} properties={properties} orders={orders} connections={integrationConnections} events={integrationEvents} providers={pmsProviders} reloadState={reloadState} siteAdminToken={siteAdminToken} />}
@@ -6942,8 +6960,9 @@ function AdminProperties({ properties, people, accounts, reloadState, setActiveP
   );
 }
 
-function AdminWorkOrders({ orders, properties, people, vendors, accounts, reloadState, setActivePropertyId, setActiveOrderId, setAdminSection }) {
+function AdminWorkOrders({ orders, properties, people, vendors, accounts, reloadState, setActivePropertyId, setActiveOrderId, setAdminSection, deleteWorkOrder }) {
   const [form, setForm] = useState({ propertyId: properties[0]?.id || "", unit: propertyLocationLabel(properties[0]), tenantId: "", trade: "General", severity: "Normal", status: "Manager review", estimate: "", vendorId: "", issue: "", access: "" });
+  const [status, setStatus] = useState({ state: "idle", message: "" });
   async function createWorkOrder(event) {
     event.preventDefault();
     await fetch("/api/admin/work-orders", {
@@ -6955,21 +6974,37 @@ function AdminWorkOrders({ orders, properties, people, vendors, accounts, reload
     await reloadState();
   }
 
+  async function removeWorkOrder(order) {
+    setStatus({ state: "saving", message: `Removing ${order.id}...` });
+    try {
+      const deleted = await deleteWorkOrder(order);
+      if (!deleted) {
+        setStatus({ state: "idle", message: "" });
+        return;
+      }
+      setStatus({ state: "ok", message: `${order.id} removed.` });
+    } catch (error) {
+      setStatus({ state: "error", message: error.message });
+    }
+  }
+
   return (
     <div className="admin-grid">
       <section className="panel">
         <SectionTitle icon={<ClipboardList />} title="Support and dispatch load" eyebrow="All customer issues" />
         <DataTable
-          columns={["ID", "Account", "Property", "Trade", "Status", "Estimate"]}
+          columns={["ID", "Account", "Property", "Trade", "Status", "Estimate", "Actions"]}
           rows={orders.map((order) => [
             <button className="link-button" onClick={() => { setActivePropertyId(order.propertyId); setActiveOrderId(order.id); setAdminSection("operations"); }}>{order.id}</button>,
             accounts.find((account) => account.id === properties.find((property) => property.id === order.propertyId)?.accountId)?.name || "Unassigned",
             properties.find((property) => property.id === order.propertyId)?.name || order.propertyId,
             order.trade,
             order.status,
-            formatMoney(Number(order.estimate || 0))
+            formatMoney(Number(order.estimate || 0)),
+            <button className="ghost danger" onClick={() => removeWorkOrder(order)}><Trash2 size={15} /> Delete</button>
           ])}
         />
+        {status.message && <p className={`integration-status ${status.state === "error" ? "error" : status.state === "ok" ? "ok" : "idle"}`}>{status.message}</p>}
       </section>
       <section className="panel">
         <SectionTitle icon={<Plus />} title="Create customer issue" eyebrow="Support action" />
@@ -7502,7 +7537,7 @@ function addVendorPreference(current = "", name = "") {
   return [nextName, ...names.filter((item) => item.toLowerCase() !== nextName.toLowerCase())].join(", ");
 }
 
-function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice, sendSms, sendStatus, people, vendors, auditLog, staleOrders, demoScenarios, demoStatus, demoExperienceAvailable, reloadState, runDemoOutreach, selectDemoQuote, runFullFlowDemo, createDemoScenario, nudgeOrder, nudgeStaleOrders, updateLiveCall, startVendorOutreach, selectVendorOutcome, recordCompletionPackage, bookVendor, setAdminSection }) {
+function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOrderId, patchOrder, addInvoice, sendSms, sendStatus, people, vendors, auditLog, staleOrders, demoScenarios, demoStatus, demoExperienceAvailable, reloadState, runDemoOutreach, selectDemoQuote, runFullFlowDemo, createDemoScenario, nudgeOrder, nudgeStaleOrders, updateLiveCall, startVendorOutreach, selectVendorOutcome, recordCompletionPackage, bookVendor, setAdminSection, deleteWorkOrder }) {
   if (!activeOrder) {
     return (
       <section className="panel">
@@ -7621,6 +7656,9 @@ function AdminManagerView({ property, orders, invoices, activeOrder, setActiveOr
             )}
             <button className="ghost" onClick={() => nudgeOrder(activeOrder.id)}>
               <AlertTriangle size={16} /> Nudge
+            </button>
+            <button className="ghost danger" onClick={() => deleteWorkOrder(activeOrder)}>
+              <Trash2 size={16} /> Delete
             </button>
           </div>
           {sendStatus && <p className="send-status">{sendStatus}</p>}

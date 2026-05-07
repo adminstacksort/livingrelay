@@ -2321,6 +2321,23 @@ app.patch("/api/work-orders/:id", async (req, res) => {
   res.json({ order });
 });
 
+app.delete("/api/work-orders/:id", (req, res) => {
+  const order = workOrders.find((item) => item.id === req.params.id);
+  if (!order) {
+    res.status(404).json({ error: "work order not found" });
+    return;
+  }
+  if (!canDeleteWorkOrder(req.user, order)) {
+    res.status(403).json({ error: "Only a property manager can delete work orders" });
+    return;
+  }
+  const property = properties.find((item) => item.id === order.propertyId);
+  const summary = deleteWorkOrderState(order.id);
+  saveState();
+  recordAudit(req.user?.name || "manager", "Deleted work order", `${order.id} deleted from ${property?.name || order.propertyId} with ${summary.invoices} invoices and ${summary.billingEvents} billing events.`);
+  res.json({ deleted: true, orderId: order.id, summary });
+});
+
 app.post("/api/properties/:id/owner-expenses", (req, res) => {
   const property = properties.find((item) => item.id === req.params.id);
   if (!property) {
@@ -2764,6 +2781,35 @@ function deletePropertyState(propertyId) {
     workOrders: deletedWorkOrders,
     invoices: deletedInvoices,
     billingEvents: deletedBillingEvents
+  };
+}
+
+function canDeleteWorkOrder(user, order) {
+  if (!user) return false;
+  if (user.role === "Site Admin") return true;
+  if (!["Manager", "Admin"].includes(user.role)) return false;
+  const property = properties.find((item) => item.id === order.propertyId);
+  const accessiblePropertyIds = addUniqueList(user.propertyIds || [], user.managesPropertyIds || []);
+  const accountIds = addUniqueList(user.accountIds || []);
+  return accessiblePropertyIds.includes(order.propertyId) || (property?.accountId && accountIds.includes(property.accountId));
+}
+
+function deleteWorkOrderState(orderId) {
+  const deletedWorkOrders = removeWhere(workOrders, (order) => order.id === orderId);
+  const deletedInvoices = removeWhere(invoices, (invoice) => (invoice.orderId || invoice.workOrderId) === orderId);
+  const deletedBillingEvents = removeWhere(billingEvents, (event) => (event.orderId || event.workOrderId) === orderId);
+  const deletedMappings = removeWhere(externalMappings, (mapping) => mapping.internalType === "work_order" && mapping.internalId === orderId);
+  const deletedIntegrationEvents = removeWhere(integrationEvents, (event) => event.objectType === "work_order" && event.objectId === orderId);
+  const deletedNotifications = removeWhere(notifications, (notification) => notification.workOrderId === orderId || notification.orderId === orderId);
+  const deletedQaRuns = removeWhere(qaRuns, (run) => run.workOrderId === orderId);
+  return {
+    workOrders: deletedWorkOrders,
+    invoices: deletedInvoices,
+    billingEvents: deletedBillingEvents,
+    mappings: deletedMappings,
+    integrationEvents: deletedIntegrationEvents,
+    notifications: deletedNotifications,
+    qaRuns: deletedQaRuns
   };
 }
 
